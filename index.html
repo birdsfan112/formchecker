@@ -1,0 +1,1481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>FormCheck</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1a2e; color: #eee; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; overflow: hidden; height: 100vh; }
+
+  #app { display: flex; flex-direction: column; height: 100vh; }
+
+  /* Camera area */
+  #camera-container { position: relative; flex: 1; background: #000; overflow: hidden; }
+  #video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+  #canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+
+  /* Silhouette guide canvas — sits behind the skeleton */
+  #guide-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); pointer-events: none; z-index: 4; }
+
+  /* HUD overlay */
+  #hud { position: absolute; top: 0; left: 0; right: 0; padding: 12px 16px; display: flex; justify-content: space-between; align-items: flex-start; pointer-events: none; z-index: 10; }
+  #exercise-name { font-size: 20px; font-weight: 700; text-shadow: 0 2px 8px rgba(0,0,0,0.8); }
+  #rep-counter { font-size: 48px; font-weight: 800; text-shadow: 0 2px 8px rgba(0,0,0,0.8); }
+  #rep-counter.count-paused { color: rgba(255,255,255,0.3); text-shadow: none; } /* out-of-position: grayed out */
+  #form-feedback { position: absolute; bottom: 120px; left: 0; right: 0; text-align: center; font-size: 28px; font-weight: 700; text-shadow: 0 3px 12px rgba(0,0,0,0.9), 0 0 20px rgba(0,0,0,0.7); pointer-events: none; z-index: 10; padding: 0 16px; letter-spacing: 0.5px; }
+  #angle-hint { position: absolute; top: 50px; left: 0; right: 0; text-align: center; font-size: 22px; font-weight: 600; color: rgba(255,255,255,0.85); pointer-events: none; z-index: 10; text-shadow: 0 2px 8px rgba(0,0,0,0.9); padding: 0 16px; }
+  .feedback-good { color: #4ade80; }
+  .feedback-warn { color: #fbbf24; }
+  .feedback-bad { color: #f87171; }
+
+  /* Workout state overlay — shown when idle or paused */
+  #state-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 15; pointer-events: none; }
+  #state-overlay.clickable { pointer-events: auto; }
+  #countdown-display { font-size: 120px; font-weight: 900; color: #fff; text-shadow: 0 4px 20px rgba(0,0,0,0.9); }
+  #state-message { font-size: 22px; font-weight: 600; color: rgba(255,255,255,0.8); text-shadow: 0 2px 8px rgba(0,0,0,0.8); margin-top: 12px; }
+  .state-idle #state-overlay { background: rgba(0,0,0,0.3); }
+  .state-paused #state-overlay { background: rgba(0,0,0,0.4); }
+
+  /* Controls bar */
+  #controls { display: flex; gap: 8px; padding: 12px 16px; background: #16213e; align-items: center; flex-wrap: wrap; }
+  .btn { padding: 10px 16px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+  .btn-primary { background: #e94560; color: white; }
+  .btn-primary:hover { background: #c73e54; }
+  .btn-go { background: #4ade80; color: #1a1a2e; }
+  .btn-go:hover { background: #36c76e; }
+  .btn-secondary { background: #0f3460; color: #eee; }
+  .btn-secondary:hover { background: #1a4a7a; }
+  .btn-active { background: #4ade80; color: #1a1a2e; }
+  .btn-warn { background: #fbbf24; color: #1a1a2e; }
+  #exercise-select { padding: 10px 12px; border-radius: 8px; background: #0f3460; color: #eee; border: 1px solid #1a4a7a; font-size: 14px; flex: 1; min-width: 120px; }
+
+  /* Stats bar */
+  #stats { display: flex; justify-content: space-around; padding: 8px 16px; background: #0f3460; font-size: 13px; }
+  .stat { text-align: center; }
+  .stat-value { font-size: 20px; font-weight: 700; color: #4ade80; }
+  .stat-label { color: #8899aa; font-size: 11px; text-transform: uppercase; }
+
+  /* Exercise transition animations */
+  @keyframes counterReset {
+    0%   { opacity: 0.2; transform: scale(0.75); color: #fbbf24; }
+    60%  { opacity: 1;   transform: scale(1.20); color: #fbbf24; }
+    100% { opacity: 1;   transform: scale(1);    color: inherit;  }
+  }
+  #rep-counter.count-reset { animation: counterReset 0.55s ease-out; }
+
+  @keyframes exerciseNameIn {
+    0%   { opacity: 0; transform: translateY(-6px); }
+    100% { opacity: 1; transform: translateY(0);    }
+  }
+  #exercise-name.exercise-changed { animation: exerciseNameIn 0.35s ease-out; }
+
+  /* Loading */
+  #loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #1a1a2e; z-index: 100; }
+  #loading h2 { margin-bottom: 12px; }
+  #loading p { color: #8899aa; }
+  .hidden { display: none !important; }
+
+  /* Workout log modal */
+  #log-modal { position: absolute; inset: 0; background: rgba(0,0,0,0.85); z-index: 200; display: flex; flex-direction: column; padding: 20px; overflow-y: auto; }
+  #log-modal h2 { margin-bottom: 16px; }
+  .log-entry { background: #16213e; padding: 12px; border-radius: 8px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+  .log-entry-exercise { font-weight: 600; }
+  .log-entry-detail { color: #8899aa; font-size: 13px; }
+  .log-entry-reps { font-size: 24px; font-weight: 800; color: #4ade80; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="loading">
+    <h2>FormCheck</h2>
+    <p>Loading pose detection...</p>
+  </div>
+
+  <div id="camera-container">
+    <video id="video" autoplay playsinline></video>
+    <canvas id="guide-canvas"></canvas>
+    <canvas id="canvas"></canvas>
+    <div id="hud">
+      <div id="exercise-name">Push-ups</div>
+      <div id="rep-counter">0</div>
+    </div>
+    <div id="angle-hint"></div>
+    <div id="form-feedback"></div>
+    <div id="state-overlay">
+      <div id="countdown-display"></div>
+      <div id="state-message"></div>
+    </div>
+  </div>
+
+  <div id="stats">
+    <div class="stat">
+      <div class="stat-value" id="set-count">0</div>
+      <div class="stat-label">Sets</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value" id="total-reps">0</div>
+      <div class="stat-label">Total Reps</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value" id="form-score">--</div>
+      <div class="stat-label">Form</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value" id="elapsed-time">0:00</div>
+      <div class="stat-label">Time</div>
+    </div>
+  </div>
+
+  <div id="controls">
+    <select id="exercise-select">
+      <option value="pushup">Push-ups</option>
+      <option value="squat">Squats</option>
+      <option value="pullup">Pull-ups</option>
+      <option value="lunge">Lunges</option>
+      <option value="plank">Plank (timed)</option>
+    </select>
+    <button class="btn btn-go" id="btn-start">Ready</button>
+    <button class="btn btn-warn hidden" id="btn-pause">Pause</button>
+    <button class="btn btn-primary hidden" id="btn-finish">Finish Set</button>
+    <button class="btn btn-secondary" id="btn-log">Log</button>
+    <button class="btn btn-secondary" id="btn-voice" title="Toggle voice feedback">Voice: On</button>
+    <button class="btn btn-secondary" id="btn-save-cal" title="Download calibration settings as JSON">Save Cal</button>
+    <label class="btn btn-secondary" style="cursor:pointer" title="Load calibration settings from JSON">Load Cal
+      <input type="file" id="cal-file-input" accept=".json" style="display:none">
+    </label>
+  </div>
+
+  <div id="log-modal" class="hidden">
+    <h2>Workout Log</h2>
+    <div id="log-entries"></div>
+    <button class="btn btn-primary" onclick="document.getElementById('log-modal').classList.add('hidden')" style="margin-top:12px;">Close</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/pose.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1675466124/drawing_utils.js" crossorigin="anonymous"></script>
+<script>
+window.addEventListener('load', function() {
+
+// ===== STATE =====
+const state = {
+  exercise: 'pushup',
+  workoutState: 'idle',    // 'idle' | 'countdown' | 'active' | 'paused'
+  reps: 0,
+  sets: 0,
+  totalReps: 0,
+  phase: 'up',
+  prevAngle: null,
+  formScores: [],
+  startTime: Date.now(),
+  voiceEnabled: true,
+  lastSpokenText: '',
+  lastSpokenTime: 0,
+  spokenThisRep: false,
+  plankStart: null,
+  log: [],
+  cueCooldowns: {},
+  iosAudioUnlocked: false,
+  palmDetectedTime: 0,    // when we first saw the palm gesture
+  palmTriggered: false,    // prevent re-triggering during same idle
+  positionDetectedTime: 0, // when auto-start first saw valid exercise position
+  positionTriggered: false, // prevent re-triggering during same idle
+  repCountingPaused: false  // auto-paused when user leaves exercise position during active set
+};
+
+// Camera angles + silhouette guide points per exercise (normalized 0-1 coords)
+const exerciseMeta = {
+  pushup: {
+    name: 'Push-ups',
+    hint: 'Side view — full body in frame',
+    // Side-view pushup silhouette: start position (arms extended, plank)
+    guide: [
+      // Head, shoulder, hip, knee, ankle (rough side profile)
+      {x: 0.30, y: 0.35}, // head
+      {x: 0.35, y: 0.40}, // shoulder
+      {x: 0.50, y: 0.42}, // hip
+      {x: 0.65, y: 0.42}, // knee
+      {x: 0.75, y: 0.42}, // ankle
+      // Arm down to ground
+      {x: 0.35, y: 0.40}, // shoulder (repeat for arm line)
+      {x: 0.32, y: 0.50}, // elbow
+      {x: 0.30, y: 0.58}, // hand on ground
+    ],
+    guideLines: [[0,1],[1,2],[2,3],[3,4],[5,6],[6,7]]
+  },
+  squat: {
+    name: 'Squats',
+    hint: 'Side view — stand back so full body is visible',
+    guide: [
+      {x: 0.50, y: 0.15}, // head
+      {x: 0.50, y: 0.28}, // shoulder
+      {x: 0.50, y: 0.48}, // hip
+      {x: 0.50, y: 0.68}, // knee
+      {x: 0.50, y: 0.88}, // ankle
+      // Arms forward for balance
+      {x: 0.50, y: 0.28}, // shoulder
+      {x: 0.40, y: 0.32}, // hands forward
+    ],
+    guideLines: [[0,1],[1,2],[2,3],[3,4],[5,6]]
+  },
+  pullup: {
+    name: 'Pull-ups',
+    hint: 'Front view — step back from bar',
+    guide: [
+      {x: 0.50, y: 0.15}, // head
+      {x: 0.50, y: 0.28}, // neck
+      {x: 0.38, y: 0.30}, // left shoulder
+      {x: 0.62, y: 0.30}, // right shoulder
+      {x: 0.32, y: 0.15}, // left hand (on bar)
+      {x: 0.68, y: 0.15}, // right hand
+      {x: 0.50, y: 0.50}, // hip center
+      {x: 0.45, y: 0.75}, // left knee
+      {x: 0.55, y: 0.75}, // right knee
+      {x: 0.45, y: 0.90}, // left foot
+      {x: 0.55, y: 0.90}, // right foot
+    ],
+    guideLines: [[0,1],[1,2],[1,3],[2,4],[3,5],[2,6],[3,6],[6,7],[6,8],[7,9],[8,10]]
+  },
+  lunge: {
+    name: 'Lunges',
+    hint: 'Side view — full body in frame',
+    guide: [
+      {x: 0.50, y: 0.15}, // head
+      {x: 0.50, y: 0.30}, // shoulder
+      {x: 0.50, y: 0.50}, // hip
+      {x: 0.42, y: 0.70}, // front knee
+      {x: 0.40, y: 0.88}, // front ankle
+      {x: 0.60, y: 0.70}, // back knee
+      {x: 0.65, y: 0.88}, // back ankle
+    ],
+    guideLines: [[0,1],[1,2],[2,3],[3,4],[2,5],[5,6]]
+  },
+  plank: {
+    name: 'Plank',
+    hint: 'Side view — full body in frame',
+    guide: [
+      {x: 0.30, y: 0.40}, // head
+      {x: 0.35, y: 0.43}, // shoulder
+      {x: 0.55, y: 0.43}, // hip
+      {x: 0.70, y: 0.43}, // knee
+      {x: 0.78, y: 0.43}, // ankle
+      {x: 0.33, y: 0.55}, // elbow on ground
+    ],
+    guideLines: [[0,1],[1,2],[2,3],[3,4],[1,5]]
+  }
+};
+
+// ===== CALIBRATION =====
+// Rep detection thresholds that vary by body proportions and flexibility.
+// Users can save these as JSON and reload them — no backend required.
+// Form quality thresholds (hip sag, knee cave, etc.) are NOT calibrated here —
+// those are biomechanical standards, not personal preference.
+const defaultCalibration = {
+  pushup: {
+    elbow_down: 100,  // elbow angle below which = entering 'down' phase
+    elbow_up:   150,  // elbow angle above which = rep complete (coming back up)
+  },
+  squat: {
+    knee_down: 100,   // knee angle at squat depth
+    knee_up:   160,   // knee angle to count rep (standing back up)
+  },
+  pullup: {
+    elbow_top:    80, // elbow angle at top (chin over bar)
+    elbow_bottom: 150 // elbow angle at bottom (arms extended)
+  },
+  lunge: {
+    knee_down: 110,   // front knee angle at bottom of lunge
+    knee_up:   155    // knee angle to count rep (standing back up)
+  }
+};
+
+// Working copy — modified by loadCalibration(), reset by saveCalibration()
+let calibration = JSON.parse(JSON.stringify(defaultCalibration));
+
+function saveCalibration() {
+  const json = JSON.stringify(calibration, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'formcheck-calibration.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  speakForce('Calibration saved');
+}
+
+function loadCalibrationFromFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const loaded = JSON.parse(ev.target.result);
+      // Merge loaded values over defaults — unknown keys are ignored,
+      // missing keys fall back to defaults (safe against old/partial files)
+      calibration = JSON.parse(JSON.stringify(defaultCalibration));
+      for (const ex of Object.keys(defaultCalibration)) {
+        if (loaded[ex] && typeof loaded[ex] === 'object') {
+          for (const key of Object.keys(defaultCalibration[ex])) {
+            if (typeof loaded[ex][key] === 'number') {
+              calibration[ex][key] = loaded[ex][key];
+            }
+          }
+        }
+      }
+      speakForce('Calibration loaded');
+      showFeedback('Calibration loaded', 'good');
+    } catch (err) {
+      showFeedback('Invalid calibration file', 'bad');
+    }
+  };
+  reader.readAsText(file);
+}
+
+// ===== DOM =====
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const guideCanvas = document.getElementById('guide-canvas');
+const guideCtx = guideCanvas.getContext('2d');
+const exerciseSelect = document.getElementById('exercise-select');
+const repCounter = document.getElementById('rep-counter');
+const exerciseNameEl = document.getElementById('exercise-name');
+const formFeedback = document.getElementById('form-feedback');
+const setCount = document.getElementById('set-count');
+const totalRepsEl = document.getElementById('total-reps');
+const formScoreEl = document.getElementById('form-score');
+const elapsedTime = document.getElementById('elapsed-time');
+const btnStart = document.getElementById('btn-start');
+const btnPause = document.getElementById('btn-pause');
+const btnFinish = document.getElementById('btn-finish');
+const btnLog = document.getElementById('btn-log');
+const btnVoice = document.getElementById('btn-voice');
+const loading = document.getElementById('loading');
+const angleHint = document.getElementById('angle-hint');
+const stateOverlay = document.getElementById('state-overlay');
+const countdownDisplay = document.getElementById('countdown-display');
+const stateMessage = document.getElementById('state-message');
+
+// ===== HELPERS =====
+function angle(a, b, c) {
+  const radians = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
+  let deg = Math.abs(radians * 180 / Math.PI);
+  if (deg > 180) deg = 360 - deg;
+  return deg;
+}
+
+// iOS audio unlock
+function unlockIOSAudio() {
+  if (state.iosAudioUnlocked) return;
+  const utter = new SpeechSynthesisUtterance('');
+  utter.volume = 0;
+  speechSynthesis.speak(utter);
+  state.iosAudioUnlocked = true;
+}
+document.addEventListener('touchstart', unlockIOSAudio, { once: true });
+document.addEventListener('click', unlockIOSAudio, { once: true });
+
+function speak(text, force) {
+  if (!state.voiceEnabled) return;
+  if (!window.speechSynthesis) return;
+  if (!force && state.spokenThisRep) return;
+  const now = Date.now();
+  if (text === state.lastSpokenText && now - state.lastSpokenTime < 6000) return;
+  state.lastSpokenText = text;
+  state.lastSpokenTime = now;
+  state.spokenThisRep = true;
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.rate = 1.1;
+  utter.volume = 0.8;
+  speechSynthesis.cancel();
+  speechSynthesis.speak(utter);
+}
+
+function speakForce(text) { speak(text, true); }
+
+function cueShouldFire(cueKey, cooldownMs) {
+  const now = Date.now();
+  const last = state.cueCooldowns[cueKey] || 0;
+  if (now - last < cooldownMs) return false;
+  state.cueCooldowns[cueKey] = now;
+  return true;
+}
+
+function pastFirstSet() {
+  return state.log.some(e => e.exercise === exerciseMeta[state.exercise].name);
+}
+
+function showFeedback(text, level) {
+  formFeedback.textContent = text;
+  formFeedback.className = level === 'good' ? 'feedback-good' : level === 'warn' ? 'feedback-warn' : 'feedback-bad';
+}
+
+// ===== SILHOUETTE GUIDE =====
+// Draw a thick outlined human shape using bezier curves for a recognizable body
+function drawGuide() {
+  guideCanvas.width = guideCanvas.clientWidth;
+  guideCanvas.height = guideCanvas.clientHeight;
+  guideCtx.clearRect(0, 0, guideCanvas.width, guideCanvas.height);
+
+  if (state.workoutState !== 'idle' && state.workoutState !== 'countdown') return;
+
+  const w = guideCanvas.width;
+  const h = guideCanvas.height;
+  const ex = state.exercise;
+
+  guideCtx.strokeStyle = 'rgba(255, 255, 255, 0.80)';
+  guideCtx.lineWidth = 7;
+  guideCtx.lineJoin = 'round';
+  guideCtx.lineCap = 'round';
+
+  if (ex === 'squat' || ex === 'lunge') {
+    // Standing position — side view
+    drawStandingSide(w, h);
+  } else if (ex === 'pushup' || ex === 'plank') {
+    // Horizontal position — side view
+    drawHorizontalSide(w, h, ex);
+  } else if (ex === 'pullup') {
+    // Hanging position — front view
+    drawHangingFront(w, h);
+  }
+}
+
+function drawHead(cx, cy, r) {
+  guideCtx.beginPath();
+  guideCtx.arc(cx, cy, r, 0, Math.PI * 2);
+  guideCtx.stroke();
+}
+
+function drawStandingSide(w, h) {
+  // SIDE-VIEW standing human profile — FILLED shape so it's unmistakably a profile
+  // Person faces RIGHT (appears left on mirrored camera)
+  // Key side-view indicators: nose, chest/butt asymmetry, single leg, foot direction
+  const g = guideCtx;
+  const cx = w * 0.5;
+  const headR = h * 0.038;
+  const headCY = h * 0.11;
+  const headCX = cx + w * 0.01;
+
+  g.save();
+  g.fillStyle = 'rgba(255, 255, 255, 0.18)';
+
+  // HEAD (circle + nose pointing right)
+  g.beginPath();
+  g.arc(headCX, headCY, headR, 0, Math.PI * 2);
+  g.fill();
+  g.stroke();
+
+  // Nose bump — points RIGHT to clearly indicate side view
+  g.beginPath();
+  g.moveTo(headCX + headR * 0.85, headCY - headR * 0.25);
+  g.lineTo(headCX + headR * 1.5, headCY + headR * 0.05);
+  g.lineTo(headCX + headR * 0.85, headCY + headR * 0.25);
+  g.closePath();
+  g.fill();
+  g.stroke();
+
+  // BODY — filled profile shape (front = right, back = left)
+  const neckY = headCY + headR + h * 0.01;
+  const bw = w * 0.055; // body half-width
+
+  g.beginPath();
+  // Front of neck
+  g.moveTo(cx + bw * 0.4, neckY);
+  // Chest curves forward (right)
+  g.quadraticCurveTo(cx + bw * 1.1, neckY + h * 0.06, cx + bw * 0.8, neckY + h * 0.14);
+  // Waist narrows slightly
+  g.quadraticCurveTo(cx + bw * 0.5, neckY + h * 0.22, cx + bw * 0.45, neckY + h * 0.27);
+  // Front of thigh
+  g.quadraticCurveTo(cx + bw * 0.8, neckY + h * 0.33, cx + bw * 0.55, neckY + h * 0.45);
+  // Front of knee/shin
+  g.quadraticCurveTo(cx + bw * 0.4, neckY + h * 0.50, cx + bw * 0.25, neckY + h * 0.58);
+  // Shin to ankle
+  g.lineTo(cx + bw * 0.2, neckY + h * 0.65);
+
+  // FOOT pointing RIGHT — key side-view indicator
+  const ankleY = neckY + h * 0.65;
+  const footY = ankleY + h * 0.025;
+  g.lineTo(cx + bw * 1.6, footY);  // toe far right
+  g.lineTo(cx - bw * 0.4, footY);  // heel left
+  g.lineTo(cx - bw * 0.4, ankleY);
+
+  // Back of leg going UP
+  g.lineTo(cx - bw * 0.3, neckY + h * 0.58);
+  g.quadraticCurveTo(cx - bw * 0.25, neckY + h * 0.50, cx - bw * 0.3, neckY + h * 0.45);
+  // Back of thigh up to butt
+  g.quadraticCurveTo(cx - bw * 0.5, neckY + h * 0.36, cx - bw * 1.2, neckY + h * 0.28);
+  // BUTT curves backward (left) — key side-view indicator
+  g.quadraticCurveTo(cx - bw * 1.3, neckY + h * 0.24, cx - bw * 0.7, neckY + h * 0.18);
+  // Lower back up
+  g.quadraticCurveTo(cx - bw * 0.5, neckY + h * 0.12, cx - bw * 0.5, neckY + h * 0.06);
+  // Upper back to neck
+  g.quadraticCurveTo(cx - bw * 0.4, neckY + h * 0.02, cx - bw * 0.3, neckY);
+  g.closePath();
+  g.fill();
+  g.stroke();
+
+  // ARM hanging naturally (visible from side, slight bend forward)
+  g.lineWidth = 5;
+  g.beginPath();
+  g.moveTo(cx + bw * 0.3, neckY + h * 0.03);
+  g.quadraticCurveTo(cx + bw * 0.6, neckY + h * 0.13, cx + bw * 0.35, neckY + h * 0.23);
+  g.stroke();
+  g.lineWidth = 7;
+
+  g.restore();
+
+  // Ground reference line
+  g.save();
+  g.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+  g.setLineDash([8, 8]);
+  g.beginPath();
+  g.moveTo(cx - w * 0.15, footY);
+  g.lineTo(cx + w * 0.15, footY);
+  g.stroke();
+  g.restore();
+}
+
+function drawHorizontalSide(w, h, ex) {
+  // SIDE-VIEW pushup/plank — filled human body, distinct arm positions per exercise.
+  // Person faces LEFT in drawing coords (appears facing right on mirrored camera).
+  // Ground line near bottom of frame, figure fills ~30% of screen height.
+  const g = guideCtx;
+  const groundY = h * 0.76;     // ground level — lower on screen for a bigger figure
+  const headR   = w * 0.030;    // slightly larger head for readability
+  const bodyThick = h * 0.050;  // body thickness
+
+  // Shared body spine points — shoulder to toes
+  // Pushup (arms extended) sits higher off ground than plank (forearms down),
+  // so shoulders are higher and body angle is steeper for pushup.
+  const shoulderX = w * 0.27;
+  const shoulderY = ex === 'pushup' ? groundY - h * 0.30 : groundY - h * 0.22;
+  const hipX   = w * 0.51;
+  const hipY   = ex === 'pushup' ? groundY - h * 0.21 : groundY - h * 0.17;
+  const kneeX  = w * 0.65;
+  const kneeY  = ex === 'pushup' ? groundY - h * 0.13 : groundY - h * 0.11;
+  const toeX   = w * 0.79;
+
+  g.save();
+  g.fillStyle = 'rgba(255, 255, 255, 0.18)';
+
+  // HEAD — centered just in front of (left of) shoulders, angled slightly down
+  const headCX = shoulderX - w * 0.045;
+  const headCY = shoulderY - headR * 1.5;
+  g.beginPath();
+  g.arc(headCX, headCY, headR, 0, Math.PI * 2);
+  g.fill();
+  g.stroke();
+
+  // BODY — filled plank shape from shoulder to toes on ground
+  g.beginPath();
+  // Top edge: shoulder → hip → knee → toe tip
+  g.moveTo(shoulderX, shoulderY - bodyThick);
+  g.lineTo(hipX, hipY - bodyThick * 0.85);
+  g.lineTo(kneeX, kneeY - bodyThick * 0.65);
+  g.lineTo(toeX, groundY - bodyThick * 0.25);
+  // Toes touch ground
+  g.lineTo(toeX + w * 0.012, groundY);
+  g.lineTo(toeX - w * 0.018, groundY);
+  // Bottom edge back to shoulder
+  g.lineTo(kneeX - w * 0.010, kneeY + bodyThick * 0.45);
+  g.lineTo(hipX - w * 0.010, hipY + bodyThick * 0.60);
+  g.lineTo(shoulderX, shoulderY + bodyThick * 0.45);
+  g.closePath();
+  g.fill();
+  g.stroke();
+
+  if (ex === 'pushup') {
+    // PUSHUP ARM: full straight arm from shoulder diagonally down to hand on ground.
+    // Hand is well to the left of shoulder — clearly extended, not hanging down.
+    const handX = w * 0.14;
+    const elbowX = shoulderX * 0.45 + handX * 0.55;    // elbow roughly 55% of the way
+    const elbowY = shoulderY + (groundY - shoulderY) * 0.52;
+    g.lineWidth = 5;
+    g.beginPath();
+    g.moveTo(shoulderX, shoulderY);
+    g.quadraticCurveTo(elbowX, elbowY, handX, groundY);
+    g.stroke();
+    // Flat hand on ground
+    g.beginPath();
+    g.moveTo(handX - w * 0.022, groundY);
+    g.lineTo(handX + w * 0.028, groundY);
+    g.stroke();
+    g.lineWidth = 7;
+
+  } else {
+    // PLANK ARM: forearm flat on ground (elbows down), upper arm nearly vertical.
+    // This is the unmistakable visual difference vs pushup — forearms on the floor.
+    const elbowX  = w * 0.18;                 // elbow on ground
+    const wristX  = elbowX + w * 0.085;       // wrist/hand forward on ground
+    g.lineWidth = 5;
+    // Upper arm: shoulder down to elbow
+    g.beginPath();
+    g.moveTo(shoulderX, shoulderY);
+    g.lineTo(elbowX, groundY);
+    g.stroke();
+    // Forearm flat on ground: elbow → wrist
+    g.beginPath();
+    g.moveTo(elbowX, groundY);
+    g.lineTo(wristX, groundY);
+    g.stroke();
+    // Small wrist dot so the forearm end reads clearly
+    g.beginPath();
+    g.arc(wristX, groundY - h * 0.004, h * 0.009, Math.PI, 0);
+    g.fill();
+    g.lineWidth = 7;
+  }
+
+  g.restore();
+
+  // Ground reference line
+  g.save();
+  g.strokeStyle = 'rgba(255, 255, 255, 0.20)';
+  g.setLineDash([8, 8]);
+  g.lineWidth = 2;
+  g.beginPath();
+  g.moveTo(w * 0.06, groundY);
+  g.lineTo(w * 0.88, groundY);
+  g.stroke();
+  g.restore();
+}
+
+function drawHangingFront(w, h) {
+  // FRONT-VIEW pull-up — FILLED human body hanging from bar
+  // Symmetric front view: arms up, torso, two legs hanging
+  const g = guideCtx;
+  const cx = w * 0.5;
+  const barY = h * 0.08;
+  const headR = h * 0.035;
+
+  // Bar
+  g.save();
+  g.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+  g.lineWidth = 8;
+  g.beginPath();
+  g.moveTo(w * 0.2, barY);
+  g.lineTo(w * 0.8, barY);
+  g.stroke();
+  g.restore();
+
+  g.save();
+  g.fillStyle = 'rgba(255, 255, 255, 0.18)';
+
+  // Key body positions
+  const shoulderY = h * 0.25;
+  const shoulderW = w * 0.07;  // half shoulder width
+  const hipY = shoulderY + h * 0.24;
+  const hipW = w * 0.05;       // half hip width
+  const handW = w * 0.17;      // hand distance from center
+  const footY = hipY + h * 0.32;
+  const legW = w * 0.025;      // half leg width
+
+  // HEAD (filled circle)
+  const headCY = shoulderY - headR * 1.8;
+  g.beginPath();
+  g.arc(cx, headCY, headR, 0, Math.PI * 2);
+  g.fill();
+  g.stroke();
+
+  // ARMS — from hands on bar down to shoulders (filled tubes)
+  const armThick = w * 0.018;
+  // Left arm
+  g.beginPath();
+  g.moveTo(cx - handW - armThick, barY);
+  g.quadraticCurveTo(cx - handW * 0.55 - armThick, shoulderY - h * 0.06, cx - shoulderW, shoulderY);
+  g.lineTo(cx - shoulderW + armThick * 1.5, shoulderY);
+  g.quadraticCurveTo(cx - handW * 0.55 + armThick, shoulderY - h * 0.06, cx - handW + armThick, barY);
+  g.closePath();
+  g.fill();
+  g.stroke();
+  // Right arm
+  g.beginPath();
+  g.moveTo(cx + handW - armThick, barY);
+  g.quadraticCurveTo(cx + handW * 0.55 - armThick, shoulderY - h * 0.06, cx + shoulderW - armThick * 1.5, shoulderY);
+  g.lineTo(cx + shoulderW, shoulderY);
+  g.quadraticCurveTo(cx + handW * 0.55 + armThick, shoulderY - h * 0.06, cx + handW + armThick, barY);
+  g.closePath();
+  g.fill();
+  g.stroke();
+
+  // TORSO — filled shape from shoulders to hips (tapers inward)
+  g.beginPath();
+  g.moveTo(cx - shoulderW, shoulderY);
+  // Left side: shoulder → waist → hip
+  g.quadraticCurveTo(cx - shoulderW * 0.9, (shoulderY + hipY) / 2, cx - hipW, hipY);
+  // Bottom of torso
+  g.lineTo(cx + hipW, hipY);
+  // Right side: hip → waist → shoulder
+  g.quadraticCurveTo(cx + shoulderW * 0.9, (shoulderY + hipY) / 2, cx + shoulderW, shoulderY);
+  g.closePath();
+  g.fill();
+  g.stroke();
+
+  // LEGS — two filled tubes hanging from hips
+  const legGap = w * 0.01; // small gap between legs
+  // Left leg
+  g.beginPath();
+  g.moveTo(cx - hipW, hipY);
+  g.quadraticCurveTo(cx - legW * 1.3 - legGap, (hipY + footY) / 2, cx - legW - legGap, footY);
+  g.lineTo(cx - legGap, footY);
+  g.quadraticCurveTo(cx - legGap, (hipY + footY) / 2, cx - legGap, hipY);
+  g.closePath();
+  g.fill();
+  g.stroke();
+  // Right leg
+  g.beginPath();
+  g.moveTo(cx + legGap, hipY);
+  g.quadraticCurveTo(cx + legGap, (hipY + footY) / 2, cx + legGap, footY);
+  g.lineTo(cx + legW + legGap, footY);
+  g.quadraticCurveTo(cx + legW * 1.3 + legGap, (hipY + footY) / 2, cx + hipW, hipY);
+  g.closePath();
+  g.fill();
+  g.stroke();
+
+  // Feet (small blocks)
+  g.fillRect(cx - legW - legGap - w * 0.005, footY, legW + w * 0.01, h * 0.015);
+  g.strokeRect(cx - legW - legGap - w * 0.005, footY, legW + w * 0.01, h * 0.015);
+  g.fillRect(cx + legGap - w * 0.005, footY, legW + w * 0.01, h * 0.015);
+  g.strokeRect(cx + legGap - w * 0.005, footY, legW + w * 0.01, h * 0.015);
+
+  g.restore();
+}
+
+// ===== GESTURE DETECTION =====
+// Hybrid gesture: raise one hand with palm facing camera.
+// Two-layer detection for reliability at full-body distance (6-8 feet):
+//   1. PRIMARY: wrist above shoulder (body landmarks — rock solid at any distance)
+//   2. SECONDARY: average fingertip visibility (palm facing camera vs turned away)
+// The wrist-above-shoulder check is the workhorse. The fingertip visibility
+// just confirms the palm is facing the camera, preventing false triggers from
+// someone scratching their head or adjusting their hair.
+function detectPalmGesture(lm) {
+  if (state.workoutState !== 'idle' && state.workoutState !== 'paused') return;
+  if (state.palmTriggered) return;
+
+  function isRaisedPalm(wrist, shoulder, pinky, index, thumb) {
+    // PRIMARY: wrist must be above shoulder (reliable body landmarks)
+    if (wrist.visibility < 0.6 || shoulder.visibility < 0.5) return false;
+    if (wrist.y > shoulder.y - 0.03) return false; // wrist must be clearly above shoulder
+
+    // SECONDARY: fingertip landmarks should be somewhat visible
+    // When palm faces camera, fingertips are visible. When hand is turned/fisted, they hide.
+    // Very loose threshold — just "can I see the hand at all?"
+    const avgFingerVis = (pinky.visibility + index.visibility + thumb.visibility) / 3;
+    if (avgFingerVis < 0.2) return false;
+
+    return true;
+  }
+
+  const leftRaised = isRaisedPalm(lm[15], lm[11], lm[17], lm[19], lm[21]);
+  const rightRaised = isRaisedPalm(lm[16], lm[12], lm[18], lm[20], lm[22]);
+  const gestureDetected = leftRaised || rightRaised;
+
+  if (gestureDetected) {
+    const now = Date.now();
+    if (state.palmDetectedTime === 0) {
+      state.palmDetectedTime = now;
+      stateMessage.textContent = 'Hand raised — hold...';
+    }
+    const elapsed = now - state.palmDetectedTime;
+    if (elapsed > 500 && elapsed < 2000) {
+      stateMessage.textContent = 'Hold it... ' + Math.ceil((2000 - elapsed) / 1000) + 's';
+    }
+    if (elapsed > 2000) {
+      state.palmTriggered = true;
+      state.palmDetectedTime = 0;
+      if (state.workoutState === 'paused') {
+        setWorkoutState('active');
+        speakForce('Let\'s go');
+      } else {
+        speakForce('Starting');
+        startCountdown();
+      }
+    }
+  } else {
+    if (state.palmDetectedTime > 0) {
+      state.palmDetectedTime = 0;
+      stateMessage.textContent = 'Raise hand with palm facing camera — or tap Ready';
+    }
+  }
+}
+
+// ===== AUTO-START FOR FLOOR EXERCISES =====
+// For pushup and plank, detect when the user is already in position and auto-start.
+// This avoids the awkwardness of raising a hand while lying on the floor.
+// Uses a 3-second hold (longer than palm gesture's 2s) to prevent false starts.
+function detectAutoStart(lm) {
+  if (state.workoutState !== 'idle') return;
+  if (state.positionTriggered) return;
+  // Only for floor exercises
+  if (state.exercise !== 'pushup' && state.exercise !== 'plank') return;
+  // Don't compete with an active palm gesture detection
+  if (state.palmDetectedTime > 0) return;
+
+  // Check if body is horizontal: shoulder-to-ankle vertical span < 0.25
+  const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+  const avgAnkleY = (lm[27].y + lm[28].y) / 2;
+  const verticalSpan = Math.abs(avgShoulderY - avgAnkleY);
+  const isHorizontal = verticalSpan < 0.25;
+
+  // Check arms extended (pushup start = elbows straight, ~150°+)
+  const leftElbow = angle(lm[11], lm[13], lm[15]);
+  const rightElbow = angle(lm[12], lm[14], lm[16]);
+  const avgElbow = (leftElbow + rightElbow) / 2;
+  const armsExtended = avgElbow > 140;
+
+  // Plank: horizontal body is enough (could be on forearms, elbows bent)
+  // Pushup: horizontal body + arms extended
+  let inPosition = false;
+  if (state.exercise === 'plank') {
+    inPosition = isHorizontal;
+  } else if (state.exercise === 'pushup') {
+    inPosition = isHorizontal && armsExtended;
+  }
+
+  if (inPosition) {
+    const now = Date.now();
+    if (state.positionDetectedTime === 0) {
+      state.positionDetectedTime = now;
+      stateMessage.textContent = 'Position detected — hold steady...';
+    }
+    const elapsed = now - state.positionDetectedTime;
+    if (elapsed > 500 && elapsed < 3000) {
+      stateMessage.textContent = 'Starting in... ' + Math.ceil((3000 - elapsed) / 1000) + 's';
+    }
+    if (elapsed > 3000) {
+      state.positionTriggered = true;
+      state.positionDetectedTime = 0;
+      speakForce('Position detected. Starting.');
+      startCountdown();
+    }
+  } else {
+    if (state.positionDetectedTime > 0) {
+      state.positionDetectedTime = 0;
+      stateMessage.textContent = 'Get in position to auto-start — or raise hand / tap Ready';
+    }
+  }
+}
+
+// ===== POSITION VALIDATION (active set gate) =====
+// Returns true when the user is in the correct general body position for the exercise.
+// This is NOT form analysis — it's a coarse sanity check so we don't count reps
+// while the user is standing between pushup sets, sitting down, etc.
+// Threshold (0.25 verticalSpan) matches detectAutoStart and the old plank guard.
+function isInPosition(lm, exercise) {
+  const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+  const avgAnkleY = (lm[27].y + lm[28].y) / 2;
+  const verticalSpan = Math.abs(avgShoulderY - avgAnkleY);
+
+  if (exercise === 'pushup' || exercise === 'plank') {
+    // Body must be roughly horizontal
+    return verticalSpan < 0.25;
+  }
+  if (exercise === 'squat' || exercise === 'lunge') {
+    // Body must be upright (not lying down)
+    return verticalSpan > 0.25;
+  }
+  if (exercise === 'pullup') {
+    // Wrists should be near or above shoulder height (user is hanging, not walking away)
+    const avgWristY = (lm[15].y + lm[16].y) / 2;
+    return avgWristY < avgShoulderY + 0.2;
+  }
+  return true; // unknown exercise — don't block
+}
+
+// Human-readable message to show when isInPosition() returns false
+const OUT_OF_POSITION_MSG = {
+  pushup: 'Get into pushup position',
+  plank:  'Get into plank position',
+  squat:  'Stand up to continue',
+  lunge:  'Stand up to continue',
+  pullup: 'Grip the bar to continue',
+};
+
+// ===== WORKOUT STATE MACHINE =====
+function setWorkoutState(newState) {
+  state.workoutState = newState;
+  const app = document.getElementById('app');
+  app.className = `state-${newState}`;
+
+  // Update button visibility
+  btnStart.classList.toggle('hidden', newState === 'active' || newState === 'countdown');
+  btnPause.classList.toggle('hidden', newState !== 'active');
+  btnFinish.classList.toggle('hidden', newState !== 'active' && newState !== 'paused');
+
+  // Update overlay
+  switch (newState) {
+    case 'idle':
+      stateOverlay.classList.add('clickable');
+      countdownDisplay.textContent = '';
+      const isFloorExercise = state.exercise === 'pushup' || state.exercise === 'plank';
+      stateMessage.textContent = isFloorExercise
+        ? 'Get in position to auto-start — or raise hand / tap Ready'
+        : 'Raise hand with palm facing camera — or tap Ready';
+      formFeedback.textContent = '';
+      state.palmTriggered = false;
+      state.palmDetectedTime = 0;
+      state.positionTriggered = false;
+      state.positionDetectedTime = 0;
+      drawGuide();
+      break;
+    case 'countdown':
+      stateOverlay.classList.remove('clickable');
+      stateMessage.textContent = '';
+      drawGuide();
+      break;
+    case 'active':
+      stateOverlay.classList.remove('clickable');
+      countdownDisplay.textContent = '';
+      stateMessage.textContent = '';
+      angleHint.textContent = '';  // clear orientation hint once workout starts
+      // Clear the guide
+      guideCtx.clearRect(0, 0, guideCanvas.width, guideCanvas.height);
+      break;
+    case 'paused':
+      stateOverlay.classList.add('clickable');
+      countdownDisplay.textContent = '| |';
+      stateMessage.textContent = 'Paused — raise hand to resume, or tap button';
+      btnStart.classList.remove('hidden');
+      btnStart.textContent = 'Resume';
+      state.palmTriggered = false;
+      state.palmDetectedTime = 0;
+      state.positionTriggered = false;
+      state.positionDetectedTime = 0;
+      break;
+  }
+
+  if (newState !== 'paused') {
+    btnStart.textContent = 'Ready';
+  }
+}
+
+function startCountdown() {
+  setWorkoutState('countdown');
+  let count = 3;
+  countdownDisplay.textContent = count;
+  speakForce(`${count}`);
+
+  const interval = setInterval(() => {
+    count--;
+    if (count > 0) {
+      countdownDisplay.textContent = count;
+      speakForce(`${count}`);
+    } else {
+      clearInterval(interval);
+      countdownDisplay.textContent = 'GO';
+      speakForce('Go');
+      setTimeout(() => {
+        setWorkoutState('active');
+      }, 500);
+    }
+  }, 1000);
+}
+
+// ===== EXERCISE DEFINITIONS =====
+const exercises = {
+  pushup: {
+    analyze(lm) {
+      const leftElbow = angle(lm[11], lm[13], lm[15]);
+      const rightElbow = angle(lm[12], lm[14], lm[16]);
+      const avgElbow = (leftElbow + rightElbow) / 2;
+
+      const goingDown = state.prevAngle !== null && avgElbow < state.prevAngle - 1;
+      state.prevAngle = avgElbow;
+
+      const leftBack = angle(lm[11], lm[23], lm[27]);
+      const rightBack = angle(lm[12], lm[24], lm[28]);
+      const avgBack = (leftBack + rightBack) / 2;
+
+      let repCounted = false;
+      if (avgElbow < calibration.pushup.elbow_down && state.phase === 'up') {
+        state.phase = 'down';
+      } else if (avgElbow > calibration.pushup.elbow_up && state.phase === 'down') {
+        state.phase = 'up';
+        state.spokenThisRep = false;
+        repCounted = true;
+      }
+
+      let score = 100;
+      let feedback = [];
+
+      if (avgBack < 145) {
+        score -= 30;
+        feedback.push(pastFirstSet() ? 'Hips dropping — try knees down or incline' : 'Tighten your core');
+      } else if (avgBack > 195) {
+        score -= 20;
+        feedback.push('Hips too high — straighten your body');
+      }
+
+      if (state.phase === 'down' && goingDown && avgElbow > 110) {
+        score -= 15;
+        if (feedback.length === 0) feedback.push('Go deeper');
+      }
+
+      if (feedback.length === 0) {
+        showFeedback('Good form', 'good');
+      } else {
+        showFeedback(feedback[0], score > 60 ? 'warn' : 'bad');
+        if (cueShouldFire('pushup-form', 15000)) speak(feedback[0]);
+      }
+
+      return { repCounted, score: Math.max(0, score) };
+    }
+  },
+
+  squat: {
+    analyze(lm) {
+      const leftKnee = angle(lm[23], lm[25], lm[27]);
+      const rightKnee = angle(lm[24], lm[26], lm[28]);
+      const avgKnee = (leftKnee + rightKnee) / 2;
+
+      const goingDown = state.prevAngle !== null && avgKnee < state.prevAngle - 1;
+      state.prevAngle = avgKnee;
+
+      let repCounted = false;
+      if (avgKnee < calibration.squat.knee_down && state.phase === 'up') {
+        state.phase = 'down';
+      } else if (avgKnee > calibration.squat.knee_up && state.phase === 'down') {
+        state.phase = 'up';
+        state.spokenThisRep = false;
+        repCounted = true;
+      }
+
+      let score = 100;
+      let feedback = [];
+
+      if (state.phase === 'down' && goingDown && avgKnee > 110) {
+        score -= 20;
+        feedback.push(pastFirstSet() ? 'Try deeper — hold a support for balance' : 'Go deeper');
+      }
+
+      const shoulderSpan = Math.abs(lm[11].x - lm[12].x);
+      const isFrontView = shoulderSpan > 0.15;
+
+      if (isFrontView && state.phase === 'down') {
+        const kneeSpan = Math.abs(lm[25].x - lm[26].x);
+        const ankleSpan = Math.abs(lm[27].x - lm[28].x);
+        if (kneeSpan < ankleSpan * 0.65) {
+          score -= 25;
+          if (feedback.length === 0) feedback.push('Push your knees out');
+        }
+      }
+
+      if (!isFrontView && state.phase === 'down') {
+        const torsoLean = angle(lm[11], lm[23], lm[25]);
+        if (torsoLean < 45) {
+          score -= 15;
+          if (feedback.length === 0) {
+            feedback.push(pastFirstSet() ? 'Leaning forward — try heels elevated' : 'Chest up');
+          }
+        }
+      }
+
+      if (feedback.length === 0) {
+        showFeedback('Good form', 'good');
+      } else {
+        showFeedback(feedback[0], score > 60 ? 'warn' : 'bad');
+        if (cueShouldFire('squat-form', 15000)) speak(feedback[0]);
+      }
+
+      return { repCounted, score: Math.max(0, score) };
+    }
+  },
+
+  pullup: {
+    analyze(lm) {
+      const leftElbow = angle(lm[11], lm[13], lm[15]);
+      const rightElbow = angle(lm[12], lm[14], lm[16]);
+      const avgElbow = (leftElbow + rightElbow) / 2;
+      const chinAboveHands = lm[0].y < (lm[15].y + lm[16].y) / 2;
+
+      let repCounted = false;
+      if (avgElbow < calibration.pullup.elbow_top && chinAboveHands && state.phase === 'up') {
+        state.phase = 'down';
+      } else if (avgElbow > calibration.pullup.elbow_bottom && state.phase === 'down') {
+        state.phase = 'up';
+        state.spokenThisRep = false;
+        repCounted = true;
+      }
+
+      let score = 100;
+      let feedback = [];
+
+      if (state.phase === 'down' && !chinAboveHands && avgElbow < 100) {
+        score -= 20;
+        feedback.push('Get your chin over the bar');
+      }
+
+      const hipMovement = Math.abs(lm[23].x - lm[11].x);
+      if (hipMovement > 0.15) {
+        score -= 25;
+        if (feedback.length === 0) feedback.push('Control the swing');
+      }
+
+      if (feedback.length === 0) {
+        showFeedback('Good form', 'good');
+      } else {
+        showFeedback(feedback[0], score > 60 ? 'warn' : 'bad');
+        if (cueShouldFire('pullup-form', 15000)) speak(feedback[0]);
+      }
+
+      return { repCounted, score: Math.max(0, score) };
+    }
+  },
+
+  lunge: {
+    analyze(lm) {
+      const leftKnee = angle(lm[23], lm[25], lm[27]);
+      const rightKnee = angle(lm[24], lm[26], lm[28]);
+      const frontKnee = Math.min(leftKnee, rightKnee);
+      const backKnee = Math.max(leftKnee, rightKnee);
+
+      let repCounted = false;
+      if (frontKnee < calibration.lunge.knee_down && state.phase === 'up') {
+        state.phase = 'down';
+      } else if (frontKnee > calibration.lunge.knee_up && backKnee > calibration.lunge.knee_up && state.phase === 'down') {
+        state.phase = 'up';
+        state.spokenThisRep = false;
+        repCounted = true;
+      }
+
+      let score = 100;
+      let feedback = [];
+
+      const torsoAngle = angle(lm[11], lm[23], lm[25]);
+      if (torsoAngle < 140) {
+        score -= 20;
+        feedback.push(pastFirstSet() ? 'Torso leaning — try a wall for balance' : 'Keep your torso upright');
+      }
+
+      if (feedback.length === 0) {
+        showFeedback('Good form', 'good');
+      } else {
+        showFeedback(feedback[0], score > 60 ? 'warn' : 'bad');
+        if (cueShouldFire('lunge-form', 15000)) speak(feedback[0]);
+      }
+
+      return { repCounted, score: Math.max(0, score) };
+    }
+  },
+
+  plank: {
+    analyze(lm) {
+      // Position validation (body must be horizontal) is handled upstream by isInPosition().
+      // By the time we reach here, verticalSpan < 0.25 is guaranteed.
+      const leftBack = angle(lm[11], lm[23], lm[27]);
+      const rightBack = angle(lm[12], lm[24], lm[28]);
+      const avgBack = (leftBack + rightBack) / 2;
+
+      if (!state.plankStart) state.plankStart = Date.now();
+      const plankSecs = Math.floor((Date.now() - state.plankStart) / 1000);
+
+      let score = 100;
+      let feedback = [];
+
+      if (avgBack < 145) {
+        score -= 30;
+        feedback.push(pastFirstSet() ? 'Hips dropping — try knees-down plank' : 'Tighten your core');
+      } else if (avgBack < 155) {
+        score -= 10;
+      } else if (avgBack > 195) {
+        score -= 20;
+        feedback.push('Hips too high — flatten out');
+      }
+
+      repCounter.textContent = `${Math.floor(plankSecs / 60)}:${String(plankSecs % 60).padStart(2, '0')}`;
+
+      if (feedback.length === 0) {
+        showFeedback('Good form — hold it!', 'good');
+        if (plankSecs > 0 && plankSecs % 15 === 0) speakForce(`${plankSecs} seconds`);
+      } else {
+        showFeedback(feedback[0], score > 60 ? 'warn' : 'bad');
+        if (cueShouldFire('plank-form', 20000)) speakForce(feedback[0]);
+      }
+
+      return { repCounted: false, score: Math.max(0, score) };
+    }
+  }
+};
+
+// ===== EVENT HANDLERS =====
+
+// Exercise select
+exerciseSelect.addEventListener('change', () => {
+  state.exercise = exerciseSelect.value;
+  const newName = exerciseMeta[state.exercise].name;
+
+  resetSetState();
+
+  // Update exercise name label with a brief slide-in animation
+  exerciseNameEl.textContent = newName;
+  exerciseNameEl.classList.remove('exercise-changed');
+  void exerciseNameEl.offsetWidth;   // force reflow so animation restarts
+  exerciseNameEl.classList.add('exercise-changed');
+  setTimeout(() => exerciseNameEl.classList.remove('exercise-changed'), 400);
+
+  // Rep counter pop animation — makes the reset to 0 feel intentional
+  repCounter.classList.remove('count-reset');
+  void repCounter.offsetWidth;       // force reflow
+  repCounter.classList.add('count-reset');
+  setTimeout(() => repCounter.classList.remove('count-reset'), 600);
+
+  angleHint.textContent = exerciseMeta[state.exercise].hint || '';
+  setTimeout(() => { angleHint.textContent = ''; }, 15000);
+
+  setWorkoutState('idle');
+
+  // Override the idle state message briefly with a confirmation, then restore it
+  stateMessage.textContent = '✓ ' + newName;
+  setTimeout(() => {
+    if (state.workoutState === 'idle') {
+      const isFloor = state.exercise === 'pushup' || state.exercise === 'plank';
+      stateMessage.textContent = isFloor
+        ? 'Get in position to auto-start — or raise hand / tap Ready'
+        : 'Raise hand with palm facing camera — or tap Ready';
+    }
+  }, 1600);
+
+  speakForce(newName);
+});
+
+// Ready / Resume button
+btnStart.addEventListener('click', () => {
+  if (state.workoutState === 'paused') {
+    setWorkoutState('active');
+    speakForce('Let\'s go');
+  } else {
+    startCountdown();
+  }
+});
+
+// Pause button
+btnPause.addEventListener('click', () => {
+  setWorkoutState('paused');
+  speakForce('Paused');
+});
+
+// Finish Set button — logs the set and resets to idle
+btnFinish.addEventListener('click', () => {
+  if (state.reps > 0 || (state.exercise === 'plank' && state.plankStart)) {
+    const entry = {
+      exercise: exerciseMeta[state.exercise].name,
+      reps: state.exercise === 'plank' ? repCounter.textContent : state.reps,
+      avgScore: state.formScores.length > 0 ? Math.round(state.formScores.reduce((a,b) => a+b, 0) / state.formScores.length) : '--',
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    state.log.push(entry);
+    state.totalReps += state.reps;
+    state.sets++;
+    setCount.textContent = state.sets;
+    totalRepsEl.textContent = state.totalReps;
+    speakForce(`Set done. ${state.reps} reps.`);
+  }
+  resetSetState();
+  setWorkoutState('idle');
+});
+
+function resetSetState() {
+  state.reps = 0;
+  state.phase = 'up';
+  state.prevAngle = null;
+  state.spokenThisRep = false;
+  state.plankStart = null;
+  state.formScores = [];
+  state.cueCooldowns = {};
+  state.repCountingPaused = false;
+  repCounter.textContent = '0';
+  repCounter.classList.remove('count-paused');
+  formFeedback.textContent = '';
+  formScoreEl.textContent = '--';
+}
+
+// Log button
+btnLog.addEventListener('click', () => {
+  const logEntries = document.getElementById('log-entries');
+  logEntries.innerHTML = state.log.length === 0
+    ? '<p style="color:#8899aa;">No sets logged yet. Finish a set to log it.</p>'
+    : state.log.map(e => `
+        <div class="log-entry">
+          <div>
+            <div class="log-entry-exercise">${e.exercise}</div>
+            <div class="log-entry-detail">${e.time} | Form: ${e.avgScore}%</div>
+          </div>
+          <div class="log-entry-reps">${e.reps}</div>
+        </div>`).join('');
+  document.getElementById('log-modal').classList.remove('hidden');
+});
+
+// Voice toggle
+btnVoice.addEventListener('click', () => {
+  state.voiceEnabled = !state.voiceEnabled;
+  btnVoice.textContent = `Voice: ${state.voiceEnabled ? 'On' : 'Off'}`;
+  btnVoice.classList.toggle('btn-active', state.voiceEnabled);
+});
+
+// Calibration save/load
+document.getElementById('btn-save-cal').addEventListener('click', saveCalibration);
+document.getElementById('cal-file-input').addEventListener('change', (e) => {
+  loadCalibrationFromFile(e.target.files[0]);
+  e.target.value = ''; // reset so same file can be reloaded if needed
+});
+
+// Timer
+setInterval(() => {
+  const secs = Math.floor((Date.now() - state.startTime) / 1000);
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  elapsedTime.textContent = `${m}:${String(s).padStart(2, '0')}`;
+}, 1000);
+
+// ===== MEDIAPIPE =====
+const pose = new Pose({
+  locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/${file}`
+});
+
+pose.setOptions({
+  modelComplexity: 1,
+  smoothLandmarks: true,
+  enableSegmentation: false,
+  minDetectionConfidence: 0.5,
+  minTrackingConfidence: 0.5
+});
+
+pose.onResults((results) => {
+  canvas.width = canvas.clientWidth;
+  canvas.height = canvas.clientHeight;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (!results.poseLandmarks) return;
+  const lm = results.poseLandmarks;
+
+  // Always draw skeleton (even when idle — helps with positioning)
+  ctx.save();
+  ctx.scale(canvas.width, canvas.height);
+
+  const connections = [
+    [11,13],[13,15],[12,14],[14,16],
+    [11,12],[11,23],[12,24],[23,24],
+    [23,25],[25,27],[24,26],[26,28],
+    [27,29],[28,30],[29,31],[30,32]
+  ];
+
+  ctx.strokeStyle = state.workoutState === 'active' ? 'rgba(74, 222, 128, 0.7)' : 'rgba(74, 222, 128, 0.35)';
+  ctx.lineWidth = 0.004;
+  connections.forEach(([a, b]) => {
+    ctx.beginPath();
+    ctx.moveTo(lm[a].x, lm[a].y);
+    ctx.lineTo(lm[b].x, lm[b].y);
+    ctx.stroke();
+  });
+
+  lm.forEach((point, i) => {
+    if (i > 10) {
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, 0.006, 0, 2 * Math.PI);
+      ctx.fillStyle = point.visibility > 0.5 ? '#4ade80' : '#fbbf24';
+      ctx.globalAlpha = state.workoutState === 'active' ? 1 : 0.4;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+  });
+  ctx.restore();
+
+  // Check for palm gesture when idle or paused
+  detectPalmGesture(lm);
+
+  // Check for auto-start position detection (floor exercises only)
+  detectAutoStart(lm);
+
+  // Redraw guide if idle (since canvas clears each frame)
+  if (state.workoutState === 'idle' || state.workoutState === 'countdown') {
+    drawGuide();
+  }
+
+  // Only analyze when active
+  if (state.workoutState !== 'active') return;
+
+  // === POSITION GATE: auto-pause rep counting if user leaves position ===
+  if (!isInPosition(lm, state.exercise)) {
+    if (!state.repCountingPaused) {
+      state.repCountingPaused = true;
+      repCounter.classList.add('count-paused');
+    }
+    showFeedback(OUT_OF_POSITION_MSG[state.exercise] || 'Return to position', 'warn');
+    // For plank: also reset timer so it restarts when they return
+    if (state.exercise === 'plank') {
+      state.plankStart = null;
+      repCounter.textContent = '0:00';
+    }
+    return;
+  } else if (state.repCountingPaused) {
+    // User returned to position — clear the pause indicator
+    state.repCountingPaused = false;
+    repCounter.classList.remove('count-paused');
+  }
+
+  const exerciseDef = exercises[state.exercise];
+  if (exerciseDef) {
+    const result = exerciseDef.analyze(lm);
+    if (result.repCounted) {
+      state.reps++;
+      repCounter.textContent = state.reps;
+      if (state.reps % 5 === 0) speakForce(`${state.reps}`);
+    }
+    if (result.score !== undefined) {
+      state.formScores.push(result.score);
+      const avg = Math.round(state.formScores.reduce((a,b) => a+b, 0) / state.formScores.length);
+      formScoreEl.textContent = `${avg}%`;
+    }
+  }
+});
+
+// ===== CAMERA =====
+async function startCamera() {
+  try {
+    // Camera display at full resolution so the video looks sharp on screen.
+    // Pose inference runs at 640×480 (Camera width/height below) — ~4× fewer pixels to process.
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+    });
+    video.srcObject = stream;
+    await video.play();
+
+    // Frame throttling: process pose inference every 2nd frame (~15fps).
+    // UI and video still update at full 30fps — only ML inference is halved.
+    // Like reading every other page of a book instead of every word — you still get the story.
+    let frameCount = 0;
+    const PROCESS_EVERY_N_FRAMES = 2;
+
+    const camera = new Camera(video, {
+      onFrame: async () => {
+        frameCount++;
+        if (frameCount % PROCESS_EVERY_N_FRAMES !== 0) return;
+        await pose.send({ image: video });
+      },
+      width: 640,   // inference resolution (was 1280)
+      height: 480   // inference resolution (was 720)
+    });
+    await camera.start();
+    loading.classList.add('hidden');
+
+    // Start in idle state
+    exerciseNameEl.textContent = exerciseMeta[state.exercise].name;
+    angleHint.textContent = exerciseMeta[state.exercise].hint || '';
+    setTimeout(() => { angleHint.textContent = ''; }, 15000);
+    setWorkoutState('idle');
+    speakForce('FormCheck ready. Line up with the guide, then raise your hand to start.');
+  } catch (err) {
+    loading.innerHTML = `<h2>Camera Error</h2><p>${err.message}</p><p style="margin-top:12px;">Please allow camera access and reload.</p>`;
+  }
+}
+
+startCamera();
+
+}); // end window.onload
+</script>
+</body>
+</html>
