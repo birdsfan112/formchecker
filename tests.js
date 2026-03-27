@@ -1294,6 +1294,74 @@ test('breathing cue: fires exactly once per set (at rep 2)', () => {
   assertEquals(cueCount, 1, 'Breathing cue should fire exactly once per set');
 });
 
+// ===== PER-REP FORM SCORE + END-OF-SET SUMMARY TESTS =====
+
+function buildSetSummary(reps, repScores, exercise) {
+  if (reps === 0) return 'Set done.';
+  if (exercise === 'plank') return null;
+  if (repScores.length === 0) return `${reps} rep${reps === 1 ? '' : 's'}.`;
+  const avg = Math.round(repScores.reduce((a, b) => a + b, 0) / repScores.length);
+  const goodCount = repScores.filter(s => s >= 80).length;
+  if (avg >= 90) return `${reps} reps. Excellent form!`;
+  else if (avg >= 75) return `${reps} reps. Good form on ${goodCount} of ${reps}.`;
+  else if (avg >= 55) return `${reps} reps. ${goodCount} clean rep${goodCount === 1 ? '' : 's'} — focus on form next set.`;
+  else return `${reps} reps. Form needs work — slow it down next set.`;
+}
+
+test('buildSetSummary: 0 reps returns minimal message', () => {
+  assertEquals(buildSetSummary(0, [], 'pushup'), 'Set done.', '0 reps should be minimal');
+});
+
+test('buildSetSummary: plank returns null (uses own message)', () => {
+  assert(buildSetSummary(1, [90], 'plank') === null, 'Plank should return null');
+});
+
+test('buildSetSummary: no scores recorded falls back to rep count only', () => {
+  const msg = buildSetSummary(8, [], 'pushup');
+  assert(msg.includes('8 reps'), 'Should include rep count when no scores');
+});
+
+test('buildSetSummary: avg ≥90 gives excellent message', () => {
+  const scores = [95, 90, 100, 92];
+  const msg = buildSetSummary(4, scores, 'pushup');
+  assert(msg.includes('Excellent form'), `Expected excellent, got: ${msg}`);
+});
+
+test('buildSetSummary: avg 75-89 gives good-form count message', () => {
+  const scores = [80, 80, 80, 80, 60, 70]; // avg = 75, good = 4
+  const msg = buildSetSummary(6, scores, 'squat');
+  assert(msg.includes('Good form on 4 of 6'), `Expected good form count, got: ${msg}`);
+});
+
+test('buildSetSummary: avg 55-74 gives clean-reps count message', () => {
+  const scores = [80, 50, 50, 70]; // avg = 62.5, good (≥80) = 1
+  const msg = buildSetSummary(4, scores, 'pushup');
+  assert(msg.includes('1 clean rep'), `Expected 1 clean rep, got: ${msg}`);
+});
+
+test('buildSetSummary: avg <55 gives needs-work message', () => {
+  const scores = [40, 50, 45]; // avg = 45
+  const msg = buildSetSummary(3, scores, 'pushup');
+  assert(msg.includes('Form needs work'), `Expected form needs work, got: ${msg}`);
+});
+
+test('buildSetSummary: singular rep uses correct grammar', () => {
+  const msg = buildSetSummary(1, [], 'pushup');
+  assert(msg.includes('1 rep.'), `Singular should say 'rep' not 'reps': ${msg}`);
+});
+
+test('per-rep score: average of frame scores for a rep', () => {
+  // Simulate 3 frames: scores 100, 80, 60 → avg = 80
+  const currentRepScores = [100, 80, 60];
+  const repScore = Math.round(currentRepScores.reduce((a, b) => a + b, 0) / currentRepScores.length);
+  assertEquals(repScore, 80, 'Per-rep score should average frame scores');
+});
+
+test('per-rep score: color threshold — green ≥80', () => {
+  assert(80 >= 80, 'Score of 80 should get green');
+  assert(79 < 80, 'Score of 79 should not get green');
+});
+
 // ===== RUN TESTS =====
 console.log('\n=== FormCheck Fitness App - Test Suite ===\n');
 

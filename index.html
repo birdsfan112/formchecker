@@ -185,6 +185,9 @@ const state = {
   positionDetectedTime: 0, // when auto-start first saw valid exercise position
   positionTriggered: false, // prevent re-triggering during same idle
   repCountingPaused: false, // auto-paused when user leaves exercise position during active set
+  // Per-rep form scoring
+  currentRepScores: [],  // frame-level scores accumulated during current rep
+  repFormScores: [],     // one averaged score per completed rep
   // Richer audio coaching
   breathingCuedThisSet: false, // only cue breathing once per set
   lastRepTime: 0,              // timestamp of last completed rep (for tempo check)
@@ -1388,6 +1391,28 @@ const exercises = {
   }
 };
 
+// ===== SET SUMMARY =====
+// Builds a spoken recap from per-rep form scores collected during the set.
+// Extracted as pure function for unit testing.
+function buildSetSummary(reps, repScores, exercise) {
+  if (reps === 0) return 'Set done.';
+  if (exercise === 'plank') return null; // plank uses its own time-based message
+  if (repScores.length === 0) return `${reps} rep${reps === 1 ? '' : 's'}.`;
+
+  const avg = Math.round(repScores.reduce((a, b) => a + b, 0) / repScores.length);
+  const goodCount = repScores.filter(s => s >= 80).length;
+
+  if (avg >= 90) {
+    return `${reps} reps. Excellent form!`;
+  } else if (avg >= 75) {
+    return `${reps} reps. Good form on ${goodCount} of ${reps}.`;
+  } else if (avg >= 55) {
+    return `${reps} reps. ${goodCount} clean rep${goodCount === 1 ? '' : 's'} — focus on form next set.`;
+  } else {
+    return `${reps} reps. Form needs work — slow it down next set.`;
+  }
+}
+
 // ===== EVENT HANDLERS =====
 
 // Exercise select
@@ -1459,7 +1484,9 @@ btnFinish.addEventListener('click', () => {
     state.sets++;
     setCount.textContent = state.sets;
     totalRepsEl.textContent = state.totalReps;
-    speakForce(`Set done. ${state.reps} reps.`);
+    const summary = buildSetSummary(state.reps, state.repFormScores, state.exercise);
+    if (summary) speakForce(summary);
+    else speakForce(`${repCounter.textContent} — well done!`); // plank fallback
   }
   resetSetState();
   setWorkoutState('idle');
@@ -1474,6 +1501,8 @@ function resetSetState() {
   state.formScores = [];
   state.cueCooldowns = {};
   state.repCountingPaused = false;
+  state.currentRepScores = [];
+  state.repFormScores = [];
   state.breathingCuedThisSet = false;
   state.lastRepTime = 0;
   state.repTimes = [];
@@ -1708,9 +1737,32 @@ pose.onResults((results) => {
       }
     }
     if (result.score !== undefined) {
+      // Accumulate frame scores for the current rep
+      state.currentRepScores.push(result.score);
       state.formScores.push(result.score);
-      const avg = Math.round(state.formScores.reduce((a,b) => a+b, 0) / state.formScores.length);
-      formScoreEl.textContent = `${avg}%`;
+
+      if (result.repCounted) {
+        // Compute per-rep score and flash it with color feedback
+        const repScore = Math.round(
+          state.currentRepScores.reduce((a, b) => a + b, 0) / state.currentRepScores.length
+        );
+        state.repFormScores.push(repScore);
+        state.currentRepScores = [];
+
+        // Flash per-rep score: green ≥80, yellow ≥60, red <60
+        formScoreEl.textContent = `${repScore}%`;
+        formScoreEl.style.color = repScore >= 80 ? '#4ade80' : repScore >= 60 ? '#fbbf24' : '#f87171';
+        setTimeout(() => {
+          // Fade back to set average after 1.5s
+          const setAvg = Math.round(state.formScores.reduce((a, b) => a + b, 0) / state.formScores.length);
+          formScoreEl.textContent = `${setAvg}%`;
+          formScoreEl.style.color = '';
+        }, 1500);
+      } else {
+        // Between reps: show running set average
+        const avg = Math.round(state.formScores.reduce((a, b) => a + b, 0) / state.formScores.length);
+        formScoreEl.textContent = `${avg}%`;
+      }
     }
   }
 });
