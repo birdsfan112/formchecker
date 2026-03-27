@@ -179,6 +179,7 @@ const state = {
   log: [],
   cueCooldowns: {},
   iosAudioUnlocked: false,
+  lastLandmarks: null,     // most recent pose landmarks (for drawGuide alignment check)
   palmDetectedTime: 0,    // when we first saw the palm gesture
   palmTriggered: false,    // prevent re-triggering during same idle
   positionDetectedTime: 0, // when auto-start first saw valid exercise position
@@ -529,6 +530,50 @@ function showFeedback(text, level) {
   formFeedback.className = level === 'good' ? 'feedback-good' : level === 'warn' ? 'feedback-warn' : 'feedback-bad';
 }
 
+// ===== FRAME POSITIONING AUTO-DETECT =====
+// Checks if the user's body is well-framed in the guide zone: key landmarks visible
+// and body fills an appropriate portion of the screen.
+// Returns { aligned: bool, hint: string|null }
+function checkPositioning(lm) {
+  if (!lm) return { aligned: false, hint: null };
+
+  const ex = state.exercise;
+
+  // Joints that must be visible for this exercise
+  const required = {
+    pushup:  [11, 12, 13, 14, 15, 16, 23, 24, 27, 28],
+    plank:   [11, 12, 23, 24, 27, 28],
+    squat:   [11, 12, 23, 24, 25, 26, 27, 28],
+    lunge:   [11, 12, 23, 24, 25, 26, 27, 28],
+    pullup:  [11, 12, 13, 14, 15, 16, 23, 24],
+  };
+  const landmarks = required[ex] || [];
+  if (!landmarks.every(i => lm[i] && lm[i].visibility > 0.4)) {
+    return { aligned: false, hint: 'Move back for full body view' };
+  }
+
+  const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+  const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
+  const vertSpan     = Math.abs(avgAnkleY - avgShoulderY);
+
+  if (ex === 'pushup' || ex === 'plank') {
+    if (vertSpan < 0.06) return { aligned: false, hint: 'Move back — too close' };
+    if (vertSpan > 0.30) return { aligned: false, hint: 'Move back a little' };
+    return { aligned: true, hint: 'Good position!' };
+  }
+  if (ex === 'squat' || ex === 'lunge') {
+    if (vertSpan < 0.30) return { aligned: false, hint: 'Move back — too close' };
+    if (vertSpan > 0.80) return { aligned: false, hint: 'Move closer' };
+    return { aligned: true, hint: 'Good position!' };
+  }
+  if (ex === 'pullup') {
+    const avgWristY = (lm[15].y + lm[16].y) / 2;
+    if (avgWristY > avgShoulderY + 0.05) return { aligned: false, hint: 'Grip the bar' };
+    return { aligned: true, hint: 'Good position!' };
+  }
+  return { aligned: true, hint: null };
+}
+
 // ===== SILHOUETTE GUIDE =====
 // Draw a thick outlined human shape using bezier curves for a recognizable body
 function drawGuide() {
@@ -542,20 +587,23 @@ function drawGuide() {
   const h = guideCanvas.height;
   const ex = state.exercise;
 
-  guideCtx.strokeStyle = 'rgba(255, 255, 255, 0.80)';
+  // Tint guide green when body is well-aligned, white otherwise
+  const posResult = checkPositioning(state.lastLandmarks);
+  const guideColor = posResult.aligned
+    ? 'rgba(74, 222, 128, 0.85)'   // green — good position
+    : 'rgba(255, 255, 255, 0.80)'; // white — still positioning
+
+  guideCtx.strokeStyle = guideColor;
   guideCtx.lineWidth = 7;
   guideCtx.lineJoin = 'round';
   guideCtx.lineCap = 'round';
 
   if (ex === 'squat' || ex === 'lunge') {
-    // Standing position — side view
-    drawStandingSide(w, h);
+    drawStandingSide(w, h, posResult.aligned);
   } else if (ex === 'pushup' || ex === 'plank') {
-    // Horizontal position — side view
-    drawHorizontalSide(w, h, ex);
+    drawHorizontalSide(w, h, ex, posResult.aligned);
   } else if (ex === 'pullup') {
-    // Hanging position — front view
-    drawHangingFront(w, h);
+    drawHangingFront(w, h, posResult.aligned);
   }
 }
 
@@ -565,7 +613,7 @@ function drawHead(cx, cy, r) {
   guideCtx.stroke();
 }
 
-function drawStandingSide(w, h) {
+function drawStandingSide(w, h, aligned) {
   // SIDE-VIEW standing human profile — FILLED shape so it's unmistakably a profile
   // Person faces RIGHT (appears left on mirrored camera)
   // Key side-view indicators: nose, chest/butt asymmetry, single leg, foot direction
@@ -576,7 +624,7 @@ function drawStandingSide(w, h) {
   const headCX = cx + w * 0.01;
 
   g.save();
-  g.fillStyle = 'rgba(255, 255, 255, 0.18)';
+  g.fillStyle = aligned ? 'rgba(74, 222, 128, 0.15)' : 'rgba(255, 255, 255, 0.18)';
 
   // HEAD (circle + nose pointing right)
   g.beginPath();
@@ -654,7 +702,7 @@ function drawStandingSide(w, h) {
   g.restore();
 }
 
-function drawHorizontalSide(w, h, ex) {
+function drawHorizontalSide(w, h, ex, aligned) {
   // SIDE-VIEW pushup/plank — filled human body, distinct arm positions per exercise.
   // Person faces LEFT in drawing coords (appears facing right on mirrored camera).
   // Ground line near bottom of frame, figure fills ~30% of screen height.
@@ -675,7 +723,7 @@ function drawHorizontalSide(w, h, ex) {
   const toeX   = w * 0.79;
 
   g.save();
-  g.fillStyle = 'rgba(255, 255, 255, 0.18)';
+  g.fillStyle = aligned ? 'rgba(74, 222, 128, 0.15)' : 'rgba(255, 255, 255, 0.18)';
 
   // HEAD — centered just in front of (left of) shoulders, angled slightly down
   const headCX = shoulderX - w * 0.045;
@@ -760,7 +808,7 @@ function drawHorizontalSide(w, h, ex) {
   g.restore();
 }
 
-function drawHangingFront(w, h) {
+function drawHangingFront(w, h, aligned) {
   // FRONT-VIEW pull-up — FILLED human body hanging from bar
   // Symmetric front view: arms up, torso, two legs hanging
   const g = guideCtx;
@@ -779,7 +827,7 @@ function drawHangingFront(w, h) {
   g.restore();
 
   g.save();
-  g.fillStyle = 'rgba(255, 255, 255, 0.18)';
+  g.fillStyle = aligned ? 'rgba(74, 222, 128, 0.15)' : 'rgba(255, 255, 255, 0.18)';
 
   // Key body positions
   const shoulderY = h * 0.25;
@@ -1523,6 +1571,7 @@ pose.onResults((results) => {
 
   if (!results.poseLandmarks) return;
   const lm = results.poseLandmarks;
+  state.lastLandmarks = lm; // used by drawGuide() for alignment tinting
 
   // Always draw skeleton (even when idle — helps with positioning)
   ctx.save();
@@ -1565,6 +1614,19 @@ pose.onResults((results) => {
   // Redraw guide if idle (since canvas clears each frame)
   if (state.workoutState === 'idle' || state.workoutState === 'countdown') {
     drawGuide();
+  }
+
+  // Positioning hint: update state message when idle and no gesture/auto-start is in progress
+  if (state.workoutState === 'idle' && state.palmDetectedTime === 0 && state.positionDetectedTime === 0) {
+    const pos = checkPositioning(lm);
+    if (pos.hint && !pos.aligned) {
+      stateMessage.textContent = pos.hint;
+    } else if (pos.aligned) {
+      const isFloor = state.exercise === 'pushup' || state.exercise === 'plank';
+      stateMessage.textContent = isFloor
+        ? '✓ Good position — get steady to auto-start'
+        : '✓ Good position — raise hand or tap Ready';
+    }
   }
 
   // Only analyze when active or in warmup calibration

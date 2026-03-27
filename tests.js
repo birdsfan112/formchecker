@@ -1137,6 +1137,111 @@ test('relative depth threshold: after warmup calibration scales to user range', 
   assert(cueAngle < 112, 'Calibrated user with better depth should get stricter cue angle');
 });
 
+// ===== FRAME POSITIONING AUTO-DETECT TESTS =====
+
+function checkPositioning_test(lm, ex) {
+  if (!lm) return { aligned: false, hint: null };
+  const required = {
+    pushup:  [11, 12, 13, 14, 15, 16, 23, 24, 27, 28],
+    plank:   [11, 12, 23, 24, 27, 28],
+    squat:   [11, 12, 23, 24, 25, 26, 27, 28],
+    lunge:   [11, 12, 23, 24, 25, 26, 27, 28],
+    pullup:  [11, 12, 13, 14, 15, 16, 23, 24],
+  };
+  const landmarks = required[ex] || [];
+  if (!landmarks.every(i => lm[i] && lm[i].visibility > 0.4)) {
+    return { aligned: false, hint: 'Move back for full body view' };
+  }
+  const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+  const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
+  const vertSpan     = Math.abs(avgAnkleY - avgShoulderY);
+  if (ex === 'pushup' || ex === 'plank') {
+    if (vertSpan < 0.06) return { aligned: false, hint: 'Move back — too close' };
+    if (vertSpan > 0.30) return { aligned: false, hint: 'Move back a little' };
+    return { aligned: true, hint: 'Good position!' };
+  }
+  if (ex === 'squat' || ex === 'lunge') {
+    if (vertSpan < 0.30) return { aligned: false, hint: 'Move back — too close' };
+    if (vertSpan > 0.80) return { aligned: false, hint: 'Move closer' };
+    return { aligned: true, hint: 'Good position!' };
+  }
+  if (ex === 'pullup') {
+    const avgWristY = (lm[15].y + lm[16].y) / 2;
+    if (avgWristY > avgShoulderY + 0.05) return { aligned: false, hint: 'Grip the bar' };
+    return { aligned: true, hint: 'Good position!' };
+  }
+  return { aligned: true, hint: null };
+}
+
+function makeFullLm(overrides) {
+  const lm = Array(33).fill(null).map(() => ({ x: 0.5, y: 0.5, visibility: 0.9 }));
+  if (overrides) Object.keys(overrides).forEach(k => { lm[k] = overrides[k]; });
+  return lm;
+}
+
+test('checkPositioning: rejects null landmarks', () => {
+  assertBool(checkPositioning_test(null, 'squat').aligned, false, 'Should reject null');
+});
+
+test('checkPositioning: rejects low-visibility landmarks', () => {
+  const lm = makeFullLm({ 23: { x: 0.5, y: 0.5, visibility: 0.1 } });
+  const result = checkPositioning_test(lm, 'squat');
+  assertBool(result.aligned, false, 'Should reject invisible landmark');
+  assertEquals(result.hint, 'Move back for full body view', 'Should suggest moving back');
+});
+
+test('checkPositioning: squat accepts good vertical span (0.65)', () => {
+  const lm = makeFullLm({
+    11: { x: 0.5, y: 0.15, visibility: 0.9 }, 12: { x: 0.5, y: 0.15, visibility: 0.9 },
+    27: { x: 0.5, y: 0.80, visibility: 0.9 }, 28: { x: 0.5, y: 0.80, visibility: 0.9 }
+  });
+  assertBool(checkPositioning_test(lm, 'squat').aligned, true, 'Squat span 0.65 should align');
+});
+
+test('checkPositioning: squat rejects too-close (vertSpan 0.20 < 0.30)', () => {
+  const lm = makeFullLm({
+    11: { x: 0.5, y: 0.40, visibility: 0.9 }, 12: { x: 0.5, y: 0.40, visibility: 0.9 },
+    27: { x: 0.5, y: 0.60, visibility: 0.9 }, 28: { x: 0.5, y: 0.60, visibility: 0.9 }
+  });
+  const r = checkPositioning_test(lm, 'squat');
+  assertBool(r.aligned, false, 'Squat span 0.20 = too close');
+  assertEquals(r.hint, 'Move back — too close', 'Hint should suggest moving back');
+});
+
+test('checkPositioning: pushup accepts good horizontal span (0.14)', () => {
+  const lm = makeFullLm({
+    11: { x: 0.5, y: 0.48, visibility: 0.9 }, 12: { x: 0.5, y: 0.48, visibility: 0.9 },
+    27: { x: 0.5, y: 0.62, visibility: 0.9 }, 28: { x: 0.5, y: 0.62, visibility: 0.9 }
+  });
+  assertBool(checkPositioning_test(lm, 'pushup').aligned, true, 'Pushup span 0.14 should align');
+});
+
+test('checkPositioning: pushup rejects span > 0.30 (too close)', () => {
+  const lm = makeFullLm({
+    11: { x: 0.5, y: 0.30, visibility: 0.9 }, 12: { x: 0.5, y: 0.30, visibility: 0.9 },
+    27: { x: 0.5, y: 0.75, visibility: 0.9 }, 28: { x: 0.5, y: 0.75, visibility: 0.9 }
+  });
+  assertBool(checkPositioning_test(lm, 'pushup').aligned, false, 'Pushup span 0.45 = too close');
+});
+
+test('checkPositioning: pullup aligned when wrists above shoulders', () => {
+  const lm = makeFullLm({
+    11: { x: 0.4, y: 0.30, visibility: 0.9 }, 12: { x: 0.6, y: 0.30, visibility: 0.9 },
+    15: { x: 0.3, y: 0.10, visibility: 0.9 }, 16: { x: 0.7, y: 0.10, visibility: 0.9 }
+  });
+  assertBool(checkPositioning_test(lm, 'pullup').aligned, true, 'Wrists above shoulders = aligned');
+});
+
+test('checkPositioning: pullup not aligned when wrists below shoulders', () => {
+  const lm = makeFullLm({
+    11: { x: 0.4, y: 0.25, visibility: 0.9 }, 12: { x: 0.6, y: 0.25, visibility: 0.9 },
+    15: { x: 0.4, y: 0.70, visibility: 0.9 }, 16: { x: 0.6, y: 0.70, visibility: 0.9 }
+  });
+  const r = checkPositioning_test(lm, 'pullup');
+  assertBool(r.aligned, false, 'Wrists below shoulders = not aligned');
+  assertEquals(r.hint, 'Grip the bar', 'Should prompt to grip bar');
+});
+
 // ===== RUN TESTS =====
 console.log('\n=== FormCheck Fitness App - Test Suite ===\n');
 
