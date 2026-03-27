@@ -185,6 +185,10 @@ const state = {
   positionDetectedTime: 0, // when auto-start first saw valid exercise position
   positionTriggered: false, // prevent re-triggering during same idle
   repCountingPaused: false, // auto-paused when user leaves exercise position during active set
+  // Richer audio coaching
+  breathingCuedThisSet: false, // only cue breathing once per set
+  lastRepTime: 0,              // timestamp of last completed rep (for tempo check)
+  repTimes: [],                // recent rep durations in ms (last 3)
   // Warmup calibration state
   warmupPhase: 'up',       // direction tracking during warmup ('up' | 'down')
   warmupReps: 0,           // warmup reps completed
@@ -1470,6 +1474,9 @@ function resetSetState() {
   state.formScores = [];
   state.cueCooldowns = {};
   state.repCountingPaused = false;
+  state.breathingCuedThisSet = false;
+  state.lastRepTime = 0;
+  state.repTimes = [];
   repCounter.textContent = '0';
   repCounter.classList.remove('count-paused');
   formFeedback.textContent = '';
@@ -1668,7 +1675,37 @@ pose.onResults((results) => {
     if (result.repCounted) {
       state.reps++;
       repCounter.textContent = state.reps;
-      if (state.reps % 5 === 0) speakForce(`${state.reps}`);
+
+      // --- Tempo tracking ---
+      const now = Date.now();
+      if (state.lastRepTime > 0) {
+        state.repTimes.push(now - state.lastRepTime);
+        if (state.repTimes.length > 3) state.repTimes.shift(); // keep last 3
+        const avgMs = state.repTimes.reduce((a, b) => a + b, 0) / state.repTimes.length;
+        if (avgMs < 1800 && state.repTimes.length >= 2 && cueShouldFire('tempo-fast', 20000)) {
+          speak('Slow it down — control the movement');
+        }
+      }
+      state.lastRepTime = now;
+
+      // --- Breathing reminder (once per set, after rep 2) ---
+      if (state.reps === 2 && !state.breathingCuedThisSet) {
+        state.breathingCuedThisSet = true;
+        setTimeout(() => {
+          if (state.workoutState === 'active') speakForce('Exhale on the way up');
+        }, 800);
+      }
+
+      // --- Milestone encouragement (every 5 reps) ---
+      if (state.reps % 5 === 0) {
+        const milestoneLines = [
+          `${state.reps}! Keep going`,
+          `${state.reps} — great work`,
+          `${state.reps}! Push through`,
+          `${state.reps} reps — stay strong`,
+        ];
+        speakForce(milestoneLines[Math.floor(state.reps / 5 - 1) % milestoneLines.length]);
+      }
     }
     if (result.score !== undefined) {
       state.formScores.push(result.score);

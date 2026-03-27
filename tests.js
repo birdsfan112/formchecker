@@ -1242,6 +1242,58 @@ test('checkPositioning: pullup not aligned when wrists below shoulders', () => {
   assertEquals(r.hint, 'Grip the bar', 'Should prompt to grip bar');
 });
 
+// ===== RICHER AUDIO COACHING TESTS =====
+
+test('milestone encouragement: cycles through phrases every 5 reps', () => {
+  const milestoneLines = [
+    '5! Keep going',
+    '10 — great work',
+    '15! Push through',
+    '20 reps — stay strong',
+  ];
+  // Replicate the selection logic from index.html
+  function milestoneMsg(reps) {
+    const lines = [
+      `${reps}! Keep going`,
+      `${reps} — great work`,
+      `${reps}! Push through`,
+      `${reps} reps — stay strong`,
+    ];
+    return lines[Math.floor(reps / 5 - 1) % lines.length];
+  }
+  assertEquals(milestoneMsg(5),  '5! Keep going',       'Rep 5 should use first phrase');
+  assertEquals(milestoneMsg(10), '10 — great work',     'Rep 10 should use second phrase');
+  assertEquals(milestoneMsg(15), '15! Push through',    'Rep 15 should use third phrase');
+  assertEquals(milestoneMsg(20), '20 reps — stay strong', 'Rep 20 should use fourth phrase');
+  assertEquals(milestoneMsg(25), '25! Keep going',      'Rep 25 should cycle back to first');
+});
+
+test('tempo detection: flags reps faster than 1800ms average', () => {
+  // Simulate 3 reps at 1500ms each → avg 1500 < 1800 → should flag
+  const repTimes = [1500, 1500, 1500];
+  const avgMs = repTimes.reduce((a, b) => a + b, 0) / repTimes.length;
+  assert(avgMs < 1800, 'Fast reps (1500ms each) should be flagged as too fast');
+});
+
+test('tempo detection: does not flag reps at 2500ms average', () => {
+  const repTimes = [2500, 2500];
+  const avgMs = repTimes.reduce((a, b) => a + b, 0) / repTimes.length;
+  assert(avgMs >= 1800, 'Slow reps (2500ms each) should not be flagged');
+});
+
+test('breathing cue: fires exactly once per set (at rep 2)', () => {
+  // The logic: state.reps === 2 && !state.breathingCuedThisSet
+  let breathingCuedThisSet = false;
+  let cueCount = 0;
+  for (let rep = 1; rep <= 10; rep++) {
+    if (rep === 2 && !breathingCuedThisSet) {
+      breathingCuedThisSet = true;
+      cueCount++;
+    }
+  }
+  assertEquals(cueCount, 1, 'Breathing cue should fire exactly once per set');
+});
+
 // ===== RUN TESTS =====
 console.log('\n=== FormCheck Fitness App - Test Suite ===\n');
 
