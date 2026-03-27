@@ -52,16 +52,16 @@ A real-time AI fitness form coach that uses your phone camera + MediaPipe pose e
 
 ---
 
-## Phase 3: Enhanced Form Analysis + Audio (Current)
+## Phase 3: Enhanced Form Analysis + Audio ✅ (Complete)
 **Goal:** Smarter, more personalized coaching
 
 - [x] **User calibration save/load** — Save rep detection thresholds as JSON, load from file. Compatible with static GitHub Pages hosting. "Save Cal" + "Load Cal" buttons in controls bar. Covers pushup, squat, pullup, lunge thresholds.
-- [ ] **Warmup calibration** — 3 slow reps to learn user's range of motion
-- [ ] **Relative thresholds** — form cues based on YOUR range, not hardcoded angles
-- [ ] **Frame positioning auto-detect** — app detects when full body is in guide zone
-- [ ] **Richer audio coaching** — encouragement, tempo cues, breathing reminders
-- [ ] **Per-rep form score** — score each rep individually, show trend within set
-- [ ] **End-of-set summary** — spoken recap ("8 reps, good form on 6, watch your depth on the last 2")
+- [x] **Warmup calibration** — "Warmup Cal" button: 3-rep flow learns actual ROM using direction-reversal detection. Updates calibration thresholds automatically. Covers pushup, squat, pullup, lunge.
+- [x] **Relative thresholds** — Depth cues now fire at `calibrated_depth + 12°` (scales to user's range). Lunge gets a depth cue for the first time.
+- [x] **Frame positioning auto-detect** — Guide silhouette tints green when aligned. State message gives real-time hints ("Move back", "Good position — raise hand to start").
+- [x] **Richer audio coaching** — Milestone encouragement every 5 reps (4 rotating phrases), breathing reminder once per set at rep 2, tempo cue when avg rep pace < 1.8s.
+- [x] **Per-rep form score** — Form stat flashes per-rep score (green/yellow/red) after each rep, then fades to set average.
+- [x] **End-of-set summary** — Spoken recap from `buildSetSummary()`: "Excellent form!", "Good form on N of N", "N clean reps — focus on form", or "Form needs work".
 
 ---
 
@@ -194,3 +194,20 @@ Each exercise will need:
 **Remaining:** Active behavioral layer is ~9.7k, still over the ~6k guideline. Remaining bulk is all behavioral prose (Rules 9–11: assumptions, plan confirmation, drift check). A second pass tightening that prose could bring it under, but it's low priority — all rules are actively load-bearing.
 
 **Next session:** Pre-flight as normal. Phone-test heat fixes and silhouette corrections first, then Phase 3 warmup calibration.
+
+### Session: 2026-03-27 (Phase 3 completion)
+**Completed all remaining Phase 3 items (2–7):**
+1. **Warmup calibration (item 2)** — "Warmup Cal" button, 3-rep flow, direction-reversal detection sets depth/extension thresholds automatically per exercise.
+2. **Relative thresholds (item 3)** — Depth cues now scale to calibrated range (`elbow_down + 12°`). Lunge gets depth cue for first time.
+3. **Frame positioning auto-detect (item 4)** — `checkPositioning()` checks landmark visibility + vertical span. Silhouette tints green when aligned. State message gives live positioning hints.
+4. **Richer audio coaching (item 5)** — Milestone phrases every 5 reps (4 rotating), breathing reminder at rep 2, tempo cue when avg pace < 1.8s.
+5. **Per-rep form score (item 6)** — Frame scores averaged per rep, form stat flashes green/yellow/red, fades to set average.
+6. **End-of-set summary (item 7)** — `buildSetSummary()` (pure, tested) speaks contextual recap based on per-rep scores.
+
+**Tests:** 61 → 95 (+34 new tests across all items).
+
+**Git note:** Local git repo was missing — initialized fresh, connected to origin, rebased on existing remote history. All commits are in clean sequence.
+
+**Phase 3 status:** COMPLETE ✅
+
+**Next session:** Phone-test all Phase 3 features. Recommended test order: positioning (check green tint at 6ft), warmup calibration flow, per-rep score flash, end-of-set summary speech. Then begin Phase 4 (LocalStorage persistence).
