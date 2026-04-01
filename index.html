@@ -199,6 +199,7 @@ const state = {
   warmupValleys: [],       // depth angles recorded at bottom of each warmup rep
   warmupCurrentMin: Infinity, // min angle seen during current warmup descent
   warmupCurrentMax: 0,     // max angle seen during current warmup ascent
+  warmupDirectionFrames: 0, // consecutive frames moving same direction (jitter filter)
 };
 
 // Camera angles + silhouette guide points per exercise (normalized 0-1 coords)
@@ -395,18 +396,28 @@ function analyzeWarmup(lm) {
   state.warmupCurrentMin = Math.min(state.warmupCurrentMin, primaryAngle);
   state.warmupCurrentMax = Math.max(state.warmupCurrentMax, primaryAngle);
 
-  const goingDown = state.prevAngle !== null && primaryAngle < state.prevAngle - 1;
-  const goingUp   = state.prevAngle !== null && primaryAngle > state.prevAngle + 1;
+  const goingDown = state.prevAngle !== null && primaryAngle < state.prevAngle - 4;
+  const goingUp   = state.prevAngle !== null && primaryAngle > state.prevAngle + 4;
   state.prevAngle = primaryAngle;
 
-  if (state.warmupPhase === 'up' && goingDown) {
+  // Require 3 consecutive frames moving the same direction before flipping phase.
+  // This filters out jitter that would otherwise cause false direction changes.
+  const wantFlip = (state.warmupPhase === 'up' && goingDown) || (state.warmupPhase === 'down' && goingUp);
+  if (wantFlip) {
+    state.warmupDirectionFrames++;
+  } else {
+    state.warmupDirectionFrames = 0;
+  }
+
+  if (state.warmupPhase === 'up' && goingDown && state.warmupDirectionFrames >= 3) {
     // Started descending — record the extension peak we just left
     if (state.warmupCurrentMax > 110) state.warmupPeaks.push(state.warmupCurrentMax);
     state.warmupCurrentMax = primaryAngle;
     state.warmupPhase = 'down';
+    state.warmupDirectionFrames = 0;
   }
 
-  if (state.warmupPhase === 'down' && goingUp) {
+  if (state.warmupPhase === 'down' && goingUp && state.warmupDirectionFrames >= 3) {
     // Hit bottom — validate it's a real bend (not a jitter), then record depth
     const firstPeak = state.warmupPeaks[0] || 180;
     const validBend = state.warmupCurrentMin < 165 && state.warmupCurrentMin < firstPeak - 15;
@@ -583,9 +594,19 @@ function checkPositioning(lm) {
 
 // ===== SILHOUETTE GUIDE =====
 // Draw a thick outlined human shape using bezier curves for a recognizable body
-function drawGuide() {
+function drawGuide(retryCount) {
   guideCanvas.width = guideCanvas.clientWidth;
   guideCanvas.height = guideCanvas.clientHeight;
+
+  // If canvas has zero dimensions (not laid out yet), retry up to 3 times
+  if (guideCanvas.width === 0 || guideCanvas.height === 0) {
+    const attempt = retryCount || 0;
+    if (attempt < 3) {
+      requestAnimationFrame(() => drawGuide(attempt + 1));
+    }
+    return;
+  }
+
   guideCtx.clearRect(0, 0, guideCanvas.width, guideCanvas.height);
 
   if (state.workoutState !== 'idle' && state.workoutState !== 'countdown') return;
@@ -803,15 +824,20 @@ function drawHorizontalSide(w, h, ex, aligned) {
 
   g.restore();
 
-  // Ground reference line
+  // Ground reference line — solid, high-contrast so the user can see the floor plane
   g.save();
-  g.strokeStyle = 'rgba(255, 255, 255, 0.20)';
-  g.setLineDash([8, 8]);
-  g.lineWidth = 2;
+  g.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+  g.lineWidth = 4;
   g.beginPath();
-  g.moveTo(w * 0.06, groundY);
-  g.lineTo(w * 0.88, groundY);
+  g.moveTo(w * 0.03, groundY);
+  g.lineTo(w * 0.95, groundY);
   g.stroke();
+  // "FLOOR" label at right end
+  g.fillStyle = 'rgba(255, 255, 255, 0.50)';
+  g.font = `bold ${Math.round(h * 0.018)}px sans-serif`;
+  g.textAlign = 'right';
+  g.textBaseline = 'top';
+  g.fillText('FLOOR', w * 0.94, groundY + 4);
   g.restore();
 }
 
@@ -1048,7 +1074,14 @@ function isInPosition(lm, exercise) {
   }
   if (exercise === 'squat' || exercise === 'lunge') {
     // Body must be upright (not lying down)
-    return verticalSpan > 0.25;
+    if (verticalSpan <= 0.25) return false;
+    // Hips must be visible (not walked off-camera)
+    const hipVis = Math.min(lm[23].visibility, lm[24].visibility);
+    if (hipVis < 0.5) return false;
+    // Hip center must be roughly in frame (not at the extreme edges)
+    const hipCenter = (lm[23].y + lm[24].y) / 2;
+    if (hipCenter < 0.25 || hipCenter > 0.75) return false;
+    return true;
   }
   if (exercise === 'pullup') {
     // Wrists should be near or above shoulder height (user is hanging, not walking away)
@@ -1448,10 +1481,26 @@ exerciseSelect.addEventListener('change', () => {
       stateMessage.textContent = isFloor
         ? 'Get in position to auto-start — or raise hand / tap Ready'
         : 'Raise hand with palm facing camera — or tap Ready';
+      drawGuide(); // re-draw silhouette after toast clears (ensures it shows)
     }
   }, 1600);
 
-  speakForce(newName);
+  // For standing exercises, add a spoken prompt with instructions
+  const isStanding = state.exercise === 'squat' || state.exercise === 'lunge' || state.exercise === 'pullup';
+  if (isStanding) {
+    speakForce(`Ready for ${newName}. Raise your hand or tap Ready.`);
+  } else {
+    speakForce(newName);
+  }
+
+  // Brief highlight on the Ready button to draw attention
+  btnStart.style.transition = 'transform 0.3s ease, box-shadow 0.3s ease';
+  btnStart.style.transform = 'scale(1.15)';
+  btnStart.style.boxShadow = '0 0 12px rgba(74, 222, 128, 0.6)';
+  setTimeout(() => {
+    btnStart.style.transform = '';
+    btnStart.style.boxShadow = '';
+  }, 1200);
 });
 
 // Ready / Resume button
@@ -1548,6 +1597,7 @@ document.getElementById('btn-warmup').addEventListener('click', () => {
   state.warmupCurrentMin = Infinity;
   state.warmupCurrentMax = 0;
   state.warmupPhase = 'up';
+  state.warmupDirectionFrames = 0;
   state.prevAngle = null;
 
   setWorkoutState('countdown');

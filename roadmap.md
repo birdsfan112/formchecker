@@ -211,3 +211,13 @@ Each exercise will need:
 **Phase 3 status:** COMPLETE ✅
 
 **Next session:** Phone-test all Phase 3 features. Recommended test order: positioning (check green tint at 6ft), warmup calibration flow, per-rep score flash, end-of-set summary speech. Then begin Phase 4 (LocalStorage persistence).
+
+### Session: 2026-03-31 (Bug fixes + floor line feature)
+**Completed 3 bug fixes, 1 feature, 1 transition improvement:**
+1. **Bug 3: Silhouette not showing after exercise switch** — Added dimension guards to `drawGuide()`: if canvas width/height is zero, retries via `requestAnimationFrame` (max 3 attempts). Also added a second `drawGuide()` call after the 1.6s exercise-change toast clears, ensuring the silhouette always appears.
+2. **Bug 1: Warmup calibration fires too easily** — Increased direction-change threshold in `analyzeWarmup()` from 1° to 4°. Added `warmupDirectionFrames` counter requiring 3 consecutive frames moving the same direction before flipping `warmupPhase`. Prevents jitter from triggering false direction reversals.
+3. **Bug 4: Not pausing when moving from position (squat/lunge)** — Enhanced `isInPosition()` for squat/lunge: now checks hip landmark visibility (>0.5) and hip center Y position (must be between 0.25–0.75, i.e. roughly in frame). Rep counting pauses when user walks away from camera.
+4. **Feature: Floor exercise alignment line** — `drawHorizontalSide()` ground line upgraded: opacity 0.20→0.55, width 2→4px, solid instead of dashed, spans 3%–95% of screen width (was 6%–88%). Added "FLOOR" text label at right end.
+5. **Bug 2: Squat transition feedback** — Standing exercises (squat/lunge/pullup) now get a spoken prompt on switch: "Ready for [exercise]. Raise your hand or tap Ready." Ready button gets a brief scale-up + glow highlight animation on exercise change.
+
+**Tests:** 95 → 106 (+11 new tests). All green.
