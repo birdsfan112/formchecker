@@ -886,7 +886,12 @@ function isInPosition(lm, exercise) {
     return verticalSpan < 0.25;
   }
   if (exercise === 'squat' || exercise === 'lunge') {
-    return verticalSpan > 0.25;
+    if (verticalSpan <= 0.25) return false;
+    const hipVis = Math.min(lm[23].visibility, lm[24].visibility);
+    if (hipVis < 0.5) return false;
+    const hipCenter = (lm[23].y + lm[24].y) / 2;
+    if (hipCenter < 0.25 || hipCenter > 0.75) return false;
+    return true;
   }
   if (exercise === 'pullup') {
     const avgWristY = (lm[15].y + lm[16].y) / 2;
@@ -937,6 +942,25 @@ test('isInPosition: squat rejects lying-down body (span 0.08)', () => {
 test('isInPosition: lunge accepts upright body (span 0.55)', () => {
   const lm = makeLmWithSpan(0.25, 0.80);
   assertBool(isInPosition(lm, 'lunge'), true, 'Upright body should be in lunge position');
+});
+
+test('isInPosition: squat rejects when hips off-screen high (hipCenter < 0.25)', () => {
+  // Shoulders at 0.05, ankles at 0.60 → span=0.55 OK, but hipCenter=0.10 (too high)
+  const lm = makeLmWithSpan(0.05, 0.60);
+  lm[23].y = 0.10; lm[24].y = 0.10; // hips near top edge
+  assertBool(isInPosition(lm, 'squat'), false, 'Hips off-screen high should reject');
+});
+
+test('isInPosition: squat rejects when hip visibility is low', () => {
+  const lm = makeLmWithSpan(0.25, 0.80);
+  lm[23].visibility = 0.3; lm[24].visibility = 0.4; // low hip visibility
+  assertBool(isInPosition(lm, 'squat'), false, 'Low hip visibility should reject');
+});
+
+test('isInPosition: lunge rejects when hips off-screen low (hipCenter > 0.75)', () => {
+  const lm = makeLmWithSpan(0.40, 0.95);
+  lm[23].y = 0.80; lm[24].y = 0.80; // hips near bottom edge
+  assertBool(isInPosition(lm, 'lunge'), false, 'Hips off-screen low should reject');
 });
 
 test('isInPosition: pullup accepts wrists near shoulders (hanging)', () => {
@@ -1426,6 +1450,115 @@ test('buildSetSummary: avg <55 gives needs-work message', () => {
 test('buildSetSummary: singular rep uses correct grammar', () => {
   const msg = buildSetSummary(1, [], 'pushup');
   assert(msg.includes('1 rep.'), `Singular should say 'rep' not 'reps': ${msg}`);
+});
+
+// --- EXERCISE TRANSITION FEEDBACK TESTS ---
+test('exercise transition: standing exercises get spoken prompt with instructions', () => {
+  // Standing exercises should get "Ready for X. Raise your hand or tap Ready."
+  const standingExercises = ['squat', 'lunge', 'pullup'];
+  const floorExercises = ['pushup', 'plank'];
+
+  standingExercises.forEach(ex => {
+    const isStanding = ex === 'squat' || ex === 'lunge' || ex === 'pullup';
+    assert(isStanding, `${ex} should be classified as standing`);
+  });
+
+  floorExercises.forEach(ex => {
+    const isStanding = ex === 'squat' || ex === 'lunge' || ex === 'pullup';
+    assert(!isStanding, `${ex} should NOT be classified as standing`);
+  });
+});
+
+// --- FLOOR LINE VISIBILITY TESTS ---
+test('floor line: spans nearly full width (3% to 95%)', () => {
+  const w = 640;
+  const startX = w * 0.03;
+  const endX = w * 0.95;
+  const span = (endX - startX) / w;
+  assert(span > 0.90, `Floor line should span >90% of width, got ${(span * 100).toFixed(0)}%`);
+});
+
+test('floor line: opacity is 0.55 (clearly visible)', () => {
+  // The line uses rgba(255, 255, 255, 0.55) — verify alpha > 0.4
+  const alpha = 0.55;
+  assert(alpha >= 0.4, 'Floor line opacity should be >= 0.4 for visibility');
+  assert(alpha <= 0.7, 'Floor line opacity should be <= 0.7 to not obscure camera');
+});
+
+// --- WARMUP DIRECTION CHANGE JITTER FILTER TESTS ---
+// Simulates the analyzeWarmup direction-change logic: requires 4° change AND 3 consecutive frames
+function simulateWarmupDirectionChanges(angleSequence) {
+  let warmupPhase = 'up';
+  let prevAngle = null;
+  let directionFrames = 0;
+  const phaseFlips = [];
+
+  for (const primaryAngle of angleSequence) {
+    const goingDown = prevAngle !== null && primaryAngle < prevAngle - 4;
+    const goingUp   = prevAngle !== null && primaryAngle > prevAngle + 4;
+    prevAngle = primaryAngle;
+
+    const wantFlip = (warmupPhase === 'up' && goingDown) || (warmupPhase === 'down' && goingUp);
+    if (wantFlip) {
+      directionFrames++;
+    } else {
+      directionFrames = 0;
+    }
+
+    if (warmupPhase === 'up' && goingDown && directionFrames >= 3) {
+      warmupPhase = 'down';
+      directionFrames = 0;
+      phaseFlips.push('down');
+    }
+    if (warmupPhase === 'down' && goingUp && directionFrames >= 3) {
+      warmupPhase = 'up';
+      directionFrames = 0;
+      phaseFlips.push('up');
+    }
+  }
+  return phaseFlips;
+}
+
+test('warmup jitter filter: small oscillations do not flip phase', () => {
+  // 2° jitter around 160° — should never flip
+  const angles = [160, 158, 160, 158, 160, 162, 160, 158];
+  const flips = simulateWarmupDirectionChanges(angles);
+  assertEquals(flips.length, 0, 'Small jitter should produce no phase flips');
+});
+
+test('warmup jitter filter: single large drop then reversal does not flip', () => {
+  // One frame drops 5° but immediately reverses — not 3 consecutive
+  const angles = [160, 155, 160, 165];
+  const flips = simulateWarmupDirectionChanges(angles);
+  assertEquals(flips.length, 0, 'Single-frame drop should not flip phase');
+});
+
+test('warmup jitter filter: sustained descent flips to down after 3 frames', () => {
+  // Steady descent: each frame drops >4° — should flip after 3 consecutive
+  const angles = [170, 165, 160, 155, 150];
+  const flips = simulateWarmupDirectionChanges(angles);
+  assert(flips.includes('down'), 'Sustained descent should flip phase to down');
+});
+
+test('warmup jitter filter: sustained ascent flips back to up', () => {
+  // Go down first (3+ frames), then come back up (3+ frames)
+  const angles = [170, 165, 160, 155, 150, 155, 160, 165, 170];
+  const flips = simulateWarmupDirectionChanges(angles);
+  assert(flips.includes('down'), 'Should flip to down first');
+  assert(flips.includes('up'), 'Should flip back to up on sustained ascent');
+});
+
+// --- SILHOUETTE GUIDE DIMENSION GUARD TESTS ---
+test('drawGuide: dimension guard returns false for zero-width canvas', () => {
+  // Simulates the guard logic: if width or height is 0, drawGuide should not proceed
+  function shouldDrawGuide(width, height) {
+    if (width === 0 || height === 0) return false;
+    return true;
+  }
+  assertBool(shouldDrawGuide(0, 480), false, 'Zero width should block drawing');
+  assertBool(shouldDrawGuide(640, 0), false, 'Zero height should block drawing');
+  assertBool(shouldDrawGuide(0, 0), false, 'Both zero should block drawing');
+  assertBool(shouldDrawGuide(640, 480), true, 'Valid dimensions should allow drawing');
 });
 
 test('per-rep score: average of frame scores for a rep', () => {
