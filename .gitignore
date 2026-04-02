@@ -1,0 +1,26 @@
+# SSL certificates and private keys — NEVER commit
+*.pem
+
+# Large media files — too big for git (GitHub 100 MB limit)
+*.mov
+*.mp4
+*.avi
+*.mkv
+
+# Claude Code session data
+.claude/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment / secrets
+.env
+
+# Logs
+*.log
+
+# OS junk
+.DS_Store
+Thumbs.db
