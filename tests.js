@@ -1083,6 +1083,84 @@ test('computeWarmupThresholds: handles single valley', () => {
   assert(result.extensionThreshold !== null, 'Extension threshold should be set');
 });
 
+// ===== APPLY ALL CALIBRATION RESULTS (GUIDED SEQUENCE) =====
+// Extracted from index.html — applies squat+pushup results and derives lunge+pullup
+
+function applyAllCalibrationResults(results) {
+  // Need a fresh calibration object for testing
+  const cal = JSON.parse(JSON.stringify({
+    pushup: { elbow_down: 100, elbow_up: 150 },
+    squat:  { knee_down: 100, knee_up: 160 },
+    pullup: { elbow_top: 80, elbow_bottom: 150 },
+    lunge:  { knee_down: 110, knee_up: 155 }
+  }));
+
+  if (results.squat) {
+    const { depthThreshold, extensionThreshold } = results.squat;
+    cal.squat.knee_down = depthThreshold;
+    if (extensionThreshold) cal.squat.knee_up = extensionThreshold;
+    cal.lunge.knee_down = Math.min(depthThreshold + 10, 135);
+    if (extensionThreshold) cal.lunge.knee_up = Math.max(extensionThreshold - 5, cal.lunge.knee_down + 20);
+  }
+  if (results.pushup) {
+    const { depthThreshold, extensionThreshold } = results.pushup;
+    cal.pushup.elbow_down = depthThreshold;
+    if (extensionThreshold) cal.pushup.elbow_up = extensionThreshold;
+    cal.pullup.elbow_top = Math.max(depthThreshold - 20, 50);
+    if (extensionThreshold) cal.pullup.elbow_bottom = extensionThreshold;
+  }
+  return cal;
+}
+
+test('applyAllCalibrationResults: squat results set squat thresholds', () => {
+  const sqResult = computeWarmupThresholds([80, 82, 78], [162, 160]);
+  const cal = applyAllCalibrationResults({ squat: sqResult });
+  assertEquals(cal.squat.knee_down, sqResult.depthThreshold, 'Squat depth should match');
+  assertEquals(cal.squat.knee_up, sqResult.extensionThreshold, 'Squat extension should match');
+});
+
+test('applyAllCalibrationResults: squat results derive lunge thresholds', () => {
+  const sqResult = computeWarmupThresholds([85, 85, 85], [165, 165]);
+  const cal = applyAllCalibrationResults({ squat: sqResult });
+  // Lunge depth = squat depth + 10 (shallower)
+  assertEquals(cal.lunge.knee_down, sqResult.depthThreshold + 10, 'Lunge depth = squat depth + 10');
+  // Lunge extension exists and is >= lunge depth + 20
+  assert(cal.lunge.knee_up >= cal.lunge.knee_down + 20, 'Lunge extension must be >= depth + 20');
+});
+
+test('applyAllCalibrationResults: pushup results set pushup thresholds', () => {
+  const puResult = computeWarmupThresholds([75, 78, 76], [158, 160]);
+  const cal = applyAllCalibrationResults({ pushup: puResult });
+  assertEquals(cal.pushup.elbow_down, puResult.depthThreshold, 'Pushup depth should match');
+  assertEquals(cal.pushup.elbow_up, puResult.extensionThreshold, 'Pushup extension should match');
+});
+
+test('applyAllCalibrationResults: pushup results derive pullup thresholds', () => {
+  const puResult = computeWarmupThresholds([80, 80, 80], [160, 160]);
+  const cal = applyAllCalibrationResults({ pushup: puResult });
+  // Pullup top = pushup depth - 20 (tighter)
+  assertEquals(cal.pullup.elbow_top, puResult.depthThreshold - 20, 'Pullup top = pushup depth - 20');
+  assertEquals(cal.pullup.elbow_bottom, puResult.extensionThreshold, 'Pullup bottom = pushup extension');
+});
+
+test('applyAllCalibrationResults: pullup top floors at 50°', () => {
+  // Very flexible person: pushup depth at 65° → pullup top would be 45, but floors at 50
+  const puResult = computeWarmupThresholds([57, 57], [160]);
+  const cal = applyAllCalibrationResults({ pushup: puResult });
+  assertEquals(cal.pullup.elbow_top, 50, 'Pullup top should floor at 50°');
+});
+
+test('applyAllCalibrationResults: both exercises combined', () => {
+  const sqResult = computeWarmupThresholds([85, 85, 85], [165, 165]);
+  const puResult = computeWarmupThresholds([78, 78, 78], [158, 158]);
+  const cal = applyAllCalibrationResults({ squat: sqResult, pushup: puResult });
+  // All four exercises should be calibrated
+  assertEquals(cal.squat.knee_down, sqResult.depthThreshold, 'Squat calibrated');
+  assertEquals(cal.pushup.elbow_down, puResult.depthThreshold, 'Pushup calibrated');
+  assert(cal.lunge.knee_down > cal.squat.knee_down, 'Lunge shallower than squat');
+  assert(cal.pullup.elbow_top < cal.pushup.elbow_down, 'Pullup tighter than pushup');
+});
+
 test('getPrimaryAngle: pushup uses elbow angle (straight arm = ~180°)', () => {
   const lm = Array(33).fill({ x: 0.5, y: 0.5 });
   // Straight left arm: shoulder-elbow-wrist all in a line → ~180°

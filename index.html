@@ -70,6 +70,29 @@
   }
   #exercise-name.exercise-changed { animation: exerciseNameIn 0.35s ease-out; }
 
+  /* Per-rep form score flash — big visible pop in the center feedback area */
+  @keyframes repScoreFlash {
+    0%   { opacity: 0; transform: scale(0.6); }
+    30%  { opacity: 1; transform: scale(1.15); }
+    70%  { opacity: 1; transform: scale(1.0); }
+    100% { opacity: 0; transform: scale(0.9); }
+  }
+  #rep-score-flash {
+    position: absolute;
+    top: 35%;
+    left: 0; right: 0;
+    text-align: center;
+    font-size: 64px;
+    font-weight: 900;
+    pointer-events: none;
+    z-index: 12;
+    text-shadow: 0 4px 20px rgba(0,0,0,0.9), 0 0 40px rgba(0,0,0,0.5);
+    opacity: 0;
+  }
+  #rep-score-flash.flash-active {
+    animation: repScoreFlash 1.6s ease-out forwards;
+  }
+
   /* Loading */
   #loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #1a1a2e; z-index: 100; }
   #loading h2 { margin-bottom: 12px; }
@@ -102,6 +125,7 @@
     </div>
     <div id="angle-hint"></div>
     <div id="form-feedback"></div>
+    <div id="rep-score-flash"></div>
     <div id="state-overlay">
       <div id="countdown-display"></div>
       <div id="state-message"></div>
@@ -199,6 +223,13 @@ const state = {
   warmupValleys: [],       // depth angles recorded at bottom of each warmup rep
   warmupCurrentMin: Infinity, // min angle seen during current warmup descent
   warmupCurrentMax: 0,     // max angle seen during current warmup ascent
+  // Guided calibration sequence state
+  warmupCalSequence: [],     // exercises to calibrate: ['squat', 'pushup']
+  warmupCalStep: 0,          // current index in calSequence
+  warmupSubPhase: 'positioning', // 'positioning' | 'countdown' | 'tracking'
+  warmupAlignedTime: 0,      // when positioning first detected alignment
+  warmupOriginalExercise: null, // what exercise was selected before cal started
+  warmupResults: {},          // accumulated {exercise: {valleys, peaks}} per exercise
 };
 
 // Camera angles + silhouette guide points per exercise (normalized 0-1 coords)
@@ -395,8 +426,9 @@ function analyzeWarmup(lm) {
   state.warmupCurrentMin = Math.min(state.warmupCurrentMin, primaryAngle);
   state.warmupCurrentMax = Math.max(state.warmupCurrentMax, primaryAngle);
 
-  const goingDown = state.prevAngle !== null && primaryAngle < state.prevAngle - 1;
-  const goingUp   = state.prevAngle !== null && primaryAngle > state.prevAngle + 1;
+  // 4° threshold filters MediaPipe jitter at 6+ feet (was 1° — too sensitive, counted noise as reps)
+  const goingDown = state.prevAngle !== null && primaryAngle < state.prevAngle - 4;
+  const goingUp   = state.prevAngle !== null && primaryAngle > state.prevAngle + 4;
   state.prevAngle = primaryAngle;
 
   if (state.warmupPhase === 'up' && goingDown) {
@@ -437,25 +469,73 @@ function finishWarmupCalibration() {
     return;
   }
 
-  const { depthThreshold, extensionThreshold } = result;
+  // Store result for this exercise
+  state.warmupResults[ex] = result;
+  speakForce('Good');
 
-  if (ex === 'pushup') {
-    calibration.pushup.elbow_down = depthThreshold;
-    if (extensionThreshold) calibration.pushup.elbow_up = extensionThreshold;
-  } else if (ex === 'squat') {
-    calibration.squat.knee_down = depthThreshold;
-    if (extensionThreshold) calibration.squat.knee_up = extensionThreshold;
-  } else if (ex === 'pullup') {
-    calibration.pullup.elbow_top = depthThreshold;
-    if (extensionThreshold) calibration.pullup.elbow_bottom = extensionThreshold;
-  } else if (ex === 'lunge') {
-    calibration.lunge.knee_down = depthThreshold;
-    if (extensionThreshold) calibration.lunge.knee_up = extensionThreshold;
+  // Check if more exercises in the sequence
+  state.warmupCalStep++;
+  if (state.warmupCalStep < state.warmupCalSequence.length) {
+    // Advance to next calibration exercise
+    const nextEx = state.warmupCalSequence[state.warmupCalStep];
+    state.exercise = nextEx;
+    exerciseSelect.value = nextEx;
+    exerciseNameEl.textContent = exerciseMeta[nextEx].name;
+    showFeedback(`Next: ${exerciseMeta[nextEx].name}`, 'good');
+
+    // Reset warmup tracking for next exercise
+    state.warmupReps = 0;
+    state.warmupPeaks = [];
+    state.warmupValleys = [];
+    state.warmupCurrentMin = Infinity;
+    state.warmupCurrentMax = 0;
+    state.warmupPhase = 'up';
+    state.prevAngle = null;
+    state.warmupSubPhase = 'positioning';
+    state.warmupAlignedTime = 0;
+
+    // Voice guidance for next exercise
+    setTimeout(() => {
+      speakForce(`Now get into ${exerciseMeta[nextEx].name.toLowerCase()} position`);
+      stateMessage.textContent = `Position for ${exerciseMeta[nextEx].name}`;
+      drawGuide();
+    }, 800);
+    return;
   }
 
-  speakForce('Calibration done');
-  showFeedback(`Calibrated! Depth: ${depthThreshold}°`, 'good');
+  // All exercises done — apply all results
+  applyAllCalibrationResults(state.warmupResults);
+
+  // Restore original exercise
+  const origEx = state.warmupOriginalExercise || 'pushup';
+  state.exercise = origEx;
+  exerciseSelect.value = origEx;
+  exerciseNameEl.textContent = exerciseMeta[origEx].name;
+
+  speakForce('Calibration complete');
+  showFeedback('All calibrated!', 'good');
   setTimeout(() => setWorkoutState('idle'), 1800);
+}
+
+// Apply calibration results from all exercises in the guided sequence.
+// Squat ROM feeds lunge thresholds; pushup ROM feeds pullup thresholds.
+function applyAllCalibrationResults(results) {
+  if (results.squat) {
+    const { depthThreshold, extensionThreshold } = results.squat;
+    calibration.squat.knee_down = depthThreshold;
+    if (extensionThreshold) calibration.squat.knee_up = extensionThreshold;
+    // Derive lunge from squat — lunge depth is typically ~10° shallower than squat
+    calibration.lunge.knee_down = Math.min(depthThreshold + 10, 135);
+    if (extensionThreshold) calibration.lunge.knee_up = Math.max(extensionThreshold - 5, calibration.lunge.knee_down + 20);
+  }
+  if (results.pushup) {
+    const { depthThreshold, extensionThreshold } = results.pushup;
+    calibration.pushup.elbow_down = depthThreshold;
+    if (extensionThreshold) calibration.pushup.elbow_up = extensionThreshold;
+    // Derive pullup from pushup — pullup top is typically ~20° tighter than pushup depth
+    calibration.pullup.elbow_top = Math.max(depthThreshold - 20, 50);
+    if (extensionThreshold) calibration.pullup.elbow_bottom = extensionThreshold;
+  }
 }
 
 // ===== DOM =====
@@ -471,6 +551,7 @@ const formFeedback = document.getElementById('form-feedback');
 const setCount = document.getElementById('set-count');
 const totalRepsEl = document.getElementById('total-reps');
 const formScoreEl = document.getElementById('form-score');
+const repScoreFlash = document.getElementById('rep-score-flash');
 const elapsedTime = document.getElementById('elapsed-time');
 const btnStart = document.getElementById('btn-start');
 const btnPause = document.getElementById('btn-pause');
@@ -588,7 +669,9 @@ function drawGuide() {
   guideCanvas.height = guideCanvas.clientHeight;
   guideCtx.clearRect(0, 0, guideCanvas.width, guideCanvas.height);
 
-  if (state.workoutState !== 'idle' && state.workoutState !== 'countdown') return;
+  const showGuide = state.workoutState === 'idle' || state.workoutState === 'countdown'
+    || (state.workoutState === 'warmup' && state.warmupSubPhase === 'positioning');
+  if (!showGuide) return;
 
   const w = guideCanvas.width;
   const h = guideCanvas.height;
@@ -714,7 +797,7 @@ function drawHorizontalSide(w, h, ex, aligned) {
   // Person faces LEFT in drawing coords (appears facing right on mirrored camera).
   // Ground line near bottom of frame, figure fills ~30% of screen height.
   const g = guideCtx;
-  const groundY = h * 0.76;     // ground level — lower on screen for a bigger figure
+  const groundY = h * 0.85;     // ground level — sits low so camera captures floor exercises better
   const headR   = w * 0.030;    // slightly larger head for readability
   const bodyThick = h * 0.050;  // body thickness
 
@@ -1122,8 +1205,13 @@ function setWorkoutState(newState) {
     case 'warmup':
       stateOverlay.classList.remove('clickable');
       countdownDisplay.textContent = '';
-      stateMessage.textContent = 'Do 3 slow reps — calibrating your range';
-      guideCtx.clearRect(0, 0, guideCanvas.width, guideCanvas.height);
+      if (state.warmupSubPhase === 'positioning') {
+        stateMessage.textContent = `Position for ${exerciseMeta[state.exercise].name}`;
+        drawGuide(); // show silhouette so user can align
+      } else if (state.warmupSubPhase === 'tracking') {
+        stateMessage.textContent = 'Do 3 slow reps — calibrating your range';
+        guideCtx.clearRect(0, 0, guideCanvas.width, guideCanvas.height);
+      }
       break;
   }
 
@@ -1537,11 +1625,20 @@ btnVoice.addEventListener('click', () => {
 
 // Warmup calibration — do 3 reps to learn the user's actual range of motion
 document.getElementById('btn-warmup').addEventListener('click', () => {
-  if (state.exercise === 'plank') {
-    showFeedback('Plank uses time — no warmup needed', 'warn');
-    return;
-  }
-  // Reset all warmup tracking
+  // Guided calibration: squat (covers squat + lunge) then pushup (covers pushup + pullup)
+  // Plank is timer-based and doesn't need ROM calibration
+  state.warmupCalSequence = ['squat', 'pushup'];
+  state.warmupCalStep = 0;
+  state.warmupOriginalExercise = state.exercise;
+  state.warmupResults = {};
+
+  // Start with first calibration exercise
+  const firstEx = state.warmupCalSequence[0];
+  state.exercise = firstEx;
+  exerciseSelect.value = firstEx;
+  exerciseNameEl.textContent = exerciseMeta[firstEx].name;
+
+  // Reset warmup tracking
   state.warmupReps = 0;
   state.warmupPeaks = [];
   state.warmupValleys = [];
@@ -1549,23 +1646,11 @@ document.getElementById('btn-warmup').addEventListener('click', () => {
   state.warmupCurrentMax = 0;
   state.warmupPhase = 'up';
   state.prevAngle = null;
+  state.warmupSubPhase = 'positioning';
+  state.warmupAlignedTime = 0;
 
-  setWorkoutState('countdown');
-  let count = 3;
-  countdownDisplay.textContent = count;
-  speakForce(String(count));
-  const interval = setInterval(() => {
-    count--;
-    if (count > 0) {
-      countdownDisplay.textContent = count;
-      speakForce(String(count));
-    } else {
-      clearInterval(interval);
-      countdownDisplay.textContent = '...';
-      speakForce('Start moving');
-      setTimeout(() => setWorkoutState('warmup'), 600);
-    }
-  }, 1000);
+  speakForce(`Calibration starting. Get into ${exerciseMeta[firstEx].name.toLowerCase()} position.`);
+  setWorkoutState('warmup');
 });
 
 // Calibration save/load
@@ -1668,8 +1753,55 @@ pose.onResults((results) => {
   // Only analyze when active or in warmup calibration
   if (state.workoutState !== 'active' && state.workoutState !== 'warmup') return;
 
-  // Warmup calibration mode — track joint angles, count 3 reps, then set thresholds
+  // Warmup calibration mode — guided positioning → countdown → rep tracking
   if (state.workoutState === 'warmup') {
+    if (state.warmupSubPhase === 'positioning') {
+      // Show silhouette guide and wait for user to get aligned
+      const pos = checkPositioning(lm);
+      drawGuide(); // keep redrawing so it tints green/white
+
+      if (pos.aligned) {
+        if (state.warmupAlignedTime === 0) {
+          state.warmupAlignedTime = Date.now();
+          stateMessage.textContent = '✓ Hold steady...';
+        }
+        // Require 2 seconds of stable alignment before proceeding
+        const held = Date.now() - state.warmupAlignedTime;
+        if (held >= 2000) {
+          // Aligned long enough — start countdown
+          state.warmupSubPhase = 'countdown';
+          let count = 3;
+          countdownDisplay.textContent = count;
+          speakForce(String(count));
+          const calInterval = setInterval(() => {
+            count--;
+            if (count > 0) {
+              countdownDisplay.textContent = count;
+              speakForce(String(count));
+            } else {
+              clearInterval(calInterval);
+              countdownDisplay.textContent = '';
+              const exName = exerciseMeta[state.exercise].name.toLowerCase();
+              speakForce(`Do 3 slow ${exName}`);
+              state.warmupSubPhase = 'tracking';
+              stateMessage.textContent = 'Do 3 slow reps — calibrating your range';
+              guideCtx.clearRect(0, 0, guideCanvas.width, guideCanvas.height);
+            }
+          }, 1000);
+        }
+      } else {
+        state.warmupAlignedTime = 0; // reset if they move out
+        if (pos.hint) stateMessage.textContent = pos.hint;
+      }
+      return;
+    }
+
+    if (state.warmupSubPhase === 'countdown') {
+      // Countdown in progress — just wait
+      return;
+    }
+
+    // 'tracking' sub-phase: count reps
     if (!isInPosition(lm, state.exercise)) {
       showFeedback(OUT_OF_POSITION_MSG[state.exercise] || 'Return to position', 'warn');
       return;
@@ -1749,15 +1881,22 @@ pose.onResults((results) => {
         state.repFormScores.push(repScore);
         state.currentRepScores = [];
 
-        // Flash per-rep score: green ≥80, yellow ≥60, red <60
+        // Flash per-rep score in stats bar
+        const repColor = repScore >= 80 ? '#4ade80' : repScore >= 60 ? '#fbbf24' : '#f87171';
         formScoreEl.textContent = `${repScore}%`;
-        formScoreEl.style.color = repScore >= 80 ? '#4ade80' : repScore >= 60 ? '#fbbf24' : '#f87171';
+        formScoreEl.style.color = repColor;
         setTimeout(() => {
-          // Fade back to set average after 1.5s
           const setAvg = Math.round(state.formScores.reduce((a, b) => a + b, 0) / state.formScores.length);
           formScoreEl.textContent = `${setAvg}%`;
           formScoreEl.style.color = '';
         }, 1500);
+
+        // Big visible flash in center of screen — readable from 6 feet
+        repScoreFlash.textContent = `${repScore}%`;
+        repScoreFlash.style.color = repColor;
+        repScoreFlash.classList.remove('flash-active');
+        void repScoreFlash.offsetWidth; // force reflow to restart animation
+        repScoreFlash.classList.add('flash-active');
       } else {
         // Between reps: show running set average
         const avg = Math.round(state.formScores.reduce((a, b) => a + b, 0) / state.formScores.length);

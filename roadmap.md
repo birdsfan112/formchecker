@@ -211,3 +211,29 @@ Each exercise will need:
 **Phase 3 status:** COMPLETE ✅
 
 **Next session:** Phone-test all Phase 3 features. Recommended test order: positioning (check green tint at 6ft), warmup calibration flow, per-rep score flash, end-of-set summary speech. Then begin Phase 4 (LocalStorage persistence).
+
+### Session: 2026-03-28 (Phase 3 phone-test fixes)
+**Based on Scott's phone testing feedback — three issues fixed:**
+
+1. **Warmup calibration overhaul** — Complete rewrite of the calibration flow. Old: press button → instant countdown → track reps with no guidance. New: guided 2-exercise sequence (squat → pushup) that covers ROM for all 5 exercises. Each exercise gets a positioning phase (silhouette guide, green tint when aligned, 2-second hold required), voice guidance ("Get into squats position", "Do 3 slow squats"), and a 3-2-1 countdown before tracking starts. Direction reversal threshold bumped from 1° to 4° to filter MediaPipe jitter at 6+ feet. Results from squat derive lunge thresholds (+10° shallower); pushup derives pullup thresholds (-20° tighter). Original exercise restored after calibration.
+2. **Pushup/plank silhouettes lowered** — Ground line moved from `h * 0.76` to `h * 0.85`. Floor exercise silhouettes now sit lower on screen where the camera actually captures you.
+3. **Per-rep form score flash visibility** — Added `#rep-score-flash` element: 64px bold text, centered on camera feed, with a scale-pop animation (1.6s). Green/yellow/red coloring matches stats bar. Visible from 6+ feet instead of relying on the tiny stats bar alone.
+
+**Working well (confirmed by phone test):** End-of-set summary speech, milestone/breathing/tempo cues, frame positioning auto-detect (green tint + hints).
+
+**Tests:** 95 → 101 (+6 new: `applyAllCalibrationResults` — squat→lunge derivation, pushup→pullup derivation, floor at 50°, combined calibration). All green.
+
+**Phone testing needed (priority order):**
+1. **Calibration flow**: Press Warmup Cal → does squat silhouette appear? Does it tint green when aligned? Does voice guide you through squats then pushups? Do the 2-second hold and 4° threshold feel right (not too fast, not too slow)?
+2. **Silhouette height**: Do pushup/plank outlines sit where your body actually appears on camera at 6ft? (Was too high before — now at 85% of screen height)
+3. **Rep score flash**: During a set, can you see the big score number pop up in the center of the screen after each rep?
+4. **Relative thresholds**: After completing calibration, do depth cues ("Go deeper") fire at the right point for YOUR range?
+
+**Next session:** Phone-test the above. If calibration flow works, begin Phase 4 (LocalStorage persistence).
+
+### 2026-04-01 — Git hygiene
+- Created `.gitignore` (blocks .pem private keys, large .mov video, caches, .claude/)
+- Created `.claudeignore` (blocks .claude/ worktrees, .mov video, .pem files, old test reports)
+- Pushed .gitignore to existing GitHub repo: birdsfan112/formchecker
+- **Security note:** cert.pem and key.pem were never committed to git — .gitignore now prevents accidental staging.
+- **Next session:** Resume from Phase 3 completion state.
