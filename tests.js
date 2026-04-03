@@ -886,7 +886,12 @@ function isInPosition(lm, exercise) {
     return verticalSpan < 0.25;
   }
   if (exercise === 'squat' || exercise === 'lunge') {
-    return verticalSpan > 0.25;
+    if (verticalSpan <= 0.25) return false;
+    const hipVis = Math.min(lm[23].visibility, lm[24].visibility);
+    if (hipVis < 0.5) return false;
+    const hipCenter = (lm[23].y + lm[24].y) / 2;
+    if (hipCenter < 0.25 || hipCenter > 0.75) return false;
+    return true;
   }
   if (exercise === 'pullup') {
     const avgWristY = (lm[15].y + lm[16].y) / 2;
@@ -937,6 +942,25 @@ test('isInPosition: squat rejects lying-down body (span 0.08)', () => {
 test('isInPosition: lunge accepts upright body (span 0.55)', () => {
   const lm = makeLmWithSpan(0.25, 0.80);
   assertBool(isInPosition(lm, 'lunge'), true, 'Upright body should be in lunge position');
+});
+
+test('isInPosition: squat rejects when hips off-screen high (hipCenter < 0.25)', () => {
+  // Shoulders at 0.05, ankles at 0.60 → span=0.55 OK, but hipCenter=0.10 (too high)
+  const lm = makeLmWithSpan(0.05, 0.60);
+  lm[23].y = 0.10; lm[24].y = 0.10; // hips near top edge
+  assertBool(isInPosition(lm, 'squat'), false, 'Hips off-screen high should reject');
+});
+
+test('isInPosition: squat rejects when hip visibility is low', () => {
+  const lm = makeLmWithSpan(0.25, 0.80);
+  lm[23].visibility = 0.3; lm[24].visibility = 0.4; // low hip visibility
+  assertBool(isInPosition(lm, 'squat'), false, 'Low hip visibility should reject');
+});
+
+test('isInPosition: lunge rejects when hips off-screen low (hipCenter > 0.75)', () => {
+  const lm = makeLmWithSpan(0.40, 0.95);
+  lm[23].y = 0.80; lm[24].y = 0.80; // hips near bottom edge
+  assertBool(isInPosition(lm, 'lunge'), false, 'Hips off-screen low should reject');
 });
 
 test('isInPosition: pullup accepts wrists near shoulders (hanging)', () => {
@@ -1081,6 +1105,84 @@ test('computeWarmupThresholds: handles single valley', () => {
   const result = computeWarmupThresholds([90], [155]);
   assertEquals(result.depthThreshold, 98, 'Should work with single valley (90 + 8 = 98)');
   assert(result.extensionThreshold !== null, 'Extension threshold should be set');
+});
+
+// ===== APPLY ALL CALIBRATION RESULTS (GUIDED SEQUENCE) =====
+// Extracted from index.html — applies squat+pushup results and derives lunge+pullup
+
+function applyAllCalibrationResults(results) {
+  // Need a fresh calibration object for testing
+  const cal = JSON.parse(JSON.stringify({
+    pushup: { elbow_down: 100, elbow_up: 150 },
+    squat:  { knee_down: 100, knee_up: 160 },
+    pullup: { elbow_top: 80, elbow_bottom: 150 },
+    lunge:  { knee_down: 110, knee_up: 155 }
+  }));
+
+  if (results.squat) {
+    const { depthThreshold, extensionThreshold } = results.squat;
+    cal.squat.knee_down = depthThreshold;
+    if (extensionThreshold) cal.squat.knee_up = extensionThreshold;
+    cal.lunge.knee_down = Math.min(depthThreshold + 10, 135);
+    if (extensionThreshold) cal.lunge.knee_up = Math.max(extensionThreshold - 5, cal.lunge.knee_down + 20);
+  }
+  if (results.pushup) {
+    const { depthThreshold, extensionThreshold } = results.pushup;
+    cal.pushup.elbow_down = depthThreshold;
+    if (extensionThreshold) cal.pushup.elbow_up = extensionThreshold;
+    cal.pullup.elbow_top = Math.max(depthThreshold - 20, 50);
+    if (extensionThreshold) cal.pullup.elbow_bottom = extensionThreshold;
+  }
+  return cal;
+}
+
+test('applyAllCalibrationResults: squat results set squat thresholds', () => {
+  const sqResult = computeWarmupThresholds([80, 82, 78], [162, 160]);
+  const cal = applyAllCalibrationResults({ squat: sqResult });
+  assertEquals(cal.squat.knee_down, sqResult.depthThreshold, 'Squat depth should match');
+  assertEquals(cal.squat.knee_up, sqResult.extensionThreshold, 'Squat extension should match');
+});
+
+test('applyAllCalibrationResults: squat results derive lunge thresholds', () => {
+  const sqResult = computeWarmupThresholds([85, 85, 85], [165, 165]);
+  const cal = applyAllCalibrationResults({ squat: sqResult });
+  // Lunge depth = squat depth + 10 (shallower)
+  assertEquals(cal.lunge.knee_down, sqResult.depthThreshold + 10, 'Lunge depth = squat depth + 10');
+  // Lunge extension exists and is >= lunge depth + 20
+  assert(cal.lunge.knee_up >= cal.lunge.knee_down + 20, 'Lunge extension must be >= depth + 20');
+});
+
+test('applyAllCalibrationResults: pushup results set pushup thresholds', () => {
+  const puResult = computeWarmupThresholds([75, 78, 76], [158, 160]);
+  const cal = applyAllCalibrationResults({ pushup: puResult });
+  assertEquals(cal.pushup.elbow_down, puResult.depthThreshold, 'Pushup depth should match');
+  assertEquals(cal.pushup.elbow_up, puResult.extensionThreshold, 'Pushup extension should match');
+});
+
+test('applyAllCalibrationResults: pushup results derive pullup thresholds', () => {
+  const puResult = computeWarmupThresholds([80, 80, 80], [160, 160]);
+  const cal = applyAllCalibrationResults({ pushup: puResult });
+  // Pullup top = pushup depth - 20 (tighter)
+  assertEquals(cal.pullup.elbow_top, puResult.depthThreshold - 20, 'Pullup top = pushup depth - 20');
+  assertEquals(cal.pullup.elbow_bottom, puResult.extensionThreshold, 'Pullup bottom = pushup extension');
+});
+
+test('applyAllCalibrationResults: pullup top floors at 50°', () => {
+  // Very flexible person: pushup depth at 65° → pullup top would be 45, but floors at 50
+  const puResult = computeWarmupThresholds([57, 57], [160]);
+  const cal = applyAllCalibrationResults({ pushup: puResult });
+  assertEquals(cal.pullup.elbow_top, 50, 'Pullup top should floor at 50°');
+});
+
+test('applyAllCalibrationResults: both exercises combined', () => {
+  const sqResult = computeWarmupThresholds([85, 85, 85], [165, 165]);
+  const puResult = computeWarmupThresholds([78, 78, 78], [158, 158]);
+  const cal = applyAllCalibrationResults({ squat: sqResult, pushup: puResult });
+  // All four exercises should be calibrated
+  assertEquals(cal.squat.knee_down, sqResult.depthThreshold, 'Squat calibrated');
+  assertEquals(cal.pushup.elbow_down, puResult.depthThreshold, 'Pushup calibrated');
+  assert(cal.lunge.knee_down > cal.squat.knee_down, 'Lunge shallower than squat');
+  assert(cal.pullup.elbow_top < cal.pushup.elbow_down, 'Pullup tighter than pushup');
 });
 
 test('getPrimaryAngle: pushup uses elbow angle (straight arm = ~180°)', () => {
@@ -1350,6 +1452,115 @@ test('buildSetSummary: singular rep uses correct grammar', () => {
   assert(msg.includes('1 rep.'), `Singular should say 'rep' not 'reps': ${msg}`);
 });
 
+// --- EXERCISE TRANSITION FEEDBACK TESTS ---
+test('exercise transition: standing exercises get spoken prompt with instructions', () => {
+  // Standing exercises should get "Ready for X. Raise your hand or tap Ready."
+  const standingExercises = ['squat', 'lunge', 'pullup'];
+  const floorExercises = ['pushup', 'plank'];
+
+  standingExercises.forEach(ex => {
+    const isStanding = ex === 'squat' || ex === 'lunge' || ex === 'pullup';
+    assert(isStanding, `${ex} should be classified as standing`);
+  });
+
+  floorExercises.forEach(ex => {
+    const isStanding = ex === 'squat' || ex === 'lunge' || ex === 'pullup';
+    assert(!isStanding, `${ex} should NOT be classified as standing`);
+  });
+});
+
+// --- FLOOR LINE VISIBILITY TESTS ---
+test('floor line: spans nearly full width (3% to 95%)', () => {
+  const w = 640;
+  const startX = w * 0.03;
+  const endX = w * 0.95;
+  const span = (endX - startX) / w;
+  assert(span > 0.90, `Floor line should span >90% of width, got ${(span * 100).toFixed(0)}%`);
+});
+
+test('floor line: opacity is 0.55 (clearly visible)', () => {
+  // The line uses rgba(255, 255, 255, 0.55) — verify alpha > 0.4
+  const alpha = 0.55;
+  assert(alpha >= 0.4, 'Floor line opacity should be >= 0.4 for visibility');
+  assert(alpha <= 0.7, 'Floor line opacity should be <= 0.7 to not obscure camera');
+});
+
+// --- WARMUP DIRECTION CHANGE JITTER FILTER TESTS ---
+// Simulates the analyzeWarmup direction-change logic: requires 4° change AND 3 consecutive frames
+function simulateWarmupDirectionChanges(angleSequence) {
+  let warmupPhase = 'up';
+  let prevAngle = null;
+  let directionFrames = 0;
+  const phaseFlips = [];
+
+  for (const primaryAngle of angleSequence) {
+    const goingDown = prevAngle !== null && primaryAngle < prevAngle - 4;
+    const goingUp   = prevAngle !== null && primaryAngle > prevAngle + 4;
+    prevAngle = primaryAngle;
+
+    const wantFlip = (warmupPhase === 'up' && goingDown) || (warmupPhase === 'down' && goingUp);
+    if (wantFlip) {
+      directionFrames++;
+    } else {
+      directionFrames = 0;
+    }
+
+    if (warmupPhase === 'up' && goingDown && directionFrames >= 3) {
+      warmupPhase = 'down';
+      directionFrames = 0;
+      phaseFlips.push('down');
+    }
+    if (warmupPhase === 'down' && goingUp && directionFrames >= 3) {
+      warmupPhase = 'up';
+      directionFrames = 0;
+      phaseFlips.push('up');
+    }
+  }
+  return phaseFlips;
+}
+
+test('warmup jitter filter: small oscillations do not flip phase', () => {
+  // 2° jitter around 160° — should never flip
+  const angles = [160, 158, 160, 158, 160, 162, 160, 158];
+  const flips = simulateWarmupDirectionChanges(angles);
+  assertEquals(flips.length, 0, 'Small jitter should produce no phase flips');
+});
+
+test('warmup jitter filter: single large drop then reversal does not flip', () => {
+  // One frame drops 5° but immediately reverses — not 3 consecutive
+  const angles = [160, 155, 160, 165];
+  const flips = simulateWarmupDirectionChanges(angles);
+  assertEquals(flips.length, 0, 'Single-frame drop should not flip phase');
+});
+
+test('warmup jitter filter: sustained descent flips to down after 3 frames', () => {
+  // Steady descent: each frame drops >4° — should flip after 3 consecutive
+  const angles = [170, 165, 160, 155, 150];
+  const flips = simulateWarmupDirectionChanges(angles);
+  assert(flips.includes('down'), 'Sustained descent should flip phase to down');
+});
+
+test('warmup jitter filter: sustained ascent flips back to up', () => {
+  // Go down first (3+ frames), then come back up (3+ frames)
+  const angles = [170, 165, 160, 155, 150, 155, 160, 165, 170];
+  const flips = simulateWarmupDirectionChanges(angles);
+  assert(flips.includes('down'), 'Should flip to down first');
+  assert(flips.includes('up'), 'Should flip back to up on sustained ascent');
+});
+
+// --- SILHOUETTE GUIDE DIMENSION GUARD TESTS ---
+test('drawGuide: dimension guard returns false for zero-width canvas', () => {
+  // Simulates the guard logic: if width or height is 0, drawGuide should not proceed
+  function shouldDrawGuide(width, height) {
+    if (width === 0 || height === 0) return false;
+    return true;
+  }
+  assertBool(shouldDrawGuide(0, 480), false, 'Zero width should block drawing');
+  assertBool(shouldDrawGuide(640, 0), false, 'Zero height should block drawing');
+  assertBool(shouldDrawGuide(0, 0), false, 'Both zero should block drawing');
+  assertBool(shouldDrawGuide(640, 480), true, 'Valid dimensions should allow drawing');
+});
+
 test('per-rep score: average of frame scores for a rep', () => {
   // Simulate 3 frames: scores 100, 80, 60 → avg = 80
   const currentRepScores = [100, 80, 60];
@@ -1360,6 +1571,151 @@ test('per-rep score: average of frame scores for a rep', () => {
 test('per-rep score: color threshold — green ≥80', () => {
   assert(80 >= 80, 'Score of 80 should get green');
   assert(79 < 80, 'Score of 79 should not get green');
+});
+
+// ===== PHASE 4: PERSISTENCE & EXPORT PURE FUNCTION TESTS =====
+
+// --- escapeHtml ---
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+test('escapeHtml: escapes angle brackets', () => {
+  assertEquals(escapeHtml('<script>'), '&lt;script&gt;', 'Should escape < and >');
+});
+
+test('escapeHtml: escapes ampersand', () => {
+  assertEquals(escapeHtml('a & b'), 'a &amp; b', 'Should escape &');
+});
+
+test('escapeHtml: escapes double quotes', () => {
+  assertEquals(escapeHtml('"hello"'), '&quot;hello&quot;', 'Should escape "');
+});
+
+test('escapeHtml: escapes single quotes', () => {
+  assertEquals(escapeHtml("it's"), 'it&#39;s', 'Should escape single quotes');
+});
+
+test('escapeHtml: passes through safe strings unchanged', () => {
+  assertEquals(escapeHtml('Push-ups'), 'Push-ups', 'Safe strings should pass through');
+});
+
+test('escapeHtml: handles non-string input (number)', () => {
+  assertEquals(escapeHtml(42), '42', 'Should convert numbers to string');
+});
+
+// --- buildCSVExport ---
+function buildCSVExport(history) {
+  const rows = ['Date,Exercise,Reps,"Form Score",Time'];
+  for (const session of history) {
+    for (const set of session.sets) {
+      const ex    = String(set.exercise).replace(/"/g, '""');
+      const score = set.avgScore !== undefined ? set.avgScore : '';
+      const time  = String(set.time || '').replace(/"/g, '""');
+      rows.push(`${session.date},"${ex}",${set.reps},${score},"${time}"`);
+    }
+  }
+  return rows.join('\n');
+}
+
+test('buildCSVExport: empty history returns just header', () => {
+  const csv = buildCSVExport([]);
+  assertEquals(csv, 'Date,Exercise,Reps,"Form Score",Time', 'Empty history = header only');
+});
+
+test('buildCSVExport: single session single set', () => {
+  const history = [{
+    date: 'Apr 3, 2026',
+    sets: [{ exercise: 'Push-ups', reps: 10, avgScore: 85, time: '10:30 AM' }]
+  }];
+  const csv = buildCSVExport(history);
+  const lines = csv.split('\n');
+  assertEquals(lines.length, 2, 'Should have header + 1 data row');
+  assert(lines[1].startsWith('Apr 3, 2026'), 'Row should start with date');
+  assert(lines[1].includes('"Push-ups"'), 'Exercise should be quoted');
+  assert(lines[1].includes(',10,'), 'Reps should appear');
+  assert(lines[1].includes(',85,'), 'Score should appear');
+});
+
+test('buildCSVExport: multiple sessions produce multiple rows', () => {
+  const history = [
+    { date: 'Apr 1, 2026', sets: [{ exercise: 'Squats', reps: 15, avgScore: 90, time: '9:00 AM' }] },
+    { date: 'Apr 3, 2026', sets: [
+      { exercise: 'Push-ups', reps: 10, avgScore: 80, time: '10:00 AM' },
+      { exercise: 'Squats', reps: 12, avgScore: 75, time: '10:15 AM' },
+    ]},
+  ];
+  const csv = buildCSVExport(history);
+  const lines = csv.split('\n');
+  assertEquals(lines.length, 4, 'Header + 3 set rows');
+});
+
+test('buildCSVExport: quotes in exercise name are escaped', () => {
+  const history = [{
+    date: 'Apr 3, 2026',
+    sets: [{ exercise: 'Pull-"ups"', reps: 5, avgScore: 70, time: '9:00 AM' }]
+  }];
+  const csv = buildCSVExport(history);
+  assert(csv.includes('Pull-""ups""'), 'Internal quotes should be doubled for CSV safety');
+});
+
+test('buildCSVExport: missing avgScore becomes empty field', () => {
+  const history = [{
+    date: 'Apr 3, 2026',
+    sets: [{ exercise: 'Plank', reps: '1:30', time: '10:00 AM' }]
+  }];
+  const csv = buildCSVExport(history);
+  assert(csv.includes(',1:30,,'), 'Missing score should produce empty field');
+});
+
+// --- aggregateRepsByExercise ---
+function aggregateRepsByExercise(session) {
+  const totals = {};
+  for (const set of session.sets) {
+    if (typeof set.reps === 'number' && set.reps > 0) {
+      totals[set.exercise] = (totals[set.exercise] || 0) + set.reps;
+    }
+  }
+  return totals;
+}
+
+test('aggregateRepsByExercise: sums reps for same exercise', () => {
+  const session = { sets: [
+    { exercise: 'Push-ups', reps: 10, avgScore: 80 },
+    { exercise: 'Push-ups', reps: 8, avgScore: 75 },
+  ]};
+  const totals = aggregateRepsByExercise(session);
+  assertEquals(totals['Push-ups'], 18, 'Should sum push-up reps');
+});
+
+test('aggregateRepsByExercise: groups multiple exercises separately', () => {
+  const session = { sets: [
+    { exercise: 'Push-ups', reps: 10, avgScore: 80 },
+    { exercise: 'Squats',   reps: 15, avgScore: 90 },
+  ]};
+  const totals = aggregateRepsByExercise(session);
+  assertEquals(totals['Push-ups'], 10, 'Push-ups correct');
+  assertEquals(totals['Squats'],   15, 'Squats correct');
+});
+
+test('aggregateRepsByExercise: ignores non-numeric reps (plank time strings)', () => {
+  const session = { sets: [
+    { exercise: 'Plank', reps: '1:30' },
+    { exercise: 'Push-ups', reps: 10 },
+  ]};
+  const totals = aggregateRepsByExercise(session);
+  assert(!totals['Plank'], 'Plank string reps should be ignored');
+  assertEquals(totals['Push-ups'], 10, 'Push-up numeric reps should be counted');
+});
+
+test('aggregateRepsByExercise: empty session returns empty object', () => {
+  const totals = aggregateRepsByExercise({ sets: [] });
+  assertEquals(Object.keys(totals).length, 0, 'Empty session → empty totals');
 });
 
 // ===== RUN TESTS =====

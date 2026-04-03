@@ -1,0 +1,13 @@
+# Claude worktrees — duplicate copies of the entire project
+.claude/
+
+# Large video file (474 MB) — Claude can't watch videos
+ScreenRecording*.mov
+
+# SSL credentials — sensitive
+cert.pem
+key.pem
+
+# Old test reports — actual tests are in tests.js
+TESTING_SUMMARY.txt
+TEST_REPORT.md

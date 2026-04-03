@@ -70,6 +70,29 @@
   }
   #exercise-name.exercise-changed { animation: exerciseNameIn 0.35s ease-out; }
 
+  /* Per-rep form score flash — big visible pop in the center feedback area */
+  @keyframes repScoreFlash {
+    0%   { opacity: 0; transform: scale(0.6); }
+    30%  { opacity: 1; transform: scale(1.15); }
+    70%  { opacity: 1; transform: scale(1.0); }
+    100% { opacity: 0; transform: scale(0.9); }
+  }
+  #rep-score-flash {
+    position: absolute;
+    top: 35%;
+    left: 0; right: 0;
+    text-align: center;
+    font-size: 64px;
+    font-weight: 900;
+    pointer-events: none;
+    z-index: 12;
+    text-shadow: 0 4px 20px rgba(0,0,0,0.9), 0 0 40px rgba(0,0,0,0.5);
+    opacity: 0;
+  }
+  #rep-score-flash.flash-active {
+    animation: repScoreFlash 1.6s ease-out forwards;
+  }
+
   /* Loading */
   #loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #1a1a2e; z-index: 100; }
   #loading h2 { margin-bottom: 12px; }
@@ -83,6 +106,35 @@
   .log-entry-exercise { font-weight: 600; }
   .log-entry-detail { color: #8899aa; font-size: 13px; }
   .log-entry-reps { font-size: 24px; font-weight: 800; color: #4ade80; }
+
+  /* Log modal tabs */
+  #log-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+  .tab-btn { background: #0f3460; color: #8899aa; border: none; border-radius: 6px; padding: 7px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .tab-btn.active { background: #4ade80; color: #1a1a2e; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* Session history */
+  .session-group { margin-bottom: 16px; }
+  .session-date { font-size: 12px; font-weight: 700; color: #4ade80; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+
+  /* Progress chart */
+  #progress-chart-canvas { width: 100%; border-radius: 8px; background: #0f3460; display: block; }
+  .chart-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .legend-item { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #8899aa; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+  /* Template modal */
+  #template-modal { position: absolute; inset: 0; background: rgba(0,0,0,0.85); z-index: 200; display: flex; flex-direction: column; padding: 20px; overflow-y: auto; }
+  .template-entry { background: #16213e; padding: 10px 12px; border-radius: 8px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .template-entry-info { flex: 1; min-width: 0; }
+  .template-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .template-exercises { color: #8899aa; font-size: 12px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .template-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  #template-name-input { width: 100%; padding: 10px; border-radius: 8px; background: #0f3460; color: #eee; border: 1px solid #1a4a7a; font-size: 14px; box-sizing: border-box; margin-bottom: 8px; }
+
+  /* Active template badge */
+  #template-badge { display: none; font-size: 12px; color: #4ade80; padding: 4px 8px; background: rgba(74,222,128,0.15); border-radius: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
 </style>
 </head>
 <body>
@@ -102,6 +154,7 @@
     </div>
     <div id="angle-hint"></div>
     <div id="form-feedback"></div>
+    <div id="rep-score-flash"></div>
     <div id="state-overlay">
       <div id="countdown-display"></div>
       <div id="state-message"></div>
@@ -139,6 +192,8 @@
     <button class="btn btn-warn hidden" id="btn-pause">Pause</button>
     <button class="btn btn-primary hidden" id="btn-finish">Finish Set</button>
     <button class="btn btn-secondary" id="btn-log">Log</button>
+    <button class="btn btn-secondary" id="btn-templates" title="Save/load workout templates">Templates</button>
+    <span id="template-badge"></span>
     <button class="btn btn-secondary" id="btn-voice" title="Toggle voice feedback">Voice: On</button>
     <button class="btn btn-secondary" id="btn-warmup" title="Do 3 slow reps to calibrate to your range">Warmup Cal</button>
     <button class="btn btn-secondary" id="btn-save-cal" title="Download calibration settings as JSON">Save Cal</button>
@@ -149,8 +204,38 @@
 
   <div id="log-modal" class="hidden">
     <h2>Workout Log</h2>
-    <div id="log-entries"></div>
-    <button class="btn btn-primary" onclick="document.getElementById('log-modal').classList.add('hidden')" style="margin-top:12px;">Close</button>
+    <div id="log-tabs">
+      <button class="tab-btn active" data-tab="today">Today</button>
+      <button class="tab-btn" data-tab="history">History</button>
+      <button class="tab-btn" data-tab="charts">Progress</button>
+    </div>
+    <div id="tab-today" class="tab-panel active">
+      <div id="log-entries"></div>
+    </div>
+    <div id="tab-history" class="tab-panel">
+      <div id="history-entries"></div>
+    </div>
+    <div id="tab-charts" class="tab-panel">
+      <canvas id="progress-chart-canvas" height="200"></canvas>
+      <div class="chart-legend" id="chart-legend"></div>
+      <p style="color:#8899aa;font-size:12px;margin-top:6px;">Total reps per session — last 7 days</p>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">
+      <button class="btn btn-secondary" id="btn-export-json">Export JSON</button>
+      <button class="btn btn-secondary" id="btn-export-csv">Export CSV</button>
+      <button class="btn btn-primary" id="btn-close-log" style="flex:1">Close</button>
+    </div>
+  </div>
+
+  <div id="template-modal" class="hidden">
+    <h2>Workout Templates</h2>
+    <div id="template-list"></div>
+    <div style="margin-top:16px;border-top:1px solid #1a4a7a;padding-top:12px;">
+      <p style="font-size:13px;color:#8899aa;margin-bottom:8px;">Save today's exercises as a template:</p>
+      <input type="text" id="template-name-input" placeholder="Template name (e.g. BWF Routine)" maxlength="40">
+      <button class="btn btn-go" id="btn-save-template">Save Template</button>
+    </div>
+    <button class="btn btn-primary" id="btn-close-templates" style="margin-top:12px;">Close</button>
   </div>
 </div>
 
@@ -199,6 +284,15 @@ const state = {
   warmupValleys: [],       // depth angles recorded at bottom of each warmup rep
   warmupCurrentMin: Infinity, // min angle seen during current warmup descent
   warmupCurrentMax: 0,     // max angle seen during current warmup ascent
+  warmupDirectionFrames: 0, // consecutive frames moving same direction (jitter filter)
+  // Guided calibration sequence state
+  warmupCalSequence: [],     // exercises to calibrate: ['squat', 'pushup']
+  warmupCalStep: 0,          // current index in calSequence
+  warmupSubPhase: 'positioning', // 'positioning' | 'countdown' | 'tracking'
+  warmupAlignedTime: 0,      // when positioning first detected alignment
+  warmupOriginalExercise: null, // what exercise was selected before cal started
+  warmupResults: {},          // accumulated {exercise: {valleys, peaks}} per exercise
+  activeTemplate: null,        // null | { name, exercises: string[], currentIdx: number }
 };
 
 // Camera angles + silhouette guide points per exercise (normalized 0-1 coords)
@@ -395,18 +489,29 @@ function analyzeWarmup(lm) {
   state.warmupCurrentMin = Math.min(state.warmupCurrentMin, primaryAngle);
   state.warmupCurrentMax = Math.max(state.warmupCurrentMax, primaryAngle);
 
-  const goingDown = state.prevAngle !== null && primaryAngle < state.prevAngle - 1;
-  const goingUp   = state.prevAngle !== null && primaryAngle > state.prevAngle + 1;
+  // 4° threshold filters MediaPipe jitter at 6+ feet (was 1° — too sensitive, counted noise as reps)
+  const goingDown = state.prevAngle !== null && primaryAngle < state.prevAngle - 4;
+  const goingUp   = state.prevAngle !== null && primaryAngle > state.prevAngle + 4;
   state.prevAngle = primaryAngle;
 
-  if (state.warmupPhase === 'up' && goingDown) {
+  // Require 3 consecutive frames moving the same direction before flipping phase.
+  // This filters out jitter that would otherwise cause false direction changes.
+  const wantFlip = (state.warmupPhase === 'up' && goingDown) || (state.warmupPhase === 'down' && goingUp);
+  if (wantFlip) {
+    state.warmupDirectionFrames++;
+  } else {
+    state.warmupDirectionFrames = 0;
+  }
+
+  if (state.warmupPhase === 'up' && goingDown && state.warmupDirectionFrames >= 3) {
     // Started descending — record the extension peak we just left
     if (state.warmupCurrentMax > 110) state.warmupPeaks.push(state.warmupCurrentMax);
     state.warmupCurrentMax = primaryAngle;
     state.warmupPhase = 'down';
+    state.warmupDirectionFrames = 0;
   }
 
-  if (state.warmupPhase === 'down' && goingUp) {
+  if (state.warmupPhase === 'down' && goingUp && state.warmupDirectionFrames >= 3) {
     // Hit bottom — validate it's a real bend (not a jitter), then record depth
     const firstPeak = state.warmupPeaks[0] || 180;
     const validBend = state.warmupCurrentMin < 165 && state.warmupCurrentMin < firstPeak - 15;
@@ -437,25 +542,399 @@ function finishWarmupCalibration() {
     return;
   }
 
-  const { depthThreshold, extensionThreshold } = result;
+  // Store result for this exercise
+  state.warmupResults[ex] = result;
+  speakForce('Good');
 
-  if (ex === 'pushup') {
-    calibration.pushup.elbow_down = depthThreshold;
-    if (extensionThreshold) calibration.pushup.elbow_up = extensionThreshold;
-  } else if (ex === 'squat') {
-    calibration.squat.knee_down = depthThreshold;
-    if (extensionThreshold) calibration.squat.knee_up = extensionThreshold;
-  } else if (ex === 'pullup') {
-    calibration.pullup.elbow_top = depthThreshold;
-    if (extensionThreshold) calibration.pullup.elbow_bottom = extensionThreshold;
-  } else if (ex === 'lunge') {
-    calibration.lunge.knee_down = depthThreshold;
-    if (extensionThreshold) calibration.lunge.knee_up = extensionThreshold;
+  // Check if more exercises in the sequence
+  state.warmupCalStep++;
+  if (state.warmupCalStep < state.warmupCalSequence.length) {
+    // Advance to next calibration exercise
+    const nextEx = state.warmupCalSequence[state.warmupCalStep];
+    state.exercise = nextEx;
+    exerciseSelect.value = nextEx;
+    exerciseNameEl.textContent = exerciseMeta[nextEx].name;
+    showFeedback(`Next: ${exerciseMeta[nextEx].name}`, 'good');
+
+    // Reset warmup tracking for next exercise
+    state.warmupReps = 0;
+    state.warmupPeaks = [];
+    state.warmupValleys = [];
+    state.warmupCurrentMin = Infinity;
+    state.warmupCurrentMax = 0;
+    state.warmupPhase = 'up';
+    state.prevAngle = null;
+    state.warmupSubPhase = 'positioning';
+    state.warmupAlignedTime = 0;
+
+    // Voice guidance for next exercise
+    setTimeout(() => {
+      speakForce(`Now get into ${exerciseMeta[nextEx].name.toLowerCase()} position`);
+      stateMessage.textContent = `Position for ${exerciseMeta[nextEx].name}`;
+      drawGuide();
+    }, 800);
+    return;
   }
 
-  speakForce('Calibration done');
-  showFeedback(`Calibrated! Depth: ${depthThreshold}°`, 'good');
+  // All exercises done — apply all results
+  applyAllCalibrationResults(state.warmupResults);
+
+  // Restore original exercise
+  const origEx = state.warmupOriginalExercise || 'pushup';
+  state.exercise = origEx;
+  exerciseSelect.value = origEx;
+  exerciseNameEl.textContent = exerciseMeta[origEx].name;
+
+  speakForce('Calibration complete');
+  showFeedback('All calibrated!', 'good');
   setTimeout(() => setWorkoutState('idle'), 1800);
+}
+
+// Apply calibration results from all exercises in the guided sequence.
+// Squat ROM feeds lunge thresholds; pushup ROM feeds pullup thresholds.
+function applyAllCalibrationResults(results) {
+  if (results.squat) {
+    const { depthThreshold, extensionThreshold } = results.squat;
+    calibration.squat.knee_down = depthThreshold;
+    if (extensionThreshold) calibration.squat.knee_up = extensionThreshold;
+    // Derive lunge from squat — lunge depth is typically ~10° shallower than squat
+    calibration.lunge.knee_down = Math.min(depthThreshold + 10, 135);
+    if (extensionThreshold) calibration.lunge.knee_up = Math.max(extensionThreshold - 5, calibration.lunge.knee_down + 20);
+  }
+  if (results.pushup) {
+    const { depthThreshold, extensionThreshold } = results.pushup;
+    calibration.pushup.elbow_down = depthThreshold;
+    if (extensionThreshold) calibration.pushup.elbow_up = extensionThreshold;
+    // Derive pullup from pushup — pullup top is typically ~20° tighter than pushup depth
+    calibration.pullup.elbow_top = Math.max(depthThreshold - 20, 50);
+    if (extensionThreshold) calibration.pullup.elbow_bottom = extensionThreshold;
+  }
+}
+
+// ===== PERSISTENCE =====
+// Workout history is stored in localStorage as an array of sessions.
+// Each session = { date, timestamp, sets: [...] }
+// Same-day page reloads merge into one session so Monday's workout stays grouped.
+const SESSION_KEY   = 'formcheck_sessions';
+const TEMPLATE_KEY  = 'formcheck_templates';
+const TODAY_DATE    = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+// Exercise display colors — used by progress chart and legend
+const EXERCISE_COLORS = {
+  'Push-ups': '#4ade80',
+  'Squats':   '#60a5fa',
+  'Pull-ups': '#f472b6',
+  'Lunges':   '#fb923c',
+  'Plank':    '#a78bfa',
+};
+
+function loadHistory() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+// Merge current session (state.log) into localStorage history.
+// Calling this after every Finish Set keeps history always current.
+function saveCurrentSession() {
+  if (state.log.length === 0) return;
+  let history = loadHistory();
+  const idx = history.findIndex(s => s.date === TODAY_DATE);
+  const session = { date: TODAY_DATE, timestamp: Date.now(), sets: state.log.slice() };
+  if (idx >= 0) {
+    history[idx] = session;
+  } else {
+    history.push(session);
+  }
+  history = history.slice(-90); // cap at 90 sessions
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify(history));
+  } catch (e) {
+    // Storage full — drop oldest half and retry
+    try { localStorage.setItem(SESSION_KEY, JSON.stringify(history.slice(-45))); } catch (e2) { /* give up */ }
+  }
+}
+
+// On page load, restore today's already-logged sets so a page refresh
+// doesn't wipe the session mid-workout.
+function loadTodaySession() {
+  const history = loadHistory();
+  const today = history.find(s => s.date === TODAY_DATE);
+  if (!today || !today.sets || today.sets.length === 0) return;
+  state.log = today.sets.slice();
+  // Recompute session totals (plank reps are strings like "1:30", skip them)
+  state.sets      = today.sets.length;
+  state.totalReps = today.sets.reduce((sum, e) => sum + (typeof e.reps === 'number' ? e.reps : 0), 0);
+  setCount.textContent     = state.sets;
+  totalRepsEl.textContent  = state.totalReps;
+}
+
+// ===== EXPORT =====
+// Pure function — builds a CSV string from history array. Testable in Node.
+function buildCSVExport(history) {
+  const rows = ['Date,Exercise,Reps,"Form Score",Time'];
+  for (const session of history) {
+    for (const set of session.sets) {
+      const ex    = String(set.exercise).replace(/"/g, '""');
+      const score = set.avgScore !== undefined ? set.avgScore : '';
+      const time  = String(set.time || '').replace(/"/g, '""');
+      rows.push(`${session.date},"${ex}",${set.reps},${score},"${time}"`);
+    }
+  }
+  return rows.join('\n');
+}
+
+function triggerDownload(content, filename, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ===== PROGRESS CHART =====
+// Stacked bar chart: one bar per session (last 7), stacked by exercise.
+// Pure aggregation helper — testable.
+function aggregateRepsByExercise(session) {
+  const totals = {};
+  for (const set of session.sets) {
+    if (typeof set.reps === 'number' && set.reps > 0) {
+      totals[set.exercise] = (totals[set.exercise] || 0) + set.reps;
+    }
+  }
+  return totals;
+}
+
+function drawProgressChart(canvas, history) {
+  const ctx = canvas.getContext('2d');
+  canvas.width = canvas.clientWidth || 300;
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+
+  const sessions = history.slice(-7);
+  if (sessions.length === 0) {
+    ctx.fillStyle = '#8899aa';
+    ctx.font = '14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('No history yet — finish some sets!', w / 2, h / 2);
+    return;
+  }
+
+  const padL = 4, padR = 4, padTop = 16, padBot = 28;
+  const chartW = w - padL - padR;
+  const chartH = h - padTop - padBot;
+  const barGap  = 6;
+  const barW    = Math.floor((chartW - barGap * (sessions.length + 1)) / sessions.length);
+
+  // Find max total reps across sessions for scaling
+  const totals = sessions.map(s => Object.values(aggregateRepsByExercise(s)).reduce((a, b) => a + b, 0));
+  const maxTotal = Math.max(...totals, 1);
+
+  sessions.forEach((session, i) => {
+    const x = padL + barGap + i * (barW + barGap);
+    const repsByEx = aggregateRepsByExercise(session);
+    let stackY = padTop + chartH; // start at bottom
+
+    // Draw each exercise slice, bottom-up
+    for (const [exercise, reps] of Object.entries(repsByEx)) {
+      const sliceH = Math.round((reps / maxTotal) * chartH);
+      stackY -= sliceH;
+      ctx.fillStyle = EXERCISE_COLORS[exercise] || '#888';
+      ctx.fillRect(x, stackY, barW, sliceH);
+    }
+
+    // Total reps label above bar
+    if (totals[i] > 0) {
+      ctx.fillStyle = '#eee';
+      ctx.font = `bold ${Math.max(10, Math.min(13, barW - 4))}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText(totals[i], x + barW / 2, stackY - 3);
+    }
+
+    // Date label below bar
+    ctx.fillStyle = '#8899aa';
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'center';
+    const parts = session.date.split(' '); // e.g. "Apr 3, 2026" → ["Apr", "3,", "2026"]
+    ctx.fillText((parts[0] || '') + ' ' + (parts[1] || '').replace(',', ''), x + barW / 2, h - 6);
+  });
+}
+
+function renderChartLegend(history) {
+  const legend = document.getElementById('chart-legend');
+  // Find all exercises that appear in history
+  const seen = new Set();
+  for (const s of history) for (const set of s.sets) seen.add(set.exercise);
+  legend.innerHTML = [...seen].map(ex => {
+    const color = EXERCISE_COLORS[ex] || '#888';
+    return `<div class="legend-item"><div class="legend-dot" style="background:${color}"></div>${escapeHtml(ex)}</div>`;
+  }).join('');
+}
+
+// ===== TEMPLATES =====
+function loadTemplates() {
+  try {
+    const raw = localStorage.getItem(TEMPLATE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveTemplate(name, exercises) {
+  if (!name.trim() || !exercises || exercises.length === 0) return false;
+  let templates = loadTemplates();
+  const idx = templates.findIndex(t => t.name === name.trim());
+  const tmpl = { name: name.trim(), exercises, saved: Date.now() };
+  if (idx >= 0) templates[idx] = tmpl;
+  else templates.push(tmpl);
+  templates = templates.slice(-20); // max 20 templates
+  try {
+    localStorage.setItem(TEMPLATE_KEY, JSON.stringify(templates));
+    return true;
+  } catch (e) { return false; }
+}
+
+function deleteTemplate(name) {
+  let templates = loadTemplates();
+  templates = templates.filter(t => t.name !== name);
+  try { localStorage.setItem(TEMPLATE_KEY, JSON.stringify(templates)); } catch (e) { /* ignore */ }
+}
+
+function applyTemplate(template) {
+  state.activeTemplate = { name: template.name, exercises: template.exercises, currentIdx: 0 };
+  document.getElementById('template-modal').classList.add('hidden');
+  const firstEx = template.exercises[0];
+  if (firstEx && exerciseMeta[firstEx]) {
+    exerciseSelect.value = firstEx;
+    exerciseSelect.dispatchEvent(new Event('change'));
+    setTimeout(() => speakForce(`Template loaded: ${template.name}. Starting with ${exerciseMeta[firstEx].name}.`), 500);
+  }
+  updateTemplateBadge();
+}
+
+function updateTemplateBadge() {
+  const badge = document.getElementById('template-badge');
+  if (!state.activeTemplate) {
+    badge.style.display = 'none';
+    return;
+  }
+  const { name, exercises, currentIdx } = state.activeTemplate;
+  const remaining = exercises.slice(currentIdx).map(e => exerciseMeta[e]?.name || e).join(' → ');
+  badge.textContent = `📋 ${name}: ${remaining}`;
+  badge.style.display = 'inline-block';
+}
+
+// Escape HTML to prevent XSS when user text goes into innerHTML
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// ===== LOG MODAL RENDERING =====
+function renderLogModal() {
+  const history = loadHistory();
+  const today   = history.find(s => s.date === TODAY_DATE);
+  const todaySets = today ? today.sets : state.log; // prefer saved; fallback to in-memory
+
+  // TODAY tab
+  const logEntries = document.getElementById('log-entries');
+  logEntries.innerHTML = todaySets.length === 0
+    ? '<p style="color:#8899aa;">No sets logged yet today. Finish a set to log it.</p>'
+    : todaySets.map(e => `
+        <div class="log-entry">
+          <div>
+            <div class="log-entry-exercise">${escapeHtml(e.exercise)}</div>
+            <div class="log-entry-detail">${escapeHtml(e.time)} | Form: ${escapeHtml(String(e.avgScore))}%</div>
+          </div>
+          <div class="log-entry-reps">${escapeHtml(String(e.reps))}</div>
+        </div>`).join('');
+
+  // HISTORY tab — past sessions (all except today)
+  const histEl = document.getElementById('history-entries');
+  const past   = history.filter(s => s.date !== TODAY_DATE).reverse(); // newest first
+  if (past.length === 0) {
+    histEl.innerHTML = '<p style="color:#8899aa;">No previous sessions yet.</p>';
+  } else {
+    histEl.innerHTML = past.map(session => `
+      <div class="session-group">
+        <div class="session-date">${escapeHtml(session.date)}</div>
+        ${session.sets.map(e => `
+          <div class="log-entry">
+            <div>
+              <div class="log-entry-exercise">${escapeHtml(e.exercise)}</div>
+              <div class="log-entry-detail">${escapeHtml(e.time)} | Form: ${escapeHtml(String(e.avgScore))}%</div>
+            </div>
+            <div class="log-entry-reps">${escapeHtml(String(e.reps))}</div>
+          </div>`).join('')}
+      </div>`).join('');
+  }
+
+  // CHARTS tab
+  const chartCanvas = document.getElementById('progress-chart-canvas');
+  drawProgressChart(chartCanvas, history);
+  renderChartLegend(history);
+}
+
+function renderTemplateModal() {
+  const templates = loadTemplates();
+  const listEl    = document.getElementById('template-list');
+
+  // Gather today's exercises (unique, in order) to offer as template content
+  const todayExercises = [];
+  const seen = new Set();
+  for (const s of state.log) {
+    const key = Object.keys(exerciseMeta).find(k => exerciseMeta[k].name === s.exercise);
+    if (key && !seen.has(key)) { seen.add(key); todayExercises.push(key); }
+  }
+
+  if (templates.length === 0) {
+    listEl.innerHTML = '<p style="color:#8899aa;">No saved templates yet.</p>';
+  } else {
+    listEl.innerHTML = templates.map((t, idx) => `
+      <div class="template-entry">
+        <div class="template-entry-info">
+          <div class="template-name">${escapeHtml(t.name)}</div>
+          <div class="template-exercises">${t.exercises.map(e => escapeHtml(exerciseMeta[e]?.name || e)).join(' → ')}</div>
+        </div>
+        <div class="template-actions">
+          <button class="btn btn-go" style="padding:6px 10px;font-size:12px" data-action="load" data-idx="${idx}">Load</button>
+          <button class="btn btn-primary" style="padding:6px 10px;font-size:12px" data-action="del" data-idx="${idx}">Del</button>
+        </div>
+      </div>`).join('');
+  }
+
+  // Event delegation — safe: index lookup avoids embedding user strings in JS
+  listEl.onclick = (e) => {
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    const idx = parseInt(btn.dataset.idx, 10);
+    const templates = loadTemplates();
+    if (btn.dataset.action === 'load') applyTemplate(templates[idx]);
+    if (btn.dataset.action === 'del')  { deleteTemplate(templates[idx].name); renderTemplateModal(); }
+  };
+
+  // Update save button label based on today's exercises
+  const saveBtn = document.getElementById('btn-save-template');
+  if (todayExercises.length === 0) {
+    saveBtn.disabled = true;
+    saveBtn.title = 'Finish at least one set first';
+  } else {
+    saveBtn.disabled = false;
+    saveBtn.title = `Saves: ${todayExercises.map(e => exerciseMeta[e].name).join(' → ')}`;
+  }
 }
 
 // ===== DOM =====
@@ -471,6 +950,7 @@ const formFeedback = document.getElementById('form-feedback');
 const setCount = document.getElementById('set-count');
 const totalRepsEl = document.getElementById('total-reps');
 const formScoreEl = document.getElementById('form-score');
+const repScoreFlash = document.getElementById('rep-score-flash');
 const elapsedTime = document.getElementById('elapsed-time');
 const btnStart = document.getElementById('btn-start');
 const btnPause = document.getElementById('btn-pause');
@@ -583,12 +1063,24 @@ function checkPositioning(lm) {
 
 // ===== SILHOUETTE GUIDE =====
 // Draw a thick outlined human shape using bezier curves for a recognizable body
-function drawGuide() {
+function drawGuide(retryCount) {
   guideCanvas.width = guideCanvas.clientWidth;
   guideCanvas.height = guideCanvas.clientHeight;
+
+  // If canvas has zero dimensions (not laid out yet), retry up to 3 times
+  if (guideCanvas.width === 0 || guideCanvas.height === 0) {
+    const attempt = retryCount || 0;
+    if (attempt < 3) {
+      requestAnimationFrame(() => drawGuide(attempt + 1));
+    }
+    return;
+  }
+
   guideCtx.clearRect(0, 0, guideCanvas.width, guideCanvas.height);
 
-  if (state.workoutState !== 'idle' && state.workoutState !== 'countdown') return;
+  const showGuide = state.workoutState === 'idle' || state.workoutState === 'countdown'
+    || (state.workoutState === 'warmup' && state.warmupSubPhase === 'positioning');
+  if (!showGuide) return;
 
   const w = guideCanvas.width;
   const h = guideCanvas.height;
@@ -714,7 +1206,7 @@ function drawHorizontalSide(w, h, ex, aligned) {
   // Person faces LEFT in drawing coords (appears facing right on mirrored camera).
   // Ground line near bottom of frame, figure fills ~30% of screen height.
   const g = guideCtx;
-  const groundY = h * 0.76;     // ground level — lower on screen for a bigger figure
+  const groundY = h * 0.85;     // ground level — sits low so camera captures floor exercises better
   const headR   = w * 0.030;    // slightly larger head for readability
   const bodyThick = h * 0.050;  // body thickness
 
@@ -803,15 +1295,20 @@ function drawHorizontalSide(w, h, ex, aligned) {
 
   g.restore();
 
-  // Ground reference line
+  // Ground reference line — solid, high-contrast so the user can see the floor plane
   g.save();
-  g.strokeStyle = 'rgba(255, 255, 255, 0.20)';
-  g.setLineDash([8, 8]);
-  g.lineWidth = 2;
+  g.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+  g.lineWidth = 4;
   g.beginPath();
-  g.moveTo(w * 0.06, groundY);
-  g.lineTo(w * 0.88, groundY);
+  g.moveTo(w * 0.03, groundY);
+  g.lineTo(w * 0.95, groundY);
   g.stroke();
+  // "FLOOR" label at right end
+  g.fillStyle = 'rgba(255, 255, 255, 0.50)';
+  g.font = `bold ${Math.round(h * 0.018)}px sans-serif`;
+  g.textAlign = 'right';
+  g.textBaseline = 'top';
+  g.fillText('FLOOR', w * 0.94, groundY + 4);
   g.restore();
 }
 
@@ -1048,7 +1545,14 @@ function isInPosition(lm, exercise) {
   }
   if (exercise === 'squat' || exercise === 'lunge') {
     // Body must be upright (not lying down)
-    return verticalSpan > 0.25;
+    if (verticalSpan <= 0.25) return false;
+    // Hips must be visible (not walked off-camera)
+    const hipVis = Math.min(lm[23].visibility, lm[24].visibility);
+    if (hipVis < 0.5) return false;
+    // Hip center must be roughly in frame (not at the extreme edges)
+    const hipCenter = (lm[23].y + lm[24].y) / 2;
+    if (hipCenter < 0.25 || hipCenter > 0.75) return false;
+    return true;
   }
   if (exercise === 'pullup') {
     // Wrists should be near or above shoulder height (user is hanging, not walking away)
@@ -1122,8 +1626,13 @@ function setWorkoutState(newState) {
     case 'warmup':
       stateOverlay.classList.remove('clickable');
       countdownDisplay.textContent = '';
-      stateMessage.textContent = 'Do 3 slow reps — calibrating your range';
-      guideCtx.clearRect(0, 0, guideCanvas.width, guideCanvas.height);
+      if (state.warmupSubPhase === 'positioning') {
+        stateMessage.textContent = `Position for ${exerciseMeta[state.exercise].name}`;
+        drawGuide(); // show silhouette so user can align
+      } else if (state.warmupSubPhase === 'tracking') {
+        stateMessage.textContent = 'Do 3 slow reps — calibrating your range';
+        guideCtx.clearRect(0, 0, guideCanvas.width, guideCanvas.height);
+      }
       break;
   }
 
@@ -1448,10 +1957,26 @@ exerciseSelect.addEventListener('change', () => {
       stateMessage.textContent = isFloor
         ? 'Get in position to auto-start — or raise hand / tap Ready'
         : 'Raise hand with palm facing camera — or tap Ready';
+      drawGuide(); // re-draw silhouette after toast clears (ensures it shows)
     }
   }, 1600);
 
-  speakForce(newName);
+  // For standing exercises, add a spoken prompt with instructions
+  const isStanding = state.exercise === 'squat' || state.exercise === 'lunge' || state.exercise === 'pullup';
+  if (isStanding) {
+    speakForce(`Ready for ${newName}. Raise your hand or tap Ready.`);
+  } else {
+    speakForce(newName);
+  }
+
+  // Brief highlight on the Ready button to draw attention
+  btnStart.style.transition = 'transform 0.3s ease, box-shadow 0.3s ease';
+  btnStart.style.transform = 'scale(1.15)';
+  btnStart.style.boxShadow = '0 0 12px rgba(74, 222, 128, 0.6)';
+  setTimeout(() => {
+    btnStart.style.transform = '';
+    btnStart.style.boxShadow = '';
+  }, 1200);
 });
 
 // Ready / Resume button
@@ -1484,12 +2009,34 @@ btnFinish.addEventListener('click', () => {
     state.sets++;
     setCount.textContent = state.sets;
     totalRepsEl.textContent = state.totalReps;
+    saveCurrentSession(); // persist immediately after every set
     const summary = buildSetSummary(state.reps, state.repFormScores, state.exercise);
     if (summary) speakForce(summary);
     else speakForce(`${repCounter.textContent} — well done!`); // plank fallback
   }
   resetSetState();
   setWorkoutState('idle');
+
+  // If a template is active, advance to the next exercise in the sequence
+  if (state.activeTemplate) {
+    state.activeTemplate.currentIdx++;
+    const { exercises, currentIdx, name } = state.activeTemplate;
+    if (currentIdx < exercises.length) {
+      const nextEx = exercises[currentIdx];
+      if (exerciseMeta[nextEx]) {
+        setTimeout(() => {
+          exerciseSelect.value = nextEx;
+          exerciseSelect.dispatchEvent(new Event('change'));
+          speakForce(`Next: ${exerciseMeta[nextEx].name}`);
+        }, 2200); // let set summary finish speaking first
+      }
+    } else {
+      state.activeTemplate = null;
+      updateTemplateBadge();
+      setTimeout(() => speakForce('Workout complete! Great job!'), 2200);
+    }
+    updateTemplateBadge();
+  }
 });
 
 function resetSetState() {
@@ -1514,17 +2061,7 @@ function resetSetState() {
 
 // Log button
 btnLog.addEventListener('click', () => {
-  const logEntries = document.getElementById('log-entries');
-  logEntries.innerHTML = state.log.length === 0
-    ? '<p style="color:#8899aa;">No sets logged yet. Finish a set to log it.</p>'
-    : state.log.map(e => `
-        <div class="log-entry">
-          <div>
-            <div class="log-entry-exercise">${e.exercise}</div>
-            <div class="log-entry-detail">${e.time} | Form: ${e.avgScore}%</div>
-          </div>
-          <div class="log-entry-reps">${e.reps}</div>
-        </div>`).join('');
+  renderLogModal();
   document.getElementById('log-modal').classList.remove('hidden');
 });
 
@@ -1537,35 +2074,33 @@ btnVoice.addEventListener('click', () => {
 
 // Warmup calibration — do 3 reps to learn the user's actual range of motion
 document.getElementById('btn-warmup').addEventListener('click', () => {
-  if (state.exercise === 'plank') {
-    showFeedback('Plank uses time — no warmup needed', 'warn');
-    return;
-  }
-  // Reset all warmup tracking
+  // Guided calibration: squat (covers squat + lunge) then pushup (covers pushup + pullup)
+  // Plank is timer-based and doesn't need ROM calibration
+  state.warmupCalSequence = ['squat', 'pushup'];
+  state.warmupCalStep = 0;
+  state.warmupOriginalExercise = state.exercise;
+  state.warmupResults = {};
+
+  // Start with first calibration exercise
+  const firstEx = state.warmupCalSequence[0];
+  state.exercise = firstEx;
+  exerciseSelect.value = firstEx;
+  exerciseNameEl.textContent = exerciseMeta[firstEx].name;
+
+  // Reset warmup tracking
   state.warmupReps = 0;
   state.warmupPeaks = [];
   state.warmupValleys = [];
   state.warmupCurrentMin = Infinity;
   state.warmupCurrentMax = 0;
   state.warmupPhase = 'up';
+  state.warmupDirectionFrames = 0;
   state.prevAngle = null;
+  state.warmupSubPhase = 'positioning';
+  state.warmupAlignedTime = 0;
 
-  setWorkoutState('countdown');
-  let count = 3;
-  countdownDisplay.textContent = count;
-  speakForce(String(count));
-  const interval = setInterval(() => {
-    count--;
-    if (count > 0) {
-      countdownDisplay.textContent = count;
-      speakForce(String(count));
-    } else {
-      clearInterval(interval);
-      countdownDisplay.textContent = '...';
-      speakForce('Start moving');
-      setTimeout(() => setWorkoutState('warmup'), 600);
-    }
-  }, 1000);
+  speakForce(`Calibration starting. Get into ${exerciseMeta[firstEx].name.toLowerCase()} position.`);
+  setWorkoutState('warmup');
 });
 
 // Calibration save/load
@@ -1573,6 +2108,76 @@ document.getElementById('btn-save-cal').addEventListener('click', saveCalibratio
 document.getElementById('cal-file-input').addEventListener('change', (e) => {
   loadCalibrationFromFile(e.target.files[0]);
   e.target.value = ''; // reset so same file can be reloaded if needed
+});
+
+// Log modal — tab switching
+document.getElementById('log-tabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('.tab-btn');
+  if (!btn) return;
+  const tab = btn.dataset.tab;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `tab-${tab}`));
+  // Redraw chart when switching to charts tab (needs canvas width to be set)
+  if (tab === 'charts') {
+    drawProgressChart(document.getElementById('progress-chart-canvas'), loadHistory());
+  }
+});
+
+// Log modal — close
+document.getElementById('btn-close-log').addEventListener('click', () => {
+  document.getElementById('log-modal').classList.add('hidden');
+  // Reset to Today tab for next open
+  document.querySelectorAll('.tab-btn').forEach((b, i) => b.classList.toggle('active', i === 0));
+  document.querySelectorAll('.tab-panel').forEach((p, i) => p.classList.toggle('active', i === 0));
+});
+
+// Export buttons
+document.getElementById('btn-export-json').addEventListener('click', () => {
+  const history = loadHistory();
+  if (history.length === 0) { showFeedback('No data to export', 'warn'); return; }
+  triggerDownload(JSON.stringify(history, null, 2), 'formcheck-workouts.json', 'application/json');
+});
+
+document.getElementById('btn-export-csv').addEventListener('click', () => {
+  const history = loadHistory();
+  if (history.length === 0) { showFeedback('No data to export', 'warn'); return; }
+  triggerDownload(buildCSVExport(history), 'formcheck-workouts.csv', 'text/csv');
+});
+
+// Templates modal — open
+document.getElementById('btn-templates').addEventListener('click', () => {
+  renderTemplateModal();
+  document.getElementById('template-name-input').value = '';
+  document.getElementById('template-modal').classList.remove('hidden');
+});
+
+// Templates modal — close
+document.getElementById('btn-close-templates').addEventListener('click', () => {
+  document.getElementById('template-modal').classList.add('hidden');
+});
+
+// Templates modal — save
+document.getElementById('btn-save-template').addEventListener('click', () => {
+  const nameInput = document.getElementById('template-name-input');
+  const name = nameInput.value.trim();
+  if (!name) { nameInput.focus(); return; }
+
+  // Collect unique exercises from today's log in order
+  const seen = new Set();
+  const exercises = [];
+  for (const s of state.log) {
+    const key = Object.keys(exerciseMeta).find(k => exerciseMeta[k].name === s.exercise);
+    if (key && !seen.has(key)) { seen.add(key); exercises.push(key); }
+  }
+  if (exercises.length === 0) {
+    showFeedback('Finish at least one set first', 'warn');
+    return;
+  }
+  if (saveTemplate(name, exercises)) {
+    nameInput.value = '';
+    renderTemplateModal();
+    showFeedback(`Template "${name}" saved`, 'good');
+  }
 });
 
 // Timer
@@ -1668,8 +2273,55 @@ pose.onResults((results) => {
   // Only analyze when active or in warmup calibration
   if (state.workoutState !== 'active' && state.workoutState !== 'warmup') return;
 
-  // Warmup calibration mode — track joint angles, count 3 reps, then set thresholds
+  // Warmup calibration mode — guided positioning → countdown → rep tracking
   if (state.workoutState === 'warmup') {
+    if (state.warmupSubPhase === 'positioning') {
+      // Show silhouette guide and wait for user to get aligned
+      const pos = checkPositioning(lm);
+      drawGuide(); // keep redrawing so it tints green/white
+
+      if (pos.aligned) {
+        if (state.warmupAlignedTime === 0) {
+          state.warmupAlignedTime = Date.now();
+          stateMessage.textContent = '✓ Hold steady...';
+        }
+        // Require 2 seconds of stable alignment before proceeding
+        const held = Date.now() - state.warmupAlignedTime;
+        if (held >= 2000) {
+          // Aligned long enough — start countdown
+          state.warmupSubPhase = 'countdown';
+          let count = 3;
+          countdownDisplay.textContent = count;
+          speakForce(String(count));
+          const calInterval = setInterval(() => {
+            count--;
+            if (count > 0) {
+              countdownDisplay.textContent = count;
+              speakForce(String(count));
+            } else {
+              clearInterval(calInterval);
+              countdownDisplay.textContent = '';
+              const exName = exerciseMeta[state.exercise].name.toLowerCase();
+              speakForce(`Do 3 slow ${exName}`);
+              state.warmupSubPhase = 'tracking';
+              stateMessage.textContent = 'Do 3 slow reps — calibrating your range';
+              guideCtx.clearRect(0, 0, guideCanvas.width, guideCanvas.height);
+            }
+          }, 1000);
+        }
+      } else {
+        state.warmupAlignedTime = 0; // reset if they move out
+        if (pos.hint) stateMessage.textContent = pos.hint;
+      }
+      return;
+    }
+
+    if (state.warmupSubPhase === 'countdown') {
+      // Countdown in progress — just wait
+      return;
+    }
+
+    // 'tracking' sub-phase: count reps
     if (!isInPosition(lm, state.exercise)) {
       showFeedback(OUT_OF_POSITION_MSG[state.exercise] || 'Return to position', 'warn');
       return;
@@ -1749,15 +2401,22 @@ pose.onResults((results) => {
         state.repFormScores.push(repScore);
         state.currentRepScores = [];
 
-        // Flash per-rep score: green ≥80, yellow ≥60, red <60
+        // Flash per-rep score in stats bar
+        const repColor = repScore >= 80 ? '#4ade80' : repScore >= 60 ? '#fbbf24' : '#f87171';
         formScoreEl.textContent = `${repScore}%`;
-        formScoreEl.style.color = repScore >= 80 ? '#4ade80' : repScore >= 60 ? '#fbbf24' : '#f87171';
+        formScoreEl.style.color = repColor;
         setTimeout(() => {
-          // Fade back to set average after 1.5s
           const setAvg = Math.round(state.formScores.reduce((a, b) => a + b, 0) / state.formScores.length);
           formScoreEl.textContent = `${setAvg}%`;
           formScoreEl.style.color = '';
         }, 1500);
+
+        // Big visible flash in center of screen — readable from 6 feet
+        repScoreFlash.textContent = `${repScore}%`;
+        repScoreFlash.style.color = repColor;
+        repScoreFlash.classList.remove('flash-active');
+        void repScoreFlash.offsetWidth; // force reflow to restart animation
+        repScoreFlash.classList.add('flash-active');
       } else {
         // Between reps: show running set average
         const avg = Math.round(state.formScores.reduce((a, b) => a + b, 0) / state.formScores.length);
@@ -1802,6 +2461,7 @@ async function startCamera() {
     angleHint.textContent = exerciseMeta[state.exercise].hint || '';
     setTimeout(() => { angleHint.textContent = ''; }, 15000);
     setWorkoutState('idle');
+    loadTodaySession(); // restore any sets already logged today before the page reload
     speakForce('FormCheck ready. Line up with the guide, then raise your hand to start.');
   } catch (err) {
     loading.innerHTML = `<h2>Camera Error</h2><p>${err.message}</p><p style="margin-top:12px;">Please allow camera access and reload.</p>`;

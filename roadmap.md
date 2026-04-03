@@ -65,14 +65,14 @@ A real-time AI fitness form coach that uses your phone camera + MediaPipe pose e
 
 ---
 
-## Phase 4: Workout Logger with Persistence
+## Phase 4: Workout Logger with Persistence ✅ (Complete)
 **Goal:** Track workouts over time
 
-- [ ] **LocalStorage persistence** — save workout history across sessions
-- [ ] **Workout templates** — save and load exercise sequences (e.g., "8x3 BWF routine")
-- [ ] **Progress charts** — reps, sets, form scores over time
-- [ ] **Export** — CSV or JSON export of workout data
-- [ ] **Session history** — view past workouts with form scores
+- [x] **LocalStorage persistence** — saves every set to `formcheck_sessions` on Finish Set; restores today's session automatically on page reload
+- [x] **Session history** — Log modal History tab shows all past sessions grouped by date
+- [x] **Progress charts** — stacked bar chart (canvas, no dependencies) in Progress tab: total reps per session per exercise, last 7 days, with color-coded legend
+- [x] **Export** — Export JSON and Export CSV buttons in Log modal download full workout history
+- [x] **Workout templates** — save today's exercise sequence as a named template; load to auto-advance exercises after each set; badge shows remaining exercises in the sequence
 
 ---
 
@@ -211,3 +211,59 @@ Each exercise will need:
 **Phase 3 status:** COMPLETE ✅
 
 **Next session:** Phone-test all Phase 3 features. Recommended test order: positioning (check green tint at 6ft), warmup calibration flow, per-rep score flash, end-of-set summary speech. Then begin Phase 4 (LocalStorage persistence).
+
+### Session: 2026-03-28 (Phase 3 phone-test fixes)
+**Based on Scott's phone testing feedback — three issues fixed:**
+
+1. **Warmup calibration overhaul** — Complete rewrite of the calibration flow. Old: press button → instant countdown → track reps with no guidance. New: guided 2-exercise sequence (squat → pushup) that covers ROM for all 5 exercises. Each exercise gets a positioning phase (silhouette guide, green tint when aligned, 2-second hold required), voice guidance ("Get into squats position", "Do 3 slow squats"), and a 3-2-1 countdown before tracking starts. Direction reversal threshold bumped from 1° to 4° to filter MediaPipe jitter at 6+ feet. Results from squat derive lunge thresholds (+10° shallower); pushup derives pullup thresholds (-20° tighter). Original exercise restored after calibration.
+2. **Pushup/plank silhouettes lowered** — Ground line moved from `h * 0.76` to `h * 0.85`. Floor exercise silhouettes now sit lower on screen where the camera actually captures you.
+3. **Per-rep form score flash visibility** — Added `#rep-score-flash` element: 64px bold text, centered on camera feed, with a scale-pop animation (1.6s). Green/yellow/red coloring matches stats bar. Visible from 6+ feet instead of relying on the tiny stats bar alone.
+
+**Working well (confirmed by phone test):** End-of-set summary speech, milestone/breathing/tempo cues, frame positioning auto-detect (green tint + hints).
+
+**Tests:** 95 → 101 (+6 new: `applyAllCalibrationResults` — squat→lunge derivation, pushup→pullup derivation, floor at 50°, combined calibration). All green.
+
+**Phone testing needed (priority order):**
+1. **Calibration flow**: Press Warmup Cal → does squat silhouette appear? Does it tint green when aligned? Does voice guide you through squats then pushups? Do the 2-second hold and 4° threshold feel right (not too fast, not too slow)?
+2. **Silhouette height**: Do pushup/plank outlines sit where your body actually appears on camera at 6ft? (Was too high before — now at 85% of screen height)
+3. **Rep score flash**: During a set, can you see the big score number pop up in the center of the screen after each rep?
+4. **Relative thresholds**: After completing calibration, do depth cues ("Go deeper") fire at the right point for YOUR range?
+
+**Next session:** Phone-test the above. If calibration flow works, begin Phase 4 (LocalStorage persistence).
+
+### Session: 2026-03-31 (Bug fixes + floor line feature)
+**Completed 3 bug fixes, 1 feature, 1 transition improvement:**
+1. **Bug 3: Silhouette not showing after exercise switch** — Added dimension guards to `drawGuide()`: if canvas width/height is zero, retries via `requestAnimationFrame` (max 3 attempts). Also added a second `drawGuide()` call after the 1.6s exercise-change toast clears, ensuring the silhouette always appears.
+2. **Bug 1: Warmup calibration fires too easily** — Increased direction-change threshold in `analyzeWarmup()` from 1° to 4°. Added `warmupDirectionFrames` counter requiring 3 consecutive frames moving the same direction before flipping `warmupPhase`. Prevents jitter from triggering false direction reversals.
+3. **Bug 4: Not pausing when moving from position (squat/lunge)** — Enhanced `isInPosition()` for squat/lunge: now checks hip landmark visibility (>0.5) and hip center Y position (must be between 0.25–0.75, i.e. roughly in frame). Rep counting pauses when user walks away from camera.
+4. **Feature: Floor exercise alignment line** — `drawHorizontalSide()` ground line upgraded: opacity 0.20→0.55, width 2→4px, solid instead of dashed, spans 3%–95% of screen width (was 6%–88%). Added "FLOOR" text label at right end.
+5. **Bug 2: Squat transition feedback** — Standing exercises (squat/lunge/pullup) now get a spoken prompt on switch: "Ready for [exercise]. Raise your hand or tap Ready." Ready button gets a brief scale-up + glow highlight animation on exercise change.
+
+**Tests:** 95 → 106 (+11 new tests). All green.
+
+### Session: 2026-04-03 (Phase 4 — Workout Logger with Persistence)
+**All Phase 4 items complete in one autonomous session:**
+
+1. **LocalStorage persistence** — `saveCurrentSession()` called on every Finish Set; `loadTodaySession()` restores today's sets on page load. Data model: `formcheck_sessions` key → array of `{ date, timestamp, sets: [...] }`. Cap at 90 sessions. Storage-full handled with graceful trim + retry.
+2. **Session history view** — Log modal expanded to 3 tabs (Today / History / Progress). History tab shows all past sessions grouped by date, newest first. Both today and history tabs render through `escapeHtml()` for XSS safety.
+3. **Progress chart** — `drawProgressChart()` draws a stacked bar chart on a `<canvas>` element. One bar per session (last 7), stacked by exercise with color per exercise type. No chart library dependency. `aggregateRepsByExercise()` is a pure, tested helper.
+4. **Export** — `buildCSVExport(history)` is a pure, tested function. Export JSON and Export CSV buttons in Log modal trigger file downloads. Plank time strings preserved correctly in CSV.
+5. **Workout templates** — `formcheck_templates` key in localStorage. Templates store ordered exercise keys. Loading a template auto-advances to next exercise after each Finish Set with voice prompts. Badge in controls bar shows remaining sequence. Security: template modal uses data-attribute + event delegation (not inline onclick) to safely handle apostrophes and quotes in template names.
+
+**Tests:** 112 → 127 (+15 new: escapeHtml ×6, buildCSVExport ×5, aggregateRepsByExercise ×4). All passing.
+
+**Phone testing needed:**
+1. Finish a set → reload page → does the set show in the Log? (persistence check)
+2. Log modal → History tab → do past sessions appear after multiple days of use?
+3. Log modal → Progress tab → does the chart draw correctly on phone screen width?
+4. Templates → save a template from today's exercises → load it → does it auto-advance?
+5. Export CSV → does the download work on iOS Safari?
+
+**Next:** Phase 5 exercise library expansion, or phone-test Phase 4 first.
+
+### 2026-04-01 — Git hygiene
+- Created `.gitignore` (blocks .pem private keys, large .mov video, caches, .claude/)
+- Created `.claudeignore` (blocks .claude/ worktrees, .mov video, .pem files, old test reports)
+- Pushed .gitignore to existing GitHub repo: birdsfan112/formchecker
+- **Security note:** cert.pem and key.pem were never committed to git — .gitignore now prevents accidental staging.
+- **Next session:** Resume from Phase 3 completion state.
