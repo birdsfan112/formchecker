@@ -1573,6 +1573,151 @@ test('per-rep score: color threshold — green ≥80', () => {
   assert(79 < 80, 'Score of 79 should not get green');
 });
 
+// ===== PHASE 4: PERSISTENCE & EXPORT PURE FUNCTION TESTS =====
+
+// --- escapeHtml ---
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+test('escapeHtml: escapes angle brackets', () => {
+  assertEquals(escapeHtml('<script>'), '&lt;script&gt;', 'Should escape < and >');
+});
+
+test('escapeHtml: escapes ampersand', () => {
+  assertEquals(escapeHtml('a & b'), 'a &amp; b', 'Should escape &');
+});
+
+test('escapeHtml: escapes double quotes', () => {
+  assertEquals(escapeHtml('"hello"'), '&quot;hello&quot;', 'Should escape "');
+});
+
+test('escapeHtml: escapes single quotes', () => {
+  assertEquals(escapeHtml("it's"), 'it&#39;s', 'Should escape single quotes');
+});
+
+test('escapeHtml: passes through safe strings unchanged', () => {
+  assertEquals(escapeHtml('Push-ups'), 'Push-ups', 'Safe strings should pass through');
+});
+
+test('escapeHtml: handles non-string input (number)', () => {
+  assertEquals(escapeHtml(42), '42', 'Should convert numbers to string');
+});
+
+// --- buildCSVExport ---
+function buildCSVExport(history) {
+  const rows = ['Date,Exercise,Reps,"Form Score",Time'];
+  for (const session of history) {
+    for (const set of session.sets) {
+      const ex    = String(set.exercise).replace(/"/g, '""');
+      const score = set.avgScore !== undefined ? set.avgScore : '';
+      const time  = String(set.time || '').replace(/"/g, '""');
+      rows.push(`${session.date},"${ex}",${set.reps},${score},"${time}"`);
+    }
+  }
+  return rows.join('\n');
+}
+
+test('buildCSVExport: empty history returns just header', () => {
+  const csv = buildCSVExport([]);
+  assertEquals(csv, 'Date,Exercise,Reps,"Form Score",Time', 'Empty history = header only');
+});
+
+test('buildCSVExport: single session single set', () => {
+  const history = [{
+    date: 'Apr 3, 2026',
+    sets: [{ exercise: 'Push-ups', reps: 10, avgScore: 85, time: '10:30 AM' }]
+  }];
+  const csv = buildCSVExport(history);
+  const lines = csv.split('\n');
+  assertEquals(lines.length, 2, 'Should have header + 1 data row');
+  assert(lines[1].startsWith('Apr 3, 2026'), 'Row should start with date');
+  assert(lines[1].includes('"Push-ups"'), 'Exercise should be quoted');
+  assert(lines[1].includes(',10,'), 'Reps should appear');
+  assert(lines[1].includes(',85,'), 'Score should appear');
+});
+
+test('buildCSVExport: multiple sessions produce multiple rows', () => {
+  const history = [
+    { date: 'Apr 1, 2026', sets: [{ exercise: 'Squats', reps: 15, avgScore: 90, time: '9:00 AM' }] },
+    { date: 'Apr 3, 2026', sets: [
+      { exercise: 'Push-ups', reps: 10, avgScore: 80, time: '10:00 AM' },
+      { exercise: 'Squats', reps: 12, avgScore: 75, time: '10:15 AM' },
+    ]},
+  ];
+  const csv = buildCSVExport(history);
+  const lines = csv.split('\n');
+  assertEquals(lines.length, 4, 'Header + 3 set rows');
+});
+
+test('buildCSVExport: quotes in exercise name are escaped', () => {
+  const history = [{
+    date: 'Apr 3, 2026',
+    sets: [{ exercise: 'Pull-"ups"', reps: 5, avgScore: 70, time: '9:00 AM' }]
+  }];
+  const csv = buildCSVExport(history);
+  assert(csv.includes('Pull-""ups""'), 'Internal quotes should be doubled for CSV safety');
+});
+
+test('buildCSVExport: missing avgScore becomes empty field', () => {
+  const history = [{
+    date: 'Apr 3, 2026',
+    sets: [{ exercise: 'Plank', reps: '1:30', time: '10:00 AM' }]
+  }];
+  const csv = buildCSVExport(history);
+  assert(csv.includes(',1:30,,'), 'Missing score should produce empty field');
+});
+
+// --- aggregateRepsByExercise ---
+function aggregateRepsByExercise(session) {
+  const totals = {};
+  for (const set of session.sets) {
+    if (typeof set.reps === 'number' && set.reps > 0) {
+      totals[set.exercise] = (totals[set.exercise] || 0) + set.reps;
+    }
+  }
+  return totals;
+}
+
+test('aggregateRepsByExercise: sums reps for same exercise', () => {
+  const session = { sets: [
+    { exercise: 'Push-ups', reps: 10, avgScore: 80 },
+    { exercise: 'Push-ups', reps: 8, avgScore: 75 },
+  ]};
+  const totals = aggregateRepsByExercise(session);
+  assertEquals(totals['Push-ups'], 18, 'Should sum push-up reps');
+});
+
+test('aggregateRepsByExercise: groups multiple exercises separately', () => {
+  const session = { sets: [
+    { exercise: 'Push-ups', reps: 10, avgScore: 80 },
+    { exercise: 'Squats',   reps: 15, avgScore: 90 },
+  ]};
+  const totals = aggregateRepsByExercise(session);
+  assertEquals(totals['Push-ups'], 10, 'Push-ups correct');
+  assertEquals(totals['Squats'],   15, 'Squats correct');
+});
+
+test('aggregateRepsByExercise: ignores non-numeric reps (plank time strings)', () => {
+  const session = { sets: [
+    { exercise: 'Plank', reps: '1:30' },
+    { exercise: 'Push-ups', reps: 10 },
+  ]};
+  const totals = aggregateRepsByExercise(session);
+  assert(!totals['Plank'], 'Plank string reps should be ignored');
+  assertEquals(totals['Push-ups'], 10, 'Push-up numeric reps should be counted');
+});
+
+test('aggregateRepsByExercise: empty session returns empty object', () => {
+  const totals = aggregateRepsByExercise({ sets: [] });
+  assertEquals(Object.keys(totals).length, 0, 'Empty session → empty totals');
+});
+
 // ===== RUN TESTS =====
 console.log('\n=== FormCheck Fitness App - Test Suite ===\n');
 
