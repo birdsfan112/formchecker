@@ -65,14 +65,14 @@ A real-time AI fitness form coach that uses your phone camera + MediaPipe pose e
 
 ---
 
-## Phase 4: Workout Logger with Persistence
+## Phase 4: Workout Logger with Persistence ✅ (Complete)
 **Goal:** Track workouts over time
 
-- [ ] **LocalStorage persistence** — save workout history across sessions
-- [ ] **Workout templates** — save and load exercise sequences (e.g., "8x3 BWF routine")
-- [ ] **Progress charts** — reps, sets, form scores over time
-- [ ] **Export** — CSV or JSON export of workout data
-- [ ] **Session history** — view past workouts with form scores
+- [x] **LocalStorage persistence** — saves every set to `formcheck_sessions` on Finish Set; restores today's session automatically on page reload
+- [x] **Session history** — Log modal History tab shows all past sessions grouped by date
+- [x] **Progress charts** — stacked bar chart (canvas, no dependencies) in Progress tab: total reps per session per exercise, last 7 days, with color-coded legend
+- [x] **Export** — Export JSON and Export CSV buttons in Log modal download full workout history
+- [x] **Workout templates** — save today's exercise sequence as a named template; load to auto-advance exercises after each set; badge shows remaining exercises in the sequence
 
 ---
 
@@ -240,6 +240,26 @@ Each exercise will need:
 5. **Bug 2: Squat transition feedback** — Standing exercises (squat/lunge/pullup) now get a spoken prompt on switch: "Ready for [exercise]. Raise your hand or tap Ready." Ready button gets a brief scale-up + glow highlight animation on exercise change.
 
 **Tests:** 95 → 106 (+11 new tests). All green.
+
+### Session: 2026-04-03 (Phase 4 — Workout Logger with Persistence)
+**All Phase 4 items complete in one autonomous session:**
+
+1. **LocalStorage persistence** — `saveCurrentSession()` called on every Finish Set; `loadTodaySession()` restores today's sets on page load. Data model: `formcheck_sessions` key → array of `{ date, timestamp, sets: [...] }`. Cap at 90 sessions. Storage-full handled with graceful trim + retry.
+2. **Session history view** — Log modal expanded to 3 tabs (Today / History / Progress). History tab shows all past sessions grouped by date, newest first. Both today and history tabs render through `escapeHtml()` for XSS safety.
+3. **Progress chart** — `drawProgressChart()` draws a stacked bar chart on a `<canvas>` element. One bar per session (last 7), stacked by exercise with color per exercise type. No chart library dependency. `aggregateRepsByExercise()` is a pure, tested helper.
+4. **Export** — `buildCSVExport(history)` is a pure, tested function. Export JSON and Export CSV buttons in Log modal trigger file downloads. Plank time strings preserved correctly in CSV.
+5. **Workout templates** — `formcheck_templates` key in localStorage. Templates store ordered exercise keys. Loading a template auto-advances to next exercise after each Finish Set with voice prompts. Badge in controls bar shows remaining sequence. Security: template modal uses data-attribute + event delegation (not inline onclick) to safely handle apostrophes and quotes in template names.
+
+**Tests:** 112 → 127 (+15 new: escapeHtml ×6, buildCSVExport ×5, aggregateRepsByExercise ×4). All passing.
+
+**Phone testing needed:**
+1. Finish a set → reload page → does the set show in the Log? (persistence check)
+2. Log modal → History tab → do past sessions appear after multiple days of use?
+3. Log modal → Progress tab → does the chart draw correctly on phone screen width?
+4. Templates → save a template from today's exercises → load it → does it auto-advance?
+5. Export CSV → does the download work on iOS Safari?
+
+**Next:** Phase 5 exercise library expansion, or phone-test Phase 4 first.
 
 ### 2026-04-01 — Git hygiene
 - Created `.gitignore` (blocks .pem private keys, large .mov video, caches, .claude/)
