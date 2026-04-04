@@ -25,9 +25,11 @@
   #rep-counter.count-paused { color: rgba(255,255,255,0.3); text-shadow: none; } /* out-of-position: grayed out */
   #form-feedback { position: absolute; bottom: 120px; left: 0; right: 0; text-align: center; font-size: 28px; font-weight: 700; text-shadow: 0 3px 12px rgba(0,0,0,0.9), 0 0 20px rgba(0,0,0,0.7); pointer-events: none; z-index: 10; padding: 0 16px; letter-spacing: 0.5px; }
   #angle-hint { position: absolute; top: 50px; left: 0; right: 0; text-align: center; font-size: 22px; font-weight: 600; color: rgba(255,255,255,0.85); pointer-events: none; z-index: 10; text-shadow: 0 2px 8px rgba(0,0,0,0.9); padding: 0 16px; }
-  .feedback-good { color: #4ade80; }
-  .feedback-warn { color: #fbbf24; }
-  .feedback-bad { color: #f87171; }
+  /* Colorblind-safe feedback colors: blue (good) + orange (bad) are distinct
+     for the most common forms of colorblindness (red-green / deuteranopia). */
+  .feedback-good { color: #60a5fa; }  /* blue — was green #4ade80 */
+  .feedback-warn { color: #fbbf24; }  /* yellow — unchanged */
+  .feedback-bad  { color: #fb923c; }  /* orange — was red #f87171 */
 
   /* Workout state overlay — shown when idle or paused */
   #state-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 15; pointer-events: none; }
@@ -102,6 +104,13 @@
   #rest-timer { font-size: 96px; font-weight: 900; color: #4ade80; text-shadow: 0 4px 24px rgba(74,222,128,0.35); line-height: 1; }
   #rest-sub { font-size: 15px; color: rgba(255,255,255,0.35); margin-top: -8px; }
 
+  /* Camera permission rationale dialog */
+  #camera-permission { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #1a1a2e; z-index: 110; padding: 32px; }
+  #camera-permission-box { max-width: 340px; text-align: center; }
+  #camera-permission h2 { margin-bottom: 14px; font-size: 22px; }
+  #camera-permission p { color: #8899aa; font-size: 15px; line-height: 1.5; margin-bottom: 10px; }
+  #camera-permission .btn { margin-top: 20px; width: 100%; font-size: 16px; padding: 14px; }
+
   /* Loading */
   #loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #1a1a2e; z-index: 100; }
   #loading h2 { margin-bottom: 12px; }
@@ -148,7 +157,17 @@
 </head>
 <body>
 <div id="app">
-  <div id="loading">
+  <!-- Camera permission rationale — shown before getUserMedia is called on first visit -->
+  <div id="camera-permission" role="dialog" aria-labelledby="cam-perm-title" aria-describedby="cam-perm-desc">
+    <div id="camera-permission-box">
+      <h2 id="cam-perm-title">Camera Access Needed</h2>
+      <p id="cam-perm-desc">FormCheck uses your camera to watch your exercise form and count reps in real time.</p>
+      <p>No video is recorded or sent anywhere — everything runs entirely in your browser.</p>
+      <button class="btn btn-go" id="btn-grant-camera">Enable Camera</button>
+    </div>
+  </div>
+
+  <div id="loading" class="hidden">
     <h2>FormCheck</h2>
     <p>Loading pose detection...</p>
   </div>
@@ -158,15 +177,15 @@
     <canvas id="guide-canvas"></canvas>
     <canvas id="canvas"></canvas>
     <div id="hud">
-      <div id="exercise-name">Push-ups</div>
-      <div id="rep-counter">0</div>
+      <div id="exercise-name" aria-label="Current exercise">Push-ups</div>
+      <div id="rep-counter" role="status" aria-label="Rep counter" aria-live="polite">0</div>
     </div>
-    <div id="angle-hint"></div>
-    <div id="form-feedback"></div>
-    <div id="rep-score-flash"></div>
+    <div id="angle-hint" aria-live="polite"></div>
+    <div id="form-feedback" role="status" aria-live="polite"></div>
+    <div id="rep-score-flash" aria-live="assertive" aria-atomic="true"></div>
     <div id="state-overlay">
-      <div id="countdown-display"></div>
-      <div id="state-message"></div>
+      <div id="countdown-display" aria-live="assertive" aria-atomic="true"></div>
+      <div id="state-message" aria-live="polite"></div>
     </div>
     <!-- Rest screen between sets — covers camera with dark overlay -->
     <div id="rest-screen" class="hidden">
@@ -197,16 +216,16 @@
   </div>
 
   <div id="controls">
-    <select id="exercise-select">
+    <select id="exercise-select" aria-label="Select exercise">
       <option value="pushup">Push-ups</option>
       <option value="squat">Squats</option>
       <option value="pullup">Pull-ups</option>
       <option value="lunge">Lunges</option>
       <option value="plank">Plank (timed)</option>
     </select>
-    <button class="btn btn-go" id="btn-start">Ready</button>
-    <button class="btn btn-warn hidden" id="btn-pause">Pause</button>
-    <button class="btn btn-primary hidden" id="btn-finish">Finish Set</button>
+    <button class="btn btn-go" id="btn-start" aria-label="Start workout">Ready</button>
+    <button class="btn btn-warn hidden" id="btn-pause" aria-label="Pause workout">Pause</button>
+    <button class="btn btn-primary hidden" id="btn-finish" aria-label="Finish current set">Finish Set</button>
     <button class="btn btn-secondary" id="btn-log">Log</button>
     <button class="btn btn-secondary" id="btn-templates" title="Save/load workout templates">Templates</button>
     <span id="template-badge"></span>
@@ -300,7 +319,8 @@ const state = {
   warmupValleys: [],       // depth angles recorded at bottom of each warmup rep
   warmupCurrentMin: Infinity, // min angle seen during current warmup descent
   warmupCurrentMax: 0,     // max angle seen during current warmup ascent
-  warmupDirectionFrames: 0, // consecutive frames moving same direction (jitter filter)
+  warmupDirectionStartTime: 0, // wall-clock ms when current direction run started (jitter filter)
+  lastPositioningAligned: false, // hysteresis state: true = already aligned, use lower vis threshold
   // Guided calibration sequence state
   warmupCalSequence: [],     // exercises to calibrate: ['squat', 'pushup']
   warmupCalStep: 0,          // current index in calSequence
@@ -510,24 +530,28 @@ function analyzeWarmup(lm) {
   const goingUp   = state.prevAngle !== null && primaryAngle > state.prevAngle + 4;
   state.prevAngle = primaryAngle;
 
-  // Require 3 consecutive frames moving the same direction before flipping phase.
-  // This filters out jitter that would otherwise cause false direction changes.
+  // Wall-clock direction filter: require 150ms of sustained movement before flipping phase.
+  // More robust than a frame counter because frame rate varies (7.5fps idle vs 15fps active).
+  // At 15fps, 150ms ≈ 2-3 frames — same ballpark as the old "3 consecutive frames" approach.
+  const DIRECTION_HOLD_MS = 150;
+  const now = Date.now();
   const wantFlip = (state.warmupPhase === 'up' && goingDown) || (state.warmupPhase === 'down' && goingUp);
   if (wantFlip) {
-    state.warmupDirectionFrames++;
+    if (state.warmupDirectionStartTime === 0) state.warmupDirectionStartTime = now;
   } else {
-    state.warmupDirectionFrames = 0;
+    state.warmupDirectionStartTime = 0;
   }
+  const directionElapsed = state.warmupDirectionStartTime > 0 ? now - state.warmupDirectionStartTime : 0;
 
-  if (state.warmupPhase === 'up' && goingDown && state.warmupDirectionFrames >= 3) {
+  if (state.warmupPhase === 'up' && goingDown && directionElapsed >= DIRECTION_HOLD_MS) {
     // Started descending — record the extension peak we just left
     if (state.warmupCurrentMax > 110) state.warmupPeaks.push(state.warmupCurrentMax);
     state.warmupCurrentMax = primaryAngle;
     state.warmupPhase = 'down';
-    state.warmupDirectionFrames = 0;
+    state.warmupDirectionStartTime = 0;
   }
 
-  if (state.warmupPhase === 'down' && goingUp && state.warmupDirectionFrames >= 3) {
+  if (state.warmupPhase === 'down' && goingUp && directionElapsed >= DIRECTION_HOLD_MS) {
     // Hit bottom — validate it's a real bend (not a jitter), then record depth
     const firstPeak = state.warmupPeaks[0] || 180;
     const validBend = state.warmupCurrentMin < 165 && state.warmupCurrentMin < firstPeak - 15;
@@ -546,6 +570,7 @@ function analyzeWarmup(lm) {
     }
     state.warmupCurrentMin = primaryAngle;
     state.warmupPhase = 'up';
+    state.warmupDirectionStartTime = 0;
   }
 }
 
@@ -1048,6 +1073,17 @@ function checkPositioning(lm) {
 
   const ex = state.exercise;
 
+  // Visibility hysteresis: require a higher threshold to *become* aligned than to *stay* aligned.
+  // This prevents rapid flickering when a landmark sits right at the detection boundary.
+  // Like a thermostat with separate heat-on (45°) and heat-off (30°) thresholds.
+  const visThreshold = state.lastPositioningAligned ? 0.30 : 0.45;
+
+  // Helper: update hysteresis state and return result in one place
+  const setResult = (aligned, hint) => {
+    state.lastPositioningAligned = aligned;
+    return { aligned, hint };
+  };
+
   // Joints that must be visible for this exercise
   const required = {
     pushup:  [11, 12, 13, 14, 15, 16, 23, 24, 27, 28],
@@ -1057,8 +1093,8 @@ function checkPositioning(lm) {
     pullup:  [11, 12, 13, 14, 15, 16, 23, 24],
   };
   const landmarks = required[ex] || [];
-  if (!landmarks.every(i => lm[i] && lm[i].visibility > 0.4)) {
-    return { aligned: false, hint: 'Move back for full body view' };
+  if (!landmarks.every(i => lm[i] && lm[i].visibility > visThreshold)) {
+    return setResult(false, 'Move back for full body view');
   }
 
   const avgShoulderY = (lm[11].y + lm[12].y) / 2;
@@ -1066,21 +1102,21 @@ function checkPositioning(lm) {
   const vertSpan     = Math.abs(avgAnkleY - avgShoulderY);
 
   if (ex === 'pushup' || ex === 'plank') {
-    if (vertSpan < 0.06) return { aligned: false, hint: 'Move back — too close' };
-    if (vertSpan > 0.30) return { aligned: false, hint: 'Move back a little' };
-    return { aligned: true, hint: 'Good position!' };
+    if (vertSpan < 0.06) return setResult(false, 'Move back — too close');
+    if (vertSpan > 0.30) return setResult(false, 'Move back a little');
+    return setResult(true, 'Good position!');
   }
   if (ex === 'squat' || ex === 'lunge') {
-    if (vertSpan < 0.30) return { aligned: false, hint: 'Move back — too close' };
-    if (vertSpan > 0.80) return { aligned: false, hint: 'Move closer' };
-    return { aligned: true, hint: 'Good position!' };
+    if (vertSpan < 0.30) return setResult(false, 'Move back — too close');
+    if (vertSpan > 0.80) return setResult(false, 'Move closer');
+    return setResult(true, 'Good position!');
   }
   if (ex === 'pullup') {
     const avgWristY = (lm[15].y + lm[16].y) / 2;
-    if (avgWristY > avgShoulderY + 0.05) return { aligned: false, hint: 'Grip the bar' };
-    return { aligned: true, hint: 'Good position!' };
+    if (avgWristY > avgShoulderY + 0.05) return setResult(false, 'Grip the bar');
+    return setResult(true, 'Good position!');
   }
-  return { aligned: true, hint: null };
+  return setResult(true, null);
 }
 
 // ===== SILHOUETTE GUIDE =====
@@ -1108,10 +1144,11 @@ function drawGuide(retryCount) {
   const h = guideCanvas.height;
   const ex = state.exercise;
 
-  // Tint guide green when body is well-aligned, white otherwise
+  // Tint guide blue when body is well-aligned, white otherwise
+  // Blue is colorblind-safe — distinguishable under red-green colorblindness
   const posResult = checkPositioning(state.lastLandmarks);
   const guideColor = posResult.aligned
-    ? 'rgba(74, 222, 128, 0.85)'   // green — good position
+    ? 'rgba(96, 165, 250, 0.85)'   // blue — good position (was green, colorblind-safe)
     : 'rgba(255, 255, 255, 0.80)'; // white — still positioning
 
   guideCtx.strokeStyle = guideColor;
@@ -1145,7 +1182,7 @@ function drawStandingSide(w, h, aligned) {
   const headCX = cx + w * 0.01;
 
   g.save();
-  g.fillStyle = aligned ? 'rgba(74, 222, 128, 0.15)' : 'rgba(255, 255, 255, 0.18)';
+  g.fillStyle = aligned ? 'rgba(96, 165, 250, 0.15)' : 'rgba(255, 255, 255, 0.18)';
 
   // HEAD (circle + nose pointing right)
   g.beginPath();
@@ -1244,7 +1281,7 @@ function drawHorizontalSide(w, h, ex, aligned) {
   const toeX   = w * 0.79;
 
   g.save();
-  g.fillStyle = aligned ? 'rgba(74, 222, 128, 0.15)' : 'rgba(255, 255, 255, 0.18)';
+  g.fillStyle = aligned ? 'rgba(96, 165, 250, 0.15)' : 'rgba(255, 255, 255, 0.18)';
 
   // HEAD — centered just in front of (left of) shoulders, angled slightly down
   const headCX = shoulderX - w * 0.045;
@@ -1353,7 +1390,7 @@ function drawHangingFront(w, h, aligned) {
   g.restore();
 
   g.save();
-  g.fillStyle = aligned ? 'rgba(74, 222, 128, 0.15)' : 'rgba(255, 255, 255, 0.18)';
+  g.fillStyle = aligned ? 'rgba(96, 165, 250, 0.15)' : 'rgba(255, 255, 255, 0.18)';
 
   // Key body positions
   const shoulderY = h * 0.25;
@@ -1955,6 +1992,9 @@ exerciseSelect.addEventListener('change', () => {
   state.exercise = exerciseSelect.value;
   const newName = exerciseMeta[state.exercise].name;
 
+  // Reset hysteresis so the new exercise starts with a fresh alignment check
+  state.lastPositioningAligned = false;
+
   resetSetState();
 
   // Update exercise name label with a brief slide-in animation
@@ -2158,7 +2198,7 @@ document.getElementById('btn-warmup').addEventListener('click', () => {
   state.warmupCurrentMin = Infinity;
   state.warmupCurrentMax = 0;
   state.warmupPhase = 'up';
-  state.warmupDirectionFrames = 0;
+  state.warmupDirectionStartTime = 0;
   state.prevAngle = null;
   state.warmupSubPhase = 'positioning';
   state.warmupAlignedTime = 0;
@@ -2266,6 +2306,8 @@ pose.setOptions({
 });
 
 pose.onResults((results) => {
+  lastResultTime = Date.now(); // used by WebGL context loss watchdog
+
   const newW = canvas.clientWidth;
   const newH = canvas.clientHeight;
   if (canvas.width !== newW || canvas.height !== newH) {
@@ -2467,8 +2509,8 @@ pose.onResults((results) => {
         state.repFormScores.push(repScore);
         state.currentRepScores = [];
 
-        // Flash per-rep score in stats bar
-        const repColor = repScore >= 80 ? '#4ade80' : repScore >= 60 ? '#fbbf24' : '#f87171';
+        // Flash per-rep score in stats bar (colorblind-safe: blue/yellow/orange)
+        const repColor = repScore >= 80 ? '#60a5fa' : repScore >= 60 ? '#fbbf24' : '#fb923c';
         formScoreEl.textContent = `${repScore}%`;
         formScoreEl.style.color = repColor;
         setTimeout(() => {
@@ -2477,7 +2519,7 @@ pose.onResults((results) => {
           formScoreEl.style.color = '';
         }, 1500);
 
-        // Big visible flash in center of screen — readable from 6 feet
+        // Big visible flash in center of screen — readable from 6 feet (same colorblind-safe color)
         repScoreFlash.textContent = `${repScore}%`;
         repScoreFlash.style.color = repColor;
         repScoreFlash.classList.remove('flash-active');
@@ -2492,8 +2534,45 @@ pose.onResults((results) => {
   }
 });
 
+// ===== BACKGROUNDING RECOVERY =====
+// When the page is backgrounded (user switches apps on phone), two things break:
+//   1. iOS Safari's speechSynthesis gets suspended and may not resume automatically.
+//   2. The browser may lose the WebGL context that MediaPipe uses for inference,
+//      causing pose.onResults to stop firing entirely.
+// Both are recovered here when the page becomes visible again.
+
+let poseCamera = null;       // reference stored by startCamera so visibilitychange can restart it
+let lastResultTime = 0;      // updated each frame; watchdog checks this after returning from background
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+
+  // 1. Web Speech re-unlock: iOS suspends speechSynthesis on background.
+  //    Cancel any stuck utterance, then speak a silent one to re-prime the engine.
+  if (window.speechSynthesis) {
+    speechSynthesis.cancel();
+    const silent = new SpeechSynthesisUtterance('');
+    silent.volume = 0;
+    speechSynthesis.speak(silent);
+    state.iosAudioUnlocked = true;
+  }
+
+  // 2. WebGL context loss watchdog: if no pose results arrive within 5 seconds of
+  //    returning to foreground, the inference pipeline has likely stalled.
+  //    Calling camera.start() re-triggers the frame loop and usually recovers it.
+  setTimeout(() => {
+    if (poseCamera && Date.now() - lastResultTime > 5000) {
+      poseCamera.start().catch(() => {});
+    }
+  }, 5000);
+});
+
 // ===== CAMERA =====
 async function startCamera() {
+  // Show loading spinner while we wait for camera + pose model init
+  document.getElementById('camera-permission').classList.add('hidden');
+  loading.classList.remove('hidden');
+
   try {
     // Camera display at full resolution so the video looks sharp on screen.
     // Pose inference runs at 640×480 (Camera width/height below) — ~4× fewer pixels to process.
@@ -2509,7 +2588,7 @@ async function startCamera() {
     // Like reading every other page when it matters, every 4th page when it doesn't.
     let frameCount = 0;
 
-    const camera = new Camera(video, {
+    poseCamera = new Camera(video, {
       onFrame: async () => {
         frameCount++;
         const throttle = (state.workoutState === 'idle') ? 4 : 2;
@@ -2519,7 +2598,7 @@ async function startCamera() {
       width: 640,   // inference resolution (was 1280)
       height: 480   // inference resolution (was 720)
     });
-    await camera.start();
+    await poseCamera.start();
     loading.classList.add('hidden');
 
     // Start in idle state
@@ -2534,7 +2613,9 @@ async function startCamera() {
   }
 }
 
-startCamera();
+// Show the permission rationale dialog on startup — user clicks to trigger getUserMedia
+document.getElementById('btn-grant-camera').addEventListener('click', startCamera);
+
 
 }); // end window.onload
 </script>
