@@ -90,10 +90,11 @@ A real-time AI fitness form coach that uses your phone camera + MediaPipe pose e
 - [x] Dips (front/side view, elbow angle, elbow-flare form check, derives calibration from pushup)
 - [x] Dead Hang (timed, hanging front view, same as plank-style timer)
 - [x] Leg Raises (hanging, front view, hip angle tracking, straight-leg form check)
-- [ ] Rows (inverted)
-- [ ] L-sits
+- [x] Inverted Rows (horizontal body, elbow angle, body-sag form check, derives calibration from pushup)
+- [x] L-Sit (timed, seated with legs extended, hip angle form check)
+- [x] Pistol Squat (single-leg, min knee angle, derives calibration from squat -10°)
+- [x] Glute Bridge (floor, hip angle rep counting, full extension cue)
 - [ ] Arch hangs / scapular pulls
-- [ ] Single-leg squats (pistol progressions)
 
 ### Mobility & PT
 - [ ] Shoulder dislocates (band/dowel)
@@ -344,6 +345,26 @@ Each exercise will need:
 - Does the directional cue ("↑ Come all the way up") show at the right moment, or does it feel wrong given the warmup phase tracking logic?
 
 **Next:** Phone-test the above. Then decide: Phase 5 exercise expansion, or more calibration refinement.
+
+### Session: 2026-04-04 (Phase 5 — Second batch: 4 more exercises)
+**Autonomous session — second batch of Phase 5 exercise additions:**
+
+1. **Inverted Rows** (`row`) — horizontal body, elbow angle tracking, body-sag form cue ("Keep hips up — straight body"). `drawStyle: 'horizontal'` (plank silhouette). Calibration derived from pushup warmup (same elbow motion).
+2. **L-Sit** (`lsit`) — timed hold, shoulders-above-hips gating, hip angle form cue ("Keep legs horizontal") fires when avg hip angle > 120°. `isTimed: true`, reuses `state.plankStart`. 15s spoken milestones.
+3. **Pistol Squat** (`pistol`) — single-leg squat, min knee angle (working leg), shoulder-level balance check. Calibration derived from squat warmup minus 10° (deeper than regular squat, floors at 50°).
+4. **Glute Bridge** (`glutebridge`) — `isFloor: true`, hip angle rep counting (flat ~90°, bridged ~160°+), full-extension cue ("Drive hips higher") when bridged angle < 145°. `drawStyle: 'horizontal'` (plank silhouette).
+5. **Supporting updates:** `defaultCalibration` (row, lsit, pistol, glutebridge), `applyAllCalibrationResults` (row from pushup, pistol from squat), `getPrimaryAngle` (row = elbow, pistol = min knee), `checkPositioning` (new exercises mapped to span-based and hanging checks), `EXERCISE_COLORS` (4 new colors), dropdown (4 new `<option>` elements).
+
+**Tests:** 152 → 165 (+13 new: 8 isInPosition, 2 getPrimaryAngle, 3 calibration derivation). All passing.
+
+**Phone testing needed:**
+1. Do 4 new exercises appear in the dropdown?
+2. Inverted rows: does rep counting work? Does "Keep hips up" cue fire when sagging?
+3. L-Sit: does timer count up? Does "Keep legs horizontal" cue fire if legs drop?
+4. Pistol squat: does rep counting work for single-leg? Does balance check fire?
+5. Glute bridge: auto-start on floor? Does rep count as hips go up and return?
+
+**Next:** Phone-test new exercises. Then consider: arch hangs/scapular pulls (final Phase 5 exercise) or move to Phase 6.
 
 ---
 
