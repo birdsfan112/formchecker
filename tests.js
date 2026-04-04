@@ -893,9 +893,17 @@ function isInPosition(lm, exercise) {
     if (hipCenter < 0.25 || hipCenter > 0.75) return false;
     return true;
   }
-  if (exercise === 'pullup') {
+  if (exercise === 'pullup' || exercise === 'deadhang' || exercise === 'legraise') {
     const avgWristY = (lm[15].y + lm[16].y) / 2;
     return avgWristY < avgShoulderY + 0.2;
+  }
+  if (exercise === 'pike') {
+    const avgWristY = (lm[15].y + lm[16].y) / 2;
+    const avgHipY   = (lm[23].y + lm[24].y) / 2;
+    return avgWristY > 0.55 && avgHipY < avgWristY - 0.15;
+  }
+  if (exercise === 'dip') {
+    return verticalSpan > 0.3;
   }
   return true;
 }
@@ -983,10 +991,13 @@ test('isInPosition: unknown exercise always returns true', () => {
 // ===== CALIBRATION TESTS =====
 
 const defaultCalibration_test = {
-  pushup: { elbow_down: 100, elbow_up: 150 },
-  squat:  { knee_down: 100, knee_up: 160 },
-  pullup: { elbow_top: 80, elbow_bottom: 150 },
-  lunge:  { knee_down: 110, knee_up: 155 }
+  pushup:   { elbow_down: 100, elbow_up: 150 },
+  squat:    { knee_down: 100, knee_up: 160 },
+  pullup:   { elbow_top: 80, elbow_bottom: 150 },
+  lunge:    { knee_down: 110, knee_up: 155 },
+  pike:     { elbow_down: 90, elbow_up: 150 },
+  dip:      { elbow_down: 90, elbow_up: 150 },
+  legraise: { hip_down: 110, hip_up: 150 },
 };
 
 function mergeCalibration(defaults, loaded) {
@@ -1059,7 +1070,7 @@ function computeWarmupThresholds(valleys, peaks) {
 
 // getPrimaryAngle extracted for unit tests
 function getPrimaryAngle(lm, ex) {
-  if (ex === 'pushup' || ex === 'pullup') {
+  if (ex === 'pushup' || ex === 'pullup' || ex === 'pike' || ex === 'dip') {
     return (angle(lm[11], lm[13], lm[15]) + angle(lm[12], lm[14], lm[16])) / 2;
   }
   if (ex === 'squat') {
@@ -1111,12 +1122,15 @@ test('computeWarmupThresholds: handles single valley', () => {
 // Extracted from index.html — applies squat+pushup results and derives lunge+pullup
 
 function applyAllCalibrationResults(results) {
-  // Need a fresh calibration object for testing
+  // Need a fresh calibration object for testing (mirrors defaultCalibration in index.html)
   const cal = JSON.parse(JSON.stringify({
-    pushup: { elbow_down: 100, elbow_up: 150 },
-    squat:  { knee_down: 100, knee_up: 160 },
-    pullup: { elbow_top: 80, elbow_bottom: 150 },
-    lunge:  { knee_down: 110, knee_up: 155 }
+    pushup:   { elbow_down: 100, elbow_up: 150 },
+    squat:    { knee_down: 100, knee_up: 160 },
+    pullup:   { elbow_top: 80, elbow_bottom: 150 },
+    lunge:    { knee_down: 110, knee_up: 155 },
+    pike:     { elbow_down: 90, elbow_up: 150 },
+    dip:      { elbow_down: 90, elbow_up: 150 },
+    legraise: { hip_down: 110, hip_up: 150 },
   }));
 
   if (results.squat) {
@@ -1132,6 +1146,11 @@ function applyAllCalibrationResults(results) {
     if (extensionThreshold) cal.pushup.elbow_up = extensionThreshold;
     cal.pullup.elbow_top = Math.max(depthThreshold - 20, 50);
     if (extensionThreshold) cal.pullup.elbow_bottom = extensionThreshold;
+    // Derive pike and dip from pushup — same elbow motion, same ROM
+    cal.pike.elbow_down = depthThreshold;
+    if (extensionThreshold) cal.pike.elbow_up = extensionThreshold;
+    cal.dip.elbow_down = depthThreshold;
+    if (extensionThreshold) cal.dip.elbow_up = extensionThreshold;
   }
   return cal;
 }
@@ -1400,7 +1419,7 @@ test('breathing cue: fires exactly once per set (at rep 2)', () => {
 
 function buildSetSummary(reps, repScores, exercise) {
   if (reps === 0) return 'Set done.';
-  if (exercise === 'plank') return null;
+  if (exercise === 'plank' || exercise === 'deadhang') return null; // timed exercises use their own message
   if (repScores.length === 0) return `${reps} rep${reps === 1 ? '' : 's'}.`;
   const avg = Math.round(repScores.reduce((a, b) => a + b, 0) / repScores.length);
   const goodCount = repScores.filter(s => s >= 80).length;
@@ -1816,6 +1835,98 @@ test('aggregateRepsByExercise: ignores non-numeric reps (plank time strings)', (
 test('aggregateRepsByExercise: empty session returns empty object', () => {
   const totals = aggregateRepsByExercise({ sets: [] });
   assertEquals(Object.keys(totals).length, 0, 'Empty session → empty totals');
+});
+
+// ===== PHASE 5 EXERCISE TESTS =====
+
+// --- New calibration defaults ---
+test('calibration: pike defaults are set (elbow_down=90, elbow_up=150)', () => {
+  assertEquals(defaultCalibration_test.pike.elbow_down, 90, 'Pike elbow_down default');
+  assertEquals(defaultCalibration_test.pike.elbow_up,   150, 'Pike elbow_up default');
+});
+
+test('calibration: dip defaults are set (elbow_down=90, elbow_up=150)', () => {
+  assertEquals(defaultCalibration_test.dip.elbow_down, 90, 'Dip elbow_down default');
+  assertEquals(defaultCalibration_test.dip.elbow_up,   150, 'Dip elbow_up default');
+});
+
+test('calibration: legraise defaults are set (hip_down=110, hip_up=150)', () => {
+  assertEquals(defaultCalibration_test.legraise.hip_down, 110, 'Legraise hip_down default');
+  assertEquals(defaultCalibration_test.legraise.hip_up,   150, 'Legraise hip_up default');
+});
+
+// --- Calibration derivation for new exercises ---
+test('applyAllCalibrationResults: pushup results derive pike thresholds', () => {
+  const puResult = computeWarmupThresholds([80, 80, 80], [160, 160]);
+  const cal = applyAllCalibrationResults({ pushup: puResult });
+  assertEquals(cal.pike.elbow_down, puResult.depthThreshold, 'Pike depth = pushup depth');
+  assertEquals(cal.pike.elbow_up, puResult.extensionThreshold, 'Pike extension = pushup extension');
+});
+
+test('applyAllCalibrationResults: pushup results derive dip thresholds', () => {
+  const puResult = computeWarmupThresholds([80, 80, 80], [160, 160]);
+  const cal = applyAllCalibrationResults({ pushup: puResult });
+  assertEquals(cal.dip.elbow_down, puResult.depthThreshold, 'Dip depth = pushup depth');
+  assertEquals(cal.dip.elbow_up, puResult.extensionThreshold, 'Dip extension = pushup extension');
+});
+
+// --- isInPosition for new exercises ---
+test('isInPosition: pike accepts raised hips (wristY=0.80, hipY=0.55)', () => {
+  const lm = makeLmWithSpan(0.30, 0.80, 0.80);
+  lm[23].y = 0.55; lm[24].y = 0.55; // hips raised
+  assertBool(isInPosition(lm, 'pike'), true, 'Pike with hips high should be in position');
+});
+
+test('isInPosition: pike rejects when hips not raised (hipY close to wristY)', () => {
+  const lm = makeLmWithSpan(0.30, 0.75, 0.75);
+  lm[23].y = 0.70; lm[24].y = 0.70; // hips not much higher than wrists
+  assertBool(isInPosition(lm, 'pike'), false, 'Pike with hips low should be out of position');
+});
+
+test('isInPosition: dip accepts upright body (span 0.60)', () => {
+  const lm = makeLmWithSpan(0.20, 0.80);
+  assertBool(isInPosition(lm, 'dip'), true, 'Upright body should be in dip position');
+});
+
+test('isInPosition: dip rejects horizontal body (span 0.10)', () => {
+  const lm = makeLmWithSpan(0.45, 0.55);
+  assertBool(isInPosition(lm, 'dip'), false, 'Horizontal body should be out of dip position');
+});
+
+test('isInPosition: deadhang accepts wrists above shoulders', () => {
+  const lm = makeLmWithSpan(0.40, 0.90, 0.10); // wrists at 0.10, shoulders at 0.40
+  assertBool(isInPosition(lm, 'deadhang'), true, 'Wrists above shoulders = in deadhang position');
+});
+
+test('isInPosition: deadhang rejects wrists far below shoulders', () => {
+  const lm = makeLmWithSpan(0.40, 0.90, 0.80); // wrists at 0.80, well below shoulders at 0.40
+  assertBool(isInPosition(lm, 'deadhang'), false, 'Wrists far below shoulders = out of deadhang position');
+});
+
+test('isInPosition: legraise accepts wrists above shoulders (hanging)', () => {
+  const lm = makeLmWithSpan(0.40, 0.90, 0.10);
+  assertBool(isInPosition(lm, 'legraise'), true, 'Hanging position should be in legraise position');
+});
+
+// --- getPrimaryAngle for new exercises ---
+test('getPrimaryAngle: pike uses elbow angle (same as pushup)', () => {
+  const lm = Array(33).fill({ x: 0.5, y: 0.5 });
+  // Straight arms → ~180°
+  lm[11] = { x: 0.0, y: 0.0 }; lm[13] = { x: 0.5, y: 0.0 }; lm[15] = { x: 1.0, y: 0.0 };
+  lm[12] = { x: 0.0, y: 0.0 }; lm[14] = { x: 0.5, y: 0.0 }; lm[16] = { x: 1.0, y: 0.0 };
+  assertCloseTo(getPrimaryAngle(lm, 'pike'), 180, 5, 'Pike straight arms should be ~180°');
+});
+
+test('getPrimaryAngle: dip uses elbow angle (same as pushup)', () => {
+  const lm = Array(33).fill({ x: 0.5, y: 0.5 });
+  lm[11] = { x: 0.0, y: 0.0 }; lm[13] = { x: 0.5, y: 0.0 }; lm[15] = { x: 1.0, y: 0.0 };
+  lm[12] = { x: 0.0, y: 0.0 }; lm[14] = { x: 0.5, y: 0.0 }; lm[16] = { x: 1.0, y: 0.0 };
+  assertCloseTo(getPrimaryAngle(lm, 'dip'), 180, 5, 'Dip straight arms should be ~180°');
+});
+
+// --- buildSetSummary for timed exercises ---
+test('buildSetSummary: deadhang returns null (timed exercise)', () => {
+  assert(buildSetSummary(1, [90], 'deadhang') === null, 'Dead hang should return null like plank');
 });
 
 // ===== RUN TESTS =====

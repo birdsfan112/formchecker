@@ -222,6 +222,10 @@
       <option value="pullup">Pull-ups</option>
       <option value="lunge">Lunges</option>
       <option value="plank">Plank (timed)</option>
+      <option value="pike">Pike Push-ups</option>
+      <option value="dip">Dips</option>
+      <option value="deadhang">Dead Hang (timed)</option>
+      <option value="legraise">Leg Raises</option>
     </select>
     <button class="btn btn-go" id="btn-start" aria-label="Start workout">Ready</button>
     <button class="btn btn-warn hidden" id="btn-pause" aria-label="Pause workout">Pause</button>
@@ -331,86 +335,404 @@ const state = {
   activeTemplate: null,        // null | { name, exercises: string[], currentIdx: number }
 };
 
-// Camera angles + silhouette guide points per exercise (normalized 0-1 coords)
-const exerciseMeta = {
+// ===== EXERCISE REGISTRY =====
+// Single source of truth for all exercise data: metadata, silhouette, position validation, and analysis.
+// Adding a new exercise = one entry here + a <option> in the dropdown + defaults in defaultCalibration.
+//
+// Each entry has:
+//   name, hint          — display strings
+//   guide, guideLines   — normalized silhouette wireframe (legacy, kept for compatibility)
+//   isFloor             — true → enables auto-start + "get in position" idle message
+//   isTimed             — true → plank-style timer instead of rep counter
+//   drawStyle           — 'standing' | 'horizontal' | 'hanging' (which drawing function to use)
+//   drawVariant         — optional sub-type passed to drawHorizontalSide (e.g. 'pushup' vs 'plank')
+//   isInPosition(lm)    — returns true when user is in the correct general body position
+//   outOfPositionMsg    — shown when isInPosition returns false during an active set
+//   analyze(lm)         — form analysis; returns { repCounted, score }
+const exerciseRegistry = {
+
+  // ===== EXISTING EXERCISES =====
+
   pushup: {
     name: 'Push-ups',
     hint: 'Side view — full body in frame',
-    // Side-view pushup silhouette: start position (arms extended, plank)
     guide: [
-      // Head, shoulder, hip, knee, ankle (rough side profile)
-      {x: 0.30, y: 0.35}, // head
-      {x: 0.35, y: 0.40}, // shoulder
-      {x: 0.50, y: 0.42}, // hip
-      {x: 0.65, y: 0.42}, // knee
-      {x: 0.75, y: 0.42}, // ankle
-      // Arm down to ground
-      {x: 0.35, y: 0.40}, // shoulder (repeat for arm line)
-      {x: 0.32, y: 0.50}, // elbow
-      {x: 0.30, y: 0.58}, // hand on ground
+      {x: 0.30, y: 0.35}, {x: 0.35, y: 0.40}, {x: 0.50, y: 0.42}, {x: 0.65, y: 0.42},
+      {x: 0.75, y: 0.42}, {x: 0.35, y: 0.40}, {x: 0.32, y: 0.50}, {x: 0.30, y: 0.58},
     ],
-    guideLines: [[0,1],[1,2],[2,3],[3,4],[5,6],[6,7]]
+    guideLines: [[0,1],[1,2],[2,3],[3,4],[5,6],[6,7]],
+    isFloor: true, isTimed: false, drawStyle: 'horizontal', drawVariant: 'pushup',
+    isInPosition(lm) {
+      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+      const avgAnkleY = (lm[27].y + lm[28].y) / 2;
+      return Math.abs(avgShoulderY - avgAnkleY) < 0.25;
+    },
+    outOfPositionMsg: 'Get into pushup position',
+    analyze(lm) {
+      const leftElbow = angle(lm[11], lm[13], lm[15]);
+      const rightElbow = angle(lm[12], lm[14], lm[16]);
+      const avgElbow = (leftElbow + rightElbow) / 2;
+      const goingDown = state.prevAngle !== null && avgElbow < state.prevAngle - 1;
+      state.prevAngle = avgElbow;
+      const leftBack = angle(lm[11], lm[23], lm[27]);
+      const rightBack = angle(lm[12], lm[24], lm[28]);
+      const avgBack = (leftBack + rightBack) / 2;
+      let repCounted = false;
+      if (avgElbow < calibration.pushup.elbow_down && state.phase === 'up') {
+        state.phase = 'down';
+      } else if (avgElbow > calibration.pushup.elbow_up && state.phase === 'down') {
+        state.phase = 'up'; state.spokenThisRep = false; repCounted = true;
+      }
+      let score = 100; let feedback = [];
+      if (avgBack < 145) {
+        score -= 30;
+        feedback.push(pastFirstSet() ? 'Hips dropping — try knees down or incline' : 'Tighten your core');
+      } else if (avgBack > 195) {
+        score -= 20; feedback.push('Hips too high — straighten your body');
+      }
+      if (state.phase === 'down' && goingDown && avgElbow > calibration.pushup.elbow_down + 12) {
+        score -= 15; if (feedback.length === 0) feedback.push('Go deeper');
+      }
+      if (feedback.length === 0) { showFeedback('Good form', 'good'); }
+      else { showFeedback(feedback[0], score > 60 ? 'warn' : 'bad'); if (cueShouldFire('pushup-form', 15000)) speak(feedback[0]); }
+      return { repCounted, score: Math.max(0, score) };
+    }
   },
+
   squat: {
     name: 'Squats',
     hint: 'Side view — stand back so full body is visible',
     guide: [
-      {x: 0.50, y: 0.15}, // head
-      {x: 0.50, y: 0.28}, // shoulder
-      {x: 0.50, y: 0.48}, // hip
-      {x: 0.50, y: 0.68}, // knee
-      {x: 0.50, y: 0.88}, // ankle
-      // Arms forward for balance
-      {x: 0.50, y: 0.28}, // shoulder
-      {x: 0.40, y: 0.32}, // hands forward
+      {x: 0.50, y: 0.15}, {x: 0.50, y: 0.28}, {x: 0.50, y: 0.48},
+      {x: 0.50, y: 0.68}, {x: 0.50, y: 0.88}, {x: 0.50, y: 0.28}, {x: 0.40, y: 0.32},
     ],
-    guideLines: [[0,1],[1,2],[2,3],[3,4],[5,6]]
+    guideLines: [[0,1],[1,2],[2,3],[3,4],[5,6]],
+    isFloor: false, isTimed: false, drawStyle: 'standing',
+    isInPosition(lm) {
+      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+      const avgAnkleY = (lm[27].y + lm[28].y) / 2;
+      if (Math.abs(avgShoulderY - avgAnkleY) <= 0.25) return false;
+      const hipVis = Math.min(lm[23].visibility, lm[24].visibility);
+      if (hipVis < 0.5) return false;
+      const hipCenter = (lm[23].y + lm[24].y) / 2;
+      if (hipCenter < 0.25 || hipCenter > 0.75) return false;
+      return true;
+    },
+    outOfPositionMsg: 'Stand up to continue',
+    analyze(lm) {
+      const leftKnee = angle(lm[23], lm[25], lm[27]);
+      const rightKnee = angle(lm[24], lm[26], lm[28]);
+      const avgKnee = (leftKnee + rightKnee) / 2;
+      const goingDown = state.prevAngle !== null && avgKnee < state.prevAngle - 1;
+      state.prevAngle = avgKnee;
+      let repCounted = false;
+      if (avgKnee < calibration.squat.knee_down && state.phase === 'up') {
+        state.phase = 'down';
+      } else if (avgKnee > calibration.squat.knee_up && state.phase === 'down') {
+        state.phase = 'up'; state.spokenThisRep = false; repCounted = true;
+      }
+      let score = 100; let feedback = [];
+      if (state.phase === 'down' && goingDown && avgKnee > calibration.squat.knee_down + 12) {
+        score -= 20;
+        feedback.push(pastFirstSet() ? 'Try deeper — hold a support for balance' : 'Go deeper');
+      }
+      const shoulderSpan = Math.abs(lm[11].x - lm[12].x);
+      const isFrontView = shoulderSpan > 0.15;
+      if (isFrontView && state.phase === 'down') {
+        const kneeSpan = Math.abs(lm[25].x - lm[26].x);
+        const ankleSpan = Math.abs(lm[27].x - lm[28].x);
+        if (kneeSpan < ankleSpan * 0.65) { score -= 25; if (feedback.length === 0) feedback.push('Push your knees out'); }
+      }
+      if (!isFrontView && state.phase === 'down') {
+        const torsoLean = angle(lm[11], lm[23], lm[25]);
+        if (torsoLean < 45) {
+          score -= 15;
+          if (feedback.length === 0) feedback.push(pastFirstSet() ? 'Leaning forward — try heels elevated' : 'Chest up');
+        }
+      }
+      if (feedback.length === 0) { showFeedback('Good form', 'good'); }
+      else { showFeedback(feedback[0], score > 60 ? 'warn' : 'bad'); if (cueShouldFire('squat-form', 15000)) speak(feedback[0]); }
+      return { repCounted, score: Math.max(0, score) };
+    }
   },
+
   pullup: {
     name: 'Pull-ups',
     hint: 'Front view — step back from bar',
     guide: [
-      {x: 0.50, y: 0.15}, // head
-      {x: 0.50, y: 0.28}, // neck
-      {x: 0.38, y: 0.30}, // left shoulder
-      {x: 0.62, y: 0.30}, // right shoulder
-      {x: 0.32, y: 0.15}, // left hand (on bar)
-      {x: 0.68, y: 0.15}, // right hand
-      {x: 0.50, y: 0.50}, // hip center
-      {x: 0.45, y: 0.75}, // left knee
-      {x: 0.55, y: 0.75}, // right knee
-      {x: 0.45, y: 0.90}, // left foot
-      {x: 0.55, y: 0.90}, // right foot
+      {x: 0.50, y: 0.15}, {x: 0.50, y: 0.28}, {x: 0.38, y: 0.30}, {x: 0.62, y: 0.30},
+      {x: 0.32, y: 0.15}, {x: 0.68, y: 0.15}, {x: 0.50, y: 0.50},
+      {x: 0.45, y: 0.75}, {x: 0.55, y: 0.75}, {x: 0.45, y: 0.90}, {x: 0.55, y: 0.90},
     ],
-    guideLines: [[0,1],[1,2],[1,3],[2,4],[3,5],[2,6],[3,6],[6,7],[6,8],[7,9],[8,10]]
+    guideLines: [[0,1],[1,2],[1,3],[2,4],[3,5],[2,6],[3,6],[6,7],[6,8],[7,9],[8,10]],
+    isFloor: false, isTimed: false, drawStyle: 'hanging',
+    isInPosition(lm) {
+      const avgWristY = (lm[15].y + lm[16].y) / 2;
+      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+      return avgWristY < avgShoulderY + 0.2;
+    },
+    outOfPositionMsg: 'Grip the bar to continue',
+    analyze(lm) {
+      const leftElbow = angle(lm[11], lm[13], lm[15]);
+      const rightElbow = angle(lm[12], lm[14], lm[16]);
+      const avgElbow = (leftElbow + rightElbow) / 2;
+      const chinAboveHands = lm[0].y < (lm[15].y + lm[16].y) / 2;
+      let repCounted = false;
+      if (avgElbow < calibration.pullup.elbow_top && chinAboveHands && state.phase === 'up') {
+        state.phase = 'down';
+      } else if (avgElbow > calibration.pullup.elbow_bottom && state.phase === 'down') {
+        state.phase = 'up'; state.spokenThisRep = false; repCounted = true;
+      }
+      let score = 100; let feedback = [];
+      if (state.phase === 'down' && !chinAboveHands && avgElbow < 100) {
+        score -= 20; feedback.push('Get your chin over the bar');
+      }
+      const hipMovement = Math.abs(lm[23].x - lm[11].x);
+      if (hipMovement > 0.15) { score -= 25; if (feedback.length === 0) feedback.push('Control the swing'); }
+      if (feedback.length === 0) { showFeedback('Good form', 'good'); }
+      else { showFeedback(feedback[0], score > 60 ? 'warn' : 'bad'); if (cueShouldFire('pullup-form', 15000)) speak(feedback[0]); }
+      return { repCounted, score: Math.max(0, score) };
+    }
   },
+
   lunge: {
     name: 'Lunges',
     hint: 'Side view — full body in frame',
     guide: [
-      {x: 0.50, y: 0.15}, // head
-      {x: 0.50, y: 0.30}, // shoulder
-      {x: 0.50, y: 0.50}, // hip
-      {x: 0.42, y: 0.70}, // front knee
-      {x: 0.40, y: 0.88}, // front ankle
-      {x: 0.60, y: 0.70}, // back knee
-      {x: 0.65, y: 0.88}, // back ankle
+      {x: 0.50, y: 0.15}, {x: 0.50, y: 0.30}, {x: 0.50, y: 0.50},
+      {x: 0.42, y: 0.70}, {x: 0.40, y: 0.88}, {x: 0.60, y: 0.70}, {x: 0.65, y: 0.88},
     ],
-    guideLines: [[0,1],[1,2],[2,3],[3,4],[2,5],[5,6]]
+    guideLines: [[0,1],[1,2],[2,3],[3,4],[2,5],[5,6]],
+    isFloor: false, isTimed: false, drawStyle: 'standing',
+    isInPosition(lm) {
+      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+      const avgAnkleY = (lm[27].y + lm[28].y) / 2;
+      if (Math.abs(avgShoulderY - avgAnkleY) <= 0.25) return false;
+      const hipVis = Math.min(lm[23].visibility, lm[24].visibility);
+      if (hipVis < 0.5) return false;
+      const hipCenter = (lm[23].y + lm[24].y) / 2;
+      if (hipCenter < 0.25 || hipCenter > 0.75) return false;
+      return true;
+    },
+    outOfPositionMsg: 'Stand up to continue',
+    analyze(lm) {
+      const leftKnee = angle(lm[23], lm[25], lm[27]);
+      const rightKnee = angle(lm[24], lm[26], lm[28]);
+      const frontKnee = Math.min(leftKnee, rightKnee);
+      const backKnee = Math.max(leftKnee, rightKnee);
+      let repCounted = false;
+      if (frontKnee < calibration.lunge.knee_down && state.phase === 'up') {
+        state.phase = 'down';
+      } else if (frontKnee > calibration.lunge.knee_up && backKnee > calibration.lunge.knee_up && state.phase === 'down') {
+        state.phase = 'up'; state.spokenThisRep = false; repCounted = true;
+      }
+      let score = 100; let feedback = [];
+      const goingDown = state.prevAngle !== null && frontKnee < state.prevAngle - 1;
+      state.prevAngle = frontKnee;
+      if (state.phase === 'down' && goingDown && frontKnee > calibration.lunge.knee_down + 12) {
+        score -= 15; feedback.push('Go deeper');
+      }
+      const torsoAngle = angle(lm[11], lm[23], lm[25]);
+      if (torsoAngle < 140) {
+        score -= 20;
+        if (feedback.length === 0) feedback.push(pastFirstSet() ? 'Torso leaning — try a wall for balance' : 'Keep your torso upright');
+      }
+      if (feedback.length === 0) { showFeedback('Good form', 'good'); }
+      else { showFeedback(feedback[0], score > 60 ? 'warn' : 'bad'); if (cueShouldFire('lunge-form', 15000)) speak(feedback[0]); }
+      return { repCounted, score: Math.max(0, score) };
+    }
   },
+
   plank: {
     name: 'Plank',
     hint: 'Side view — full body in frame',
     guide: [
-      {x: 0.30, y: 0.40}, // head
-      {x: 0.35, y: 0.43}, // shoulder
-      {x: 0.55, y: 0.43}, // hip
-      {x: 0.70, y: 0.43}, // knee
-      {x: 0.78, y: 0.43}, // ankle
-      {x: 0.33, y: 0.55}, // elbow on ground
+      {x: 0.30, y: 0.40}, {x: 0.35, y: 0.43}, {x: 0.55, y: 0.43},
+      {x: 0.70, y: 0.43}, {x: 0.78, y: 0.43}, {x: 0.33, y: 0.55},
     ],
-    guideLines: [[0,1],[1,2],[2,3],[3,4],[1,5]]
+    guideLines: [[0,1],[1,2],[2,3],[3,4],[1,5]],
+    isFloor: true, isTimed: true, drawStyle: 'horizontal', drawVariant: 'plank',
+    isInPosition(lm) {
+      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+      const avgAnkleY = (lm[27].y + lm[28].y) / 2;
+      return Math.abs(avgShoulderY - avgAnkleY) < 0.25;
+    },
+    outOfPositionMsg: 'Get into plank position',
+    analyze(lm) {
+      // Position validation (body must be horizontal) is handled upstream by isInPosition().
+      const leftBack = angle(lm[11], lm[23], lm[27]);
+      const rightBack = angle(lm[12], lm[24], lm[28]);
+      const avgBack = (leftBack + rightBack) / 2;
+      if (!state.plankStart) state.plankStart = Date.now();
+      const plankSecs = Math.floor((Date.now() - state.plankStart) / 1000);
+      let score = 100; let feedback = [];
+      if (avgBack < 145) {
+        score -= 30;
+        feedback.push(pastFirstSet() ? 'Hips dropping — try knees-down plank' : 'Tighten your core');
+      } else if (avgBack < 155) { score -= 10; }
+      else if (avgBack > 195) { score -= 20; feedback.push('Hips too high — flatten out'); }
+      repCounter.textContent = `${Math.floor(plankSecs / 60)}:${String(plankSecs % 60).padStart(2, '0')}`;
+      if (feedback.length === 0) {
+        showFeedback('Good form — hold it!', 'good');
+        if (plankSecs > 0 && plankSecs % 15 === 0) speakForce(`${plankSecs} seconds`);
+      } else {
+        showFeedback(feedback[0], score > 60 ? 'warn' : 'bad');
+        if (cueShouldFire('plank-form', 20000)) speakForce(feedback[0]);
+      }
+      return { repCounted: false, score: Math.max(0, score) };
+    }
+  },
+
+  // ===== PHASE 5 EXERCISES =====
+
+  pike: {
+    name: 'Pike Push-ups',
+    hint: 'Side view — hips high, hands and feet on floor',
+    guide: [], guideLines: [],
+    isFloor: false, isTimed: false, drawStyle: 'horizontal', drawVariant: 'pushup',
+    isInPosition(lm) {
+      // Hips must be raised: hip Y significantly less than wrist Y (Y=0 is top of screen)
+      const avgWristY = (lm[15].y + lm[16].y) / 2;
+      const avgHipY   = (lm[23].y + lm[24].y) / 2;
+      return avgWristY > 0.55 && avgHipY < avgWristY - 0.15;
+    },
+    outOfPositionMsg: 'Get into pike position (hips high)',
+    analyze(lm) {
+      const leftElbow = angle(lm[11], lm[13], lm[15]);
+      const rightElbow = angle(lm[12], lm[14], lm[16]);
+      const avgElbow = (leftElbow + rightElbow) / 2;
+      const goingDown = state.prevAngle !== null && avgElbow < state.prevAngle - 1;
+      state.prevAngle = avgElbow;
+      let repCounted = false;
+      if (avgElbow < calibration.pike.elbow_down && state.phase === 'up') {
+        state.phase = 'down';
+      } else if (avgElbow > calibration.pike.elbow_up && state.phase === 'down') {
+        state.phase = 'up'; state.spokenThisRep = false; repCounted = true;
+      }
+      let score = 100; let feedback = [];
+      // Hips must stay raised throughout (the defining form cue for pike)
+      const avgHipY   = (lm[23].y + lm[24].y) / 2;
+      const avgWristY = (lm[15].y + lm[16].y) / 2;
+      if (avgHipY > avgWristY - 0.08) { score -= 25; feedback.push('Keep hips high'); }
+      if (state.phase === 'down' && goingDown && avgElbow > calibration.pike.elbow_down + 12) {
+        score -= 15; if (feedback.length === 0) feedback.push('Go deeper');
+      }
+      if (feedback.length === 0) { showFeedback('Good form', 'good'); }
+      else { showFeedback(feedback[0], score > 60 ? 'warn' : 'bad'); if (cueShouldFire('pike-form', 15000)) speak(feedback[0]); }
+      return { repCounted, score: Math.max(0, score) };
+    }
+  },
+
+  dip: {
+    name: 'Dips',
+    hint: 'Front or side view — arms extended at top',
+    guide: [], guideLines: [],
+    isFloor: false, isTimed: false, drawStyle: 'standing',
+    isInPosition(lm) {
+      // Body must be upright (not horizontal)
+      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+      const avgAnkleY = (lm[27].y + lm[28].y) / 2;
+      return Math.abs(avgShoulderY - avgAnkleY) > 0.3;
+    },
+    outOfPositionMsg: 'Get into dip position',
+    analyze(lm) {
+      const leftElbow = angle(lm[11], lm[13], lm[15]);
+      const rightElbow = angle(lm[12], lm[14], lm[16]);
+      const avgElbow = (leftElbow + rightElbow) / 2;
+      const goingDown = state.prevAngle !== null && avgElbow < state.prevAngle - 1;
+      state.prevAngle = avgElbow;
+      let repCounted = false;
+      if (avgElbow < calibration.dip.elbow_down && state.phase === 'up') {
+        state.phase = 'down';
+      } else if (avgElbow > calibration.dip.elbow_up && state.phase === 'down') {
+        state.phase = 'up'; state.spokenThisRep = false; repCounted = true;
+      }
+      let score = 100; let feedback = [];
+      if (state.phase === 'down' && goingDown && avgElbow > calibration.dip.elbow_down + 12) {
+        score -= 15; feedback.push('Go deeper');
+      }
+      // Elbows flaring too wide is a shoulder-health concern
+      const shoulderSpan = Math.abs(lm[11].x - lm[12].x);
+      const elbowSpan = Math.abs(lm[13].x - lm[14].x);
+      if (shoulderSpan > 0.05 && elbowSpan > shoulderSpan * 1.6) {
+        score -= 20; if (feedback.length === 0) feedback.push('Keep elbows closer in');
+      }
+      if (feedback.length === 0) { showFeedback('Good form', 'good'); }
+      else { showFeedback(feedback[0], score > 60 ? 'warn' : 'bad'); if (cueShouldFire('dip-form', 15000)) speak(feedback[0]); }
+      return { repCounted, score: Math.max(0, score) };
+    }
+  },
+
+  deadhang: {
+    name: 'Dead Hang',
+    hint: 'Front view — step back so full body is visible',
+    guide: [], guideLines: [],
+    isFloor: false, isTimed: true, drawStyle: 'hanging',
+    isInPosition(lm) {
+      const avgWristY   = (lm[15].y + lm[16].y) / 2;
+      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+      return avgWristY < avgShoulderY + 0.2;
+    },
+    outOfPositionMsg: 'Grip the bar to continue',
+    analyze(lm) {
+      if (!state.plankStart) state.plankStart = Date.now();
+      const hangSecs = Math.floor((Date.now() - state.plankStart) / 1000);
+      let score = 100; let feedback = [];
+      const avgWristY   = (lm[15].y + lm[16].y) / 2;
+      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+      if (avgWristY > avgShoulderY + 0.15) {
+        score -= 30; feedback.push('Grip the bar — keep arms extended');
+      }
+      repCounter.textContent = `${Math.floor(hangSecs / 60)}:${String(hangSecs % 60).padStart(2, '0')}`;
+      if (feedback.length === 0) {
+        showFeedback('Good hang — stay relaxed!', 'good');
+        if (hangSecs > 0 && hangSecs % 15 === 0) speakForce(`${hangSecs} seconds`);
+      } else {
+        showFeedback(feedback[0], score > 60 ? 'warn' : 'bad');
+        if (cueShouldFire('deadhang-form', 20000)) speakForce(feedback[0]);
+      }
+      return { repCounted: false, score: Math.max(0, score) };
+    }
+  },
+
+  legraise: {
+    name: 'Leg Raises',
+    hint: 'Front view — full body in frame while hanging',
+    guide: [], guideLines: [],
+    isFloor: false, isTimed: false, drawStyle: 'hanging',
+    isInPosition(lm) {
+      const avgWristY   = (lm[15].y + lm[16].y) / 2;
+      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+      return avgWristY < avgShoulderY + 0.2;
+    },
+    outOfPositionMsg: 'Grip the bar to continue',
+    analyze(lm) {
+      // Hip angle: shoulder → hip → knee. Legs down = ~170°, legs raised = ~80°.
+      const leftHip  = angle(lm[11], lm[23], lm[25]);
+      const rightHip = angle(lm[12], lm[24], lm[26]);
+      const avgHip = (leftHip + rightHip) / 2;
+      state.prevAngle = avgHip;
+      let repCounted = false;
+      // phase 'up' = legs hanging down (start); phase 'down' = legs raised
+      if (avgHip < calibration.legraise.hip_down && state.phase === 'up') {
+        state.phase = 'down';
+      } else if (avgHip > calibration.legraise.hip_up && state.phase === 'down') {
+        state.phase = 'up'; state.spokenThisRep = false; repCounted = true;
+      }
+      let score = 100; let feedback = [];
+      // Check legs stay reasonably straight during the raise
+      const leftKnee  = angle(lm[23], lm[25], lm[27]);
+      const rightKnee = angle(lm[24], lm[26], lm[28]);
+      const avgKnee = (leftKnee + rightKnee) / 2;
+      if (state.phase === 'down' && avgKnee < 140) {
+        score -= 20; feedback.push('Keep legs straighter');
+      }
+      if (feedback.length === 0) { showFeedback('Good form', 'good'); }
+      else { showFeedback(feedback[0], score > 60 ? 'warn' : 'bad'); if (cueShouldFire('legraise-form', 15000)) speak(feedback[0]); }
+      return { repCounted, score: Math.max(0, score) };
+    }
   }
+
 };
 
 // ===== CALIBRATION =====
@@ -434,6 +756,19 @@ const defaultCalibration = {
   lunge: {
     knee_down: 110,   // front knee angle at bottom of lunge
     knee_up:   155    // knee angle to count rep (standing back up)
+  },
+  // Phase 5 exercises — derived from pushup calibration via applyAllCalibrationResults
+  pike: {
+    elbow_down: 90,   // elbow angle at bottom of pike (head near floor)
+    elbow_up:   150,  // elbow angle at top (arms extended overhead)
+  },
+  dip: {
+    elbow_down: 90,   // elbow angle at bottom of dip (~90°)
+    elbow_up:   150,  // elbow angle at top (arms extended)
+  },
+  legraise: {
+    hip_down: 110,    // hip angle below which = legs are raised (entering rep phase)
+    hip_up:   150,    // hip angle above which = rep complete (legs returned to hang)
   }
 };
 
@@ -485,7 +820,7 @@ function loadCalibrationFromFile(file) {
 // Returns the primary joint angle for rep detection for each exercise.
 // Extracted as a pure function so tests can use it without browser globals.
 function getPrimaryAngle(lm, ex) {
-  if (ex === 'pushup' || ex === 'pullup') {
+  if (ex === 'pushup' || ex === 'pullup' || ex === 'pike' || ex === 'dip') {
     return (angle(lm[11], lm[13], lm[15]) + angle(lm[12], lm[14], lm[16])) / 2;
   }
   if (ex === 'squat') {
@@ -518,7 +853,7 @@ function computeWarmupThresholds(valleys, peaks) {
 
 // Track joint angles during warmup, detect direction reversals to find depth/extension.
 function analyzeWarmup(lm) {
-  if (state.exercise === 'plank') return; // plank has no reps to calibrate
+  if (exerciseRegistry[state.exercise]?.isTimed) return; // timed exercises have no reps to calibrate
 
   const primaryAngle = getPrimaryAngle(lm, state.exercise);
 
@@ -595,8 +930,8 @@ function finishWarmupCalibration() {
     const nextEx = state.warmupCalSequence[state.warmupCalStep];
     state.exercise = nextEx;
     exerciseSelect.value = nextEx;
-    exerciseNameEl.textContent = exerciseMeta[nextEx].name;
-    showFeedback(`Next: ${exerciseMeta[nextEx].name}`, 'good');
+    exerciseNameEl.textContent = exerciseRegistry[nextEx].name;
+    showFeedback(`Next: ${exerciseRegistry[nextEx].name}`, 'good');
 
     // Reset warmup tracking for next exercise
     state.warmupReps = 0;
@@ -612,8 +947,8 @@ function finishWarmupCalibration() {
 
     // Voice guidance for next exercise
     setTimeout(() => {
-      speakForce(`Now get into ${exerciseMeta[nextEx].name.toLowerCase()} position`);
-      stateMessage.textContent = `Position for ${exerciseMeta[nextEx].name}`;
+      speakForce(`Now get into ${exerciseRegistry[nextEx].name.toLowerCase()} position`);
+      stateMessage.textContent = `Position for ${exerciseRegistry[nextEx].name}`;
       drawGuide();
     }, 800);
     return;
@@ -626,14 +961,14 @@ function finishWarmupCalibration() {
   const origEx = state.warmupOriginalExercise || 'pushup';
   state.exercise = origEx;
   exerciseSelect.value = origEx;
-  exerciseNameEl.textContent = exerciseMeta[origEx].name;
+  exerciseNameEl.textContent = exerciseRegistry[origEx].name;
 
   speakForce('Calibration complete');
   showFeedback('All calibrated!', 'good');
   repCounter.textContent = '0';
   setTimeout(() => {
     setWorkoutState('idle');
-    stateMessage.textContent = `✓ Calibrated! Tap Ready to start your ${exerciseMeta[origEx].name}.`;
+    stateMessage.textContent = `✓ Calibrated! Tap Ready to start your ${exerciseRegistry[origEx].name}.`;
   }, 1800);
 }
 
@@ -655,6 +990,11 @@ function applyAllCalibrationResults(results) {
     // Derive pullup from pushup — pullup top is typically ~20° tighter than pushup depth
     calibration.pullup.elbow_top = Math.max(depthThreshold - 20, 50);
     if (extensionThreshold) calibration.pullup.elbow_bottom = extensionThreshold;
+    // Derive pike and dip from pushup — same elbow motion, same ROM
+    calibration.pike.elbow_down = depthThreshold;
+    if (extensionThreshold) calibration.pike.elbow_up = extensionThreshold;
+    calibration.dip.elbow_down = depthThreshold;
+    if (extensionThreshold) calibration.dip.elbow_up = extensionThreshold;
   }
 }
 
@@ -668,11 +1008,15 @@ const TODAY_DATE    = new Date().toLocaleDateString('en-US', { month: 'short', d
 
 // Exercise display colors — used by progress chart and legend
 const EXERCISE_COLORS = {
-  'Push-ups': '#4ade80',
-  'Squats':   '#60a5fa',
-  'Pull-ups': '#f472b6',
-  'Lunges':   '#fb923c',
-  'Plank':    '#a78bfa',
+  'Push-ups':    '#4ade80',
+  'Squats':      '#60a5fa',
+  'Pull-ups':    '#f472b6',
+  'Lunges':      '#fb923c',
+  'Plank':       '#a78bfa',
+  'Pike Push-ups': '#34d399',
+  'Dips':        '#fbbf24',
+  'Dead Hang':   '#818cf8',
+  'Leg Raises':  '#f9a8d4',
 };
 
 function loadHistory() {
@@ -860,10 +1204,10 @@ function applyTemplate(template) {
   state.activeTemplate = { name: template.name, exercises: template.exercises, currentIdx: 0 };
   document.getElementById('template-modal').classList.add('hidden');
   const firstEx = template.exercises[0];
-  if (firstEx && exerciseMeta[firstEx]) {
+  if (firstEx && exerciseRegistry[firstEx]) {
     exerciseSelect.value = firstEx;
     exerciseSelect.dispatchEvent(new Event('change'));
-    setTimeout(() => speakForce(`Template loaded: ${template.name}. Starting with ${exerciseMeta[firstEx].name}.`), 500);
+    setTimeout(() => speakForce(`Template loaded: ${template.name}. Starting with ${exerciseRegistry[firstEx].name}.`), 500);
   }
   updateTemplateBadge();
 }
@@ -875,7 +1219,7 @@ function updateTemplateBadge() {
     return;
   }
   const { name, exercises, currentIdx } = state.activeTemplate;
-  const remaining = exercises.slice(currentIdx).map(e => exerciseMeta[e]?.name || e).join(' → ');
+  const remaining = exercises.slice(currentIdx).map(e => exerciseRegistry[e]?.name || e).join(' → ');
   badge.textContent = `📋 ${name}: ${remaining}`;
   badge.style.display = 'inline-block';
 }
@@ -943,7 +1287,7 @@ function renderTemplateModal() {
   const todayExercises = [];
   const seen = new Set();
   for (const s of state.log) {
-    const key = Object.keys(exerciseMeta).find(k => exerciseMeta[k].name === s.exercise);
+    const key = Object.keys(exerciseMeta).find(k => exerciseRegistry[k].name === s.exercise);
     if (key && !seen.has(key)) { seen.add(key); todayExercises.push(key); }
   }
 
@@ -954,7 +1298,7 @@ function renderTemplateModal() {
       <div class="template-entry">
         <div class="template-entry-info">
           <div class="template-name">${escapeHtml(t.name)}</div>
-          <div class="template-exercises">${t.exercises.map(e => escapeHtml(exerciseMeta[e]?.name || e)).join(' → ')}</div>
+          <div class="template-exercises">${t.exercises.map(e => escapeHtml(exerciseRegistry[e]?.name || e)).join(' → ')}</div>
         </div>
         <div class="template-actions">
           <button class="btn btn-go" style="padding:6px 10px;font-size:12px" data-action="load" data-idx="${idx}">Load</button>
@@ -980,7 +1324,7 @@ function renderTemplateModal() {
     saveBtn.title = 'Finish at least one set first';
   } else {
     saveBtn.disabled = false;
-    saveBtn.title = `Saves: ${todayExercises.map(e => exerciseMeta[e].name).join(' → ')}`;
+    saveBtn.title = `Saves: ${todayExercises.map(e => exerciseRegistry[e].name).join(' → ')}`;
   }
 }
 
@@ -1056,7 +1400,7 @@ function cueShouldFire(cueKey, cooldownMs) {
 }
 
 function pastFirstSet() {
-  return state.log.some(e => e.exercise === exerciseMeta[state.exercise].name);
+  return state.log.some(e => e.exercise === exerciseRegistry[state.exercise].name);
 }
 
 function showFeedback(text, level) {
@@ -1086,11 +1430,15 @@ function checkPositioning(lm) {
 
   // Joints that must be visible for this exercise
   const required = {
-    pushup:  [11, 12, 13, 14, 15, 16, 23, 24, 27, 28],
-    plank:   [11, 12, 23, 24, 27, 28],
-    squat:   [11, 12, 23, 24, 25, 26, 27, 28],
-    lunge:   [11, 12, 23, 24, 25, 26, 27, 28],
-    pullup:  [11, 12, 13, 14, 15, 16, 23, 24],
+    pushup:   [11, 12, 13, 14, 15, 16, 23, 24, 27, 28],
+    plank:    [11, 12, 23, 24, 27, 28],
+    squat:    [11, 12, 23, 24, 25, 26, 27, 28],
+    lunge:    [11, 12, 23, 24, 25, 26, 27, 28],
+    pullup:   [11, 12, 13, 14, 15, 16, 23, 24],
+    pike:     [11, 12, 13, 14, 15, 16, 23, 24, 27, 28],
+    dip:      [11, 12, 13, 14, 15, 16, 23, 24],
+    deadhang: [11, 12, 13, 14, 15, 16, 23, 24],
+    legraise: [11, 12, 13, 14, 15, 16, 23, 24, 25, 26],
   };
   const landmarks = required[ex] || [];
   if (!landmarks.every(i => lm[i] && lm[i].visibility > visThreshold)) {
@@ -1101,17 +1449,17 @@ function checkPositioning(lm) {
   const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
   const vertSpan     = Math.abs(avgAnkleY - avgShoulderY);
 
-  if (ex === 'pushup' || ex === 'plank') {
+  if (ex === 'pushup' || ex === 'plank' || ex === 'pike') {
     if (vertSpan < 0.06) return setResult(false, 'Move back — too close');
     if (vertSpan > 0.30) return setResult(false, 'Move back a little');
     return setResult(true, 'Good position!');
   }
-  if (ex === 'squat' || ex === 'lunge') {
+  if (ex === 'squat' || ex === 'lunge' || ex === 'dip') {
     if (vertSpan < 0.30) return setResult(false, 'Move back — too close');
     if (vertSpan > 0.80) return setResult(false, 'Move closer');
     return setResult(true, 'Good position!');
   }
-  if (ex === 'pullup') {
+  if (ex === 'pullup' || ex === 'deadhang' || ex === 'legraise') {
     const avgWristY = (lm[15].y + lm[16].y) / 2;
     if (avgWristY > avgShoulderY + 0.05) return setResult(false, 'Grip the bar');
     return setResult(true, 'Good position!');
@@ -1156,11 +1504,13 @@ function drawGuide(retryCount) {
   guideCtx.lineJoin = 'round';
   guideCtx.lineCap = 'round';
 
-  if (ex === 'squat' || ex === 'lunge') {
+  const meta = exerciseRegistry[ex];
+  const drawStyle = meta ? meta.drawStyle : null;
+  if (drawStyle === 'standing') {
     drawStandingSide(w, h, posResult.aligned);
-  } else if (ex === 'pushup' || ex === 'plank') {
-    drawHorizontalSide(w, h, ex, posResult.aligned);
-  } else if (ex === 'pullup') {
+  } else if (drawStyle === 'horizontal') {
+    drawHorizontalSide(w, h, meta.drawVariant || ex, posResult.aligned);
+  } else if (drawStyle === 'hanging') {
     drawHangingFront(w, h, posResult.aligned);
   }
 }
@@ -1538,8 +1888,8 @@ function detectPalmGesture(lm) {
 function detectAutoStart(lm) {
   if (state.workoutState !== 'idle') return;
   if (state.positionTriggered) return;
-  // Only for floor exercises
-  if (state.exercise !== 'pushup' && state.exercise !== 'plank') return;
+  // Only for floor exercises (isFloor: true in exerciseRegistry)
+  if (!exerciseRegistry[state.exercise]?.isFloor) return;
   // Don't compete with an active palm gesture detection
   if (state.palmDetectedTime > 0) return;
 
@@ -1594,41 +1944,17 @@ function detectAutoStart(lm) {
 // while the user is standing between pushup sets, sitting down, etc.
 // Threshold (0.25 verticalSpan) matches detectAutoStart and the old plank guard.
 function isInPosition(lm, exercise) {
-  const avgShoulderY = (lm[11].y + lm[12].y) / 2;
-  const avgAnkleY = (lm[27].y + lm[28].y) / 2;
-  const verticalSpan = Math.abs(avgShoulderY - avgAnkleY);
-
-  if (exercise === 'pushup' || exercise === 'plank') {
-    // Body must be roughly horizontal
-    return verticalSpan < 0.25;
-  }
-  if (exercise === 'squat' || exercise === 'lunge') {
-    // Body must be upright (not lying down)
-    if (verticalSpan <= 0.25) return false;
-    // Hips must be visible (not walked off-camera)
-    const hipVis = Math.min(lm[23].visibility, lm[24].visibility);
-    if (hipVis < 0.5) return false;
-    // Hip center must be roughly in frame (not at the extreme edges)
-    const hipCenter = (lm[23].y + lm[24].y) / 2;
-    if (hipCenter < 0.25 || hipCenter > 0.75) return false;
-    return true;
-  }
-  if (exercise === 'pullup') {
-    // Wrists should be near or above shoulder height (user is hanging, not walking away)
-    const avgWristY = (lm[15].y + lm[16].y) / 2;
-    return avgWristY < avgShoulderY + 0.2;
-  }
+  const reg = exerciseRegistry[exercise];
+  if (reg && reg.isInPosition) return reg.isInPosition(lm);
   return true; // unknown exercise — don't block
 }
 
-// Human-readable message to show when isInPosition() returns false
-const OUT_OF_POSITION_MSG = {
-  pushup: 'Get into pushup position',
-  plank:  'Get into plank position',
-  squat:  'Stand up to continue',
-  lunge:  'Stand up to continue',
-  pullup: 'Grip the bar to continue',
-};
+// Human-readable message to show when isInPosition() returns false.
+// Falls back to exerciseRegistry[ex].outOfPositionMsg if not found here.
+function getOutOfPositionMsg(exercise) {
+  return (exerciseRegistry[exercise] && exerciseRegistry[exercise].outOfPositionMsg)
+    || 'Return to position';
+}
 
 // ===== WORKOUT STATE MACHINE =====
 function setWorkoutState(newState) {
@@ -1647,7 +1973,7 @@ function setWorkoutState(newState) {
     case 'idle':
       stateOverlay.classList.add('clickable');
       countdownDisplay.textContent = '';
-      const isFloorExercise = state.exercise === 'pushup' || state.exercise === 'plank';
+      const isFloorExercise = exerciseRegistry[state.exercise]?.isFloor;
       stateMessage.textContent = isFloorExercise
         ? 'Get in position to auto-start — or raise hand / tap Ready'
         : 'Raise hand with palm facing camera — or tap Ready';
@@ -1688,12 +2014,12 @@ function setWorkoutState(newState) {
       if (state.warmupSubPhase === 'positioning') {
         const calStep = state.warmupCalStep + 1;
         const calTotal = state.warmupCalSequence.length;
-        stateMessage.textContent = `Step ${calStep} of ${calTotal}: Get into ${exerciseMeta[state.exercise].name} position`;
-        angleHint.textContent = exerciseMeta[state.exercise].hint || '';
+        stateMessage.textContent = `Step ${calStep} of ${calTotal}: Get into ${exerciseRegistry[state.exercise].name} position`;
+        angleHint.textContent = exerciseRegistry[state.exercise].hint || '';
         drawGuide(); // show silhouette so user can align
       } else if (state.warmupSubPhase === 'tracking') {
         stateMessage.textContent = 'Do 3 slow reps — go all the way down, then all the way up';
-        angleHint.textContent = exerciseMeta[state.exercise].hint || '';
+        angleHint.textContent = exerciseRegistry[state.exercise].hint || '';
         guideCtx.clearRect(0, 0, guideCanvas.width, guideCanvas.height);
       }
       break;
@@ -1726,249 +2052,15 @@ function startCountdown() {
   }, 1000);
 }
 
-// ===== EXERCISE DEFINITIONS =====
-const exercises = {
-  pushup: {
-    analyze(lm) {
-      const leftElbow = angle(lm[11], lm[13], lm[15]);
-      const rightElbow = angle(lm[12], lm[14], lm[16]);
-      const avgElbow = (leftElbow + rightElbow) / 2;
-
-      const goingDown = state.prevAngle !== null && avgElbow < state.prevAngle - 1;
-      state.prevAngle = avgElbow;
-
-      const leftBack = angle(lm[11], lm[23], lm[27]);
-      const rightBack = angle(lm[12], lm[24], lm[28]);
-      const avgBack = (leftBack + rightBack) / 2;
-
-      let repCounted = false;
-      if (avgElbow < calibration.pushup.elbow_down && state.phase === 'up') {
-        state.phase = 'down';
-      } else if (avgElbow > calibration.pushup.elbow_up && state.phase === 'down') {
-        state.phase = 'up';
-        state.spokenThisRep = false;
-        repCounted = true;
-      }
-
-      let score = 100;
-      let feedback = [];
-
-      if (avgBack < 145) {
-        score -= 30;
-        feedback.push(pastFirstSet() ? 'Hips dropping — try knees down or incline' : 'Tighten your core');
-      } else if (avgBack > 195) {
-        score -= 20;
-        feedback.push('Hips too high — straighten your body');
-      }
-
-      // Relative depth cue: fires when they haven't reached their calibrated depth.
-      // Default elbow_down=100 → cue at 112° (close to old hardcoded 110°).
-      // After warmup calibration, scales to their actual range.
-      if (state.phase === 'down' && goingDown && avgElbow > calibration.pushup.elbow_down + 12) {
-        score -= 15;
-        if (feedback.length === 0) feedback.push('Go deeper');
-      }
-
-      if (feedback.length === 0) {
-        showFeedback('Good form', 'good');
-      } else {
-        showFeedback(feedback[0], score > 60 ? 'warn' : 'bad');
-        if (cueShouldFire('pushup-form', 15000)) speak(feedback[0]);
-      }
-
-      return { repCounted, score: Math.max(0, score) };
-    }
-  },
-
-  squat: {
-    analyze(lm) {
-      const leftKnee = angle(lm[23], lm[25], lm[27]);
-      const rightKnee = angle(lm[24], lm[26], lm[28]);
-      const avgKnee = (leftKnee + rightKnee) / 2;
-
-      const goingDown = state.prevAngle !== null && avgKnee < state.prevAngle - 1;
-      state.prevAngle = avgKnee;
-
-      let repCounted = false;
-      if (avgKnee < calibration.squat.knee_down && state.phase === 'up') {
-        state.phase = 'down';
-      } else if (avgKnee > calibration.squat.knee_up && state.phase === 'down') {
-        state.phase = 'up';
-        state.spokenThisRep = false;
-        repCounted = true;
-      }
-
-      let score = 100;
-      let feedback = [];
-
-      if (state.phase === 'down' && goingDown && avgKnee > calibration.squat.knee_down + 12) {
-        score -= 20;
-        feedback.push(pastFirstSet() ? 'Try deeper — hold a support for balance' : 'Go deeper');
-      }
-
-      const shoulderSpan = Math.abs(lm[11].x - lm[12].x);
-      const isFrontView = shoulderSpan > 0.15;
-
-      if (isFrontView && state.phase === 'down') {
-        const kneeSpan = Math.abs(lm[25].x - lm[26].x);
-        const ankleSpan = Math.abs(lm[27].x - lm[28].x);
-        if (kneeSpan < ankleSpan * 0.65) {
-          score -= 25;
-          if (feedback.length === 0) feedback.push('Push your knees out');
-        }
-      }
-
-      if (!isFrontView && state.phase === 'down') {
-        const torsoLean = angle(lm[11], lm[23], lm[25]);
-        if (torsoLean < 45) {
-          score -= 15;
-          if (feedback.length === 0) {
-            feedback.push(pastFirstSet() ? 'Leaning forward — try heels elevated' : 'Chest up');
-          }
-        }
-      }
-
-      if (feedback.length === 0) {
-        showFeedback('Good form', 'good');
-      } else {
-        showFeedback(feedback[0], score > 60 ? 'warn' : 'bad');
-        if (cueShouldFire('squat-form', 15000)) speak(feedback[0]);
-      }
-
-      return { repCounted, score: Math.max(0, score) };
-    }
-  },
-
-  pullup: {
-    analyze(lm) {
-      const leftElbow = angle(lm[11], lm[13], lm[15]);
-      const rightElbow = angle(lm[12], lm[14], lm[16]);
-      const avgElbow = (leftElbow + rightElbow) / 2;
-      const chinAboveHands = lm[0].y < (lm[15].y + lm[16].y) / 2;
-
-      let repCounted = false;
-      if (avgElbow < calibration.pullup.elbow_top && chinAboveHands && state.phase === 'up') {
-        state.phase = 'down';
-      } else if (avgElbow > calibration.pullup.elbow_bottom && state.phase === 'down') {
-        state.phase = 'up';
-        state.spokenThisRep = false;
-        repCounted = true;
-      }
-
-      let score = 100;
-      let feedback = [];
-
-      if (state.phase === 'down' && !chinAboveHands && avgElbow < 100) {
-        score -= 20;
-        feedback.push('Get your chin over the bar');
-      }
-
-      const hipMovement = Math.abs(lm[23].x - lm[11].x);
-      if (hipMovement > 0.15) {
-        score -= 25;
-        if (feedback.length === 0) feedback.push('Control the swing');
-      }
-
-      if (feedback.length === 0) {
-        showFeedback('Good form', 'good');
-      } else {
-        showFeedback(feedback[0], score > 60 ? 'warn' : 'bad');
-        if (cueShouldFire('pullup-form', 15000)) speak(feedback[0]);
-      }
-
-      return { repCounted, score: Math.max(0, score) };
-    }
-  },
-
-  lunge: {
-    analyze(lm) {
-      const leftKnee = angle(lm[23], lm[25], lm[27]);
-      const rightKnee = angle(lm[24], lm[26], lm[28]);
-      const frontKnee = Math.min(leftKnee, rightKnee);
-      const backKnee = Math.max(leftKnee, rightKnee);
-
-      let repCounted = false;
-      if (frontKnee < calibration.lunge.knee_down && state.phase === 'up') {
-        state.phase = 'down';
-      } else if (frontKnee > calibration.lunge.knee_up && backKnee > calibration.lunge.knee_up && state.phase === 'down') {
-        state.phase = 'up';
-        state.spokenThisRep = false;
-        repCounted = true;
-      }
-
-      let score = 100;
-      let feedback = [];
-
-      const goingDown = state.prevAngle !== null && frontKnee < state.prevAngle - 1;
-      state.prevAngle = frontKnee;
-
-      if (state.phase === 'down' && goingDown && frontKnee > calibration.lunge.knee_down + 12) {
-        score -= 15;
-        feedback.push('Go deeper');
-      }
-
-      const torsoAngle = angle(lm[11], lm[23], lm[25]);
-      if (torsoAngle < 140) {
-        score -= 20;
-        if (feedback.length === 0) feedback.push(pastFirstSet() ? 'Torso leaning — try a wall for balance' : 'Keep your torso upright');
-      }
-
-      if (feedback.length === 0) {
-        showFeedback('Good form', 'good');
-      } else {
-        showFeedback(feedback[0], score > 60 ? 'warn' : 'bad');
-        if (cueShouldFire('lunge-form', 15000)) speak(feedback[0]);
-      }
-
-      return { repCounted, score: Math.max(0, score) };
-    }
-  },
-
-  plank: {
-    analyze(lm) {
-      // Position validation (body must be horizontal) is handled upstream by isInPosition().
-      // By the time we reach here, verticalSpan < 0.25 is guaranteed.
-      const leftBack = angle(lm[11], lm[23], lm[27]);
-      const rightBack = angle(lm[12], lm[24], lm[28]);
-      const avgBack = (leftBack + rightBack) / 2;
-
-      if (!state.plankStart) state.plankStart = Date.now();
-      const plankSecs = Math.floor((Date.now() - state.plankStart) / 1000);
-
-      let score = 100;
-      let feedback = [];
-
-      if (avgBack < 145) {
-        score -= 30;
-        feedback.push(pastFirstSet() ? 'Hips dropping — try knees-down plank' : 'Tighten your core');
-      } else if (avgBack < 155) {
-        score -= 10;
-      } else if (avgBack > 195) {
-        score -= 20;
-        feedback.push('Hips too high — flatten out');
-      }
-
-      repCounter.textContent = `${Math.floor(plankSecs / 60)}:${String(plankSecs % 60).padStart(2, '0')}`;
-
-      if (feedback.length === 0) {
-        showFeedback('Good form — hold it!', 'good');
-        if (plankSecs > 0 && plankSecs % 15 === 0) speakForce(`${plankSecs} seconds`);
-      } else {
-        showFeedback(feedback[0], score > 60 ? 'warn' : 'bad');
-        if (cueShouldFire('plank-form', 20000)) speakForce(feedback[0]);
-      }
-
-      return { repCounted: false, score: Math.max(0, score) };
-    }
-  }
-};
+// Exercise analysis is now in exerciseRegistry above (merged with metadata).
+// See exerciseRegistry[key].analyze(lm) for each exercise's logic.
 
 // ===== SET SUMMARY =====
 // Builds a spoken recap from per-rep form scores collected during the set.
 // Extracted as pure function for unit testing.
 function buildSetSummary(reps, repScores, exercise) {
   if (reps === 0) return 'Set done.';
-  if (exercise === 'plank') return null; // plank uses its own time-based message
+  if (exercise === 'plank' || exercise === 'deadhang') return null; // timed exercises use their own message
   if (repScores.length === 0) return `${reps} rep${reps === 1 ? '' : 's'}.`;
 
   const avg = Math.round(repScores.reduce((a, b) => a + b, 0) / repScores.length);
@@ -1990,7 +2082,7 @@ function buildSetSummary(reps, repScores, exercise) {
 // Exercise select
 exerciseSelect.addEventListener('change', () => {
   state.exercise = exerciseSelect.value;
-  const newName = exerciseMeta[state.exercise].name;
+  const newName = exerciseRegistry[state.exercise].name;
 
   // Reset hysteresis so the new exercise starts with a fresh alignment check
   state.lastPositioningAligned = false;
@@ -2010,7 +2102,7 @@ exerciseSelect.addEventListener('change', () => {
   repCounter.classList.add('count-reset');
   setTimeout(() => repCounter.classList.remove('count-reset'), 600);
 
-  angleHint.textContent = exerciseMeta[state.exercise].hint || '';
+  angleHint.textContent = exerciseRegistry[state.exercise].hint || '';
   setTimeout(() => { angleHint.textContent = ''; }, 15000);
 
   setWorkoutState('idle');
@@ -2019,7 +2111,7 @@ exerciseSelect.addEventListener('change', () => {
   stateMessage.textContent = '✓ ' + newName;
   setTimeout(() => {
     if (state.workoutState === 'idle') {
-      const isFloor = state.exercise === 'pushup' || state.exercise === 'plank';
+      const isFloor = exerciseRegistry[state.exercise]?.isFloor;
       stateMessage.textContent = isFloor
         ? 'Get in position to auto-start — or raise hand / tap Ready'
         : 'Raise hand with palm facing camera — or tap Ready';
@@ -2027,9 +2119,9 @@ exerciseSelect.addEventListener('change', () => {
     }
   }, 1600);
 
-  // For standing exercises, add a spoken prompt with instructions
-  const isStanding = state.exercise === 'squat' || state.exercise === 'lunge' || state.exercise === 'pullup';
-  if (isStanding) {
+  // For non-floor exercises, add spoken instructions to raise hand
+  const needsHandRaise = !exerciseRegistry[state.exercise]?.isFloor;
+  if (needsHandRaise) {
     speakForce(`Ready for ${newName}. Raise your hand or tap Ready.`);
   } else {
     speakForce(newName);
@@ -2063,11 +2155,12 @@ btnPause.addEventListener('click', () => {
 
 // Finish Set button — logs the set, shows rest screen, then resets to idle
 btnFinish.addEventListener('click', () => {
-  const setLogged = state.reps > 0 || (state.exercise === 'plank' && state.plankStart);
+  const isTimed = exerciseRegistry[state.exercise]?.isTimed;
+  const setLogged = state.reps > 0 || (isTimed && state.plankStart);
   if (setLogged) {
     const entry = {
-      exercise: exerciseMeta[state.exercise].name,
-      reps: state.exercise === 'plank' ? repCounter.textContent : state.reps,
+      exercise: exerciseRegistry[state.exercise].name,
+      reps: isTimed ? repCounter.textContent : state.reps,
       avgScore: state.formScores.length > 0 ? Math.round(state.formScores.reduce((a,b) => a+b, 0) / state.formScores.length) : '--',
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
@@ -2096,10 +2189,10 @@ btnFinish.addEventListener('click', () => {
       const { exercises, currentIdx } = state.activeTemplate;
       if (currentIdx < exercises.length) {
         const nextEx = exercises[currentIdx];
-        if (exerciseMeta[nextEx]) {
+        if (exerciseRegistry[nextEx]) {
           exerciseSelect.value = nextEx;
           exerciseSelect.dispatchEvent(new Event('change'));
-          speakForce(`Next: ${exerciseMeta[nextEx].name}`);
+          speakForce(`Next: ${exerciseRegistry[nextEx].name}`);
         }
       } else {
         state.activeTemplate = null;
@@ -2189,7 +2282,7 @@ document.getElementById('btn-warmup').addEventListener('click', () => {
   const firstEx = state.warmupCalSequence[0];
   state.exercise = firstEx;
   exerciseSelect.value = firstEx;
-  exerciseNameEl.textContent = exerciseMeta[firstEx].name;
+  exerciseNameEl.textContent = exerciseRegistry[firstEx].name;
 
   // Reset warmup tracking
   state.warmupReps = 0;
@@ -2203,7 +2296,7 @@ document.getElementById('btn-warmup').addEventListener('click', () => {
   state.warmupSubPhase = 'positioning';
   state.warmupAlignedTime = 0;
 
-  speakForce(`Calibration starting. Get into ${exerciseMeta[firstEx].name.toLowerCase()} position.`);
+  speakForce(`Calibration starting. Get into ${exerciseRegistry[firstEx].name.toLowerCase()} position.`);
   setWorkoutState('warmup');
 });
 
@@ -2270,7 +2363,7 @@ document.getElementById('btn-save-template').addEventListener('click', () => {
   const seen = new Set();
   const exercises = [];
   for (const s of state.log) {
-    const key = Object.keys(exerciseMeta).find(k => exerciseMeta[k].name === s.exercise);
+    const key = Object.keys(exerciseMeta).find(k => exerciseRegistry[k].name === s.exercise);
     if (key && !seen.has(key)) { seen.add(key); exercises.push(key); }
   }
   if (exercises.length === 0) {
@@ -2369,7 +2462,7 @@ pose.onResults((results) => {
     if (pos.hint && !pos.aligned) {
       stateMessage.textContent = pos.hint;
     } else if (pos.aligned) {
-      const isFloor = state.exercise === 'pushup' || state.exercise === 'plank';
+      const isFloor = exerciseRegistry[state.exercise]?.isFloor;
       stateMessage.textContent = isFloor
         ? '✓ Good position — get steady to auto-start'
         : '✓ Good position — raise hand or tap Ready';
@@ -2407,7 +2500,7 @@ pose.onResults((results) => {
             } else {
               clearInterval(calInterval);
               countdownDisplay.textContent = '';
-              const exName = exerciseMeta[state.exercise].name.toLowerCase();
+              const exName = exerciseRegistry[state.exercise].name.toLowerCase();
               speakForce(`Do 3 slow ${exName}`);
               state.warmupSubPhase = 'tracking';
               stateMessage.textContent = 'Do 3 slow reps — go all the way down, then all the way up';
@@ -2430,7 +2523,7 @@ pose.onResults((results) => {
 
     // 'tracking' sub-phase: count reps
     if (!isInPosition(lm, state.exercise)) {
-      showFeedback(OUT_OF_POSITION_MSG[state.exercise] || 'Return to position', 'warn');
+      showFeedback(getOutOfPositionMsg(state.exercise), 'warn');
       return;
     }
     // Direction cue: tell user which way to move based on current phase
@@ -2445,9 +2538,9 @@ pose.onResults((results) => {
       state.repCountingPaused = true;
       repCounter.classList.add('count-paused');
     }
-    showFeedback(OUT_OF_POSITION_MSG[state.exercise] || 'Return to position', 'warn');
-    // For plank: also reset timer so it restarts when they return
-    if (state.exercise === 'plank') {
+    showFeedback(getOutOfPositionMsg(state.exercise), 'warn');
+    // For timed exercises: also reset timer so it restarts when they return
+    if (exerciseRegistry[state.exercise]?.isTimed) {
       state.plankStart = null;
       repCounter.textContent = '0:00';
     }
@@ -2458,7 +2551,7 @@ pose.onResults((results) => {
     repCounter.classList.remove('count-paused');
   }
 
-  const exerciseDef = exercises[state.exercise];
+  const exerciseDef = exerciseRegistry[state.exercise];
   if (exerciseDef) {
     const result = exerciseDef.analyze(lm);
     if (result.repCounted) {
@@ -2602,8 +2695,8 @@ async function startCamera() {
     loading.classList.add('hidden');
 
     // Start in idle state
-    exerciseNameEl.textContent = exerciseMeta[state.exercise].name;
-    angleHint.textContent = exerciseMeta[state.exercise].hint || '';
+    exerciseNameEl.textContent = exerciseRegistry[state.exercise].name;
+    angleHint.textContent = exerciseRegistry[state.exercise].hint || '';
     setTimeout(() => { angleHint.textContent = ''; }, 15000);
     setWorkoutState('idle');
     loadTodaySession(); // restore any sets already logged today before the page reload

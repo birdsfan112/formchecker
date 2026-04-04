@@ -79,13 +79,20 @@ A real-time AI fitness form coach that uses your phone camera + MediaPipe pose e
 ## Phase 5: Exercise Library Expansion
 **Goal:** Cover the full r/bodyweightfitness recommended routine + mobility/PT
 
+### Engine Refactor ✅
+- [x] **Data-driven exerciseRegistry** — merged `exerciseMeta` + `exercises` into one registry. Each entry is self-contained: metadata, silhouette flags, `isInPosition`, `outOfPositionMsg`, and `analyze`. Adding a new exercise is now one object + one `<option>`.
+- [x] **Type flags** — `isFloor`, `isTimed`, `drawStyle`, `drawVariant` replace all hardcoded `exercise === 'plank'` / `exercise === 'pushup'` checks throughout the state machine, drawGuide, and detectAutoStart.
+- [x] **`isInPosition` delegated** to registry — standalone function is now a thin wrapper.
+- [x] **`getOutOfPositionMsg`** replaces `OUT_OF_POSITION_MSG` lookup table — uses registry.
+
 ### Bodyweight Strength
-- [ ] Dips
+- [x] Pike push-ups (side view, elbow angle, hips-high form check, derives calibration from pushup)
+- [x] Dips (front/side view, elbow angle, elbow-flare form check, derives calibration from pushup)
+- [x] Dead Hang (timed, hanging front view, same as plank-style timer)
+- [x] Leg Raises (hanging, front view, hip angle tracking, straight-leg form check)
 - [ ] Rows (inverted)
-- [ ] Pike push-ups / handstand push-up progressions
 - [ ] L-sits
 - [ ] Arch hangs / scapular pulls
-- [ ] Leg raises (hanging)
 - [ ] Single-leg squats (pistol progressions)
 
 ### Mobility & PT
@@ -288,6 +295,32 @@ Each exercise will need:
 5. Verify coaching cues still show in orange/blue (not red/green).
 
 **Next:** Phone-test the above. Then Phase 5 exercise library expansion.
+
+### Session: 2026-04-04 (Phase 5 — Engine refactor + 4 new exercises)
+**Autonomous session — data-driven engine refactor + first batch of Phase 5 exercises:**
+
+1. **exerciseRegistry** — merged `exerciseMeta` + `exercises` into one unified registry (was two separate objects). Each exercise entry is now self-contained: name, hint, guide/guideLines, `isFloor`, `isTimed`, `drawStyle`/`drawVariant`, `isInPosition(lm)`, `outOfPositionMsg`, `analyze(lm)`. Adding a new exercise = one object + one `<option>`.
+2. **Type-flag-driven logic** — replaced all hardcoded `state.exercise === 'plank'` / `=== 'pushup'` checks with `exerciseRegistry[ex].isFloor` and `.isTimed` throughout: `detectAutoStart`, `setWorkoutState` (idle message), MediaPipe callback (isFloor hint), Finish Set (timer vs rep count), plank-timer reset, exercise-change event handler.
+3. **`isInPosition` delegated** — thin wrapper now calls `exerciseRegistry[exercise].isInPosition(lm)`. `OUT_OF_POSITION_MSG` lookup table replaced by `getOutOfPositionMsg(exercise)` helper.
+4. **`drawGuide` data-driven** — uses `exerciseRegistry[ex].drawStyle` + `drawVariant` instead of hardcoded exercise-name checks.
+5. **4 new exercises added:**
+   - **Pike Push-ups** (`pike`) — side view, elbow angle, hips-high form cue, `drawStyle: 'horizontal'` (pushup silhouette), calibration derived from pushup warmup.
+   - **Dips** (`dip`) — front/side view, elbow angle, elbow-flare form cue, `drawStyle: 'standing'`, calibration derived from pushup.
+   - **Dead Hang** (`deadhang`) — timed hold, front view, `drawStyle: 'hanging'`, grip-bar form check, 15s spoken milestone.
+   - **Leg Raises** (`legraise`) — front view, hip angle tracking, straight-leg form cue, `drawStyle: 'hanging'`.
+6. **Supporting updates:** `defaultCalibration` (pike, dip, legraise defaults), `applyAllCalibrationResults` (derives pike/dip from pushup), `getPrimaryAngle` (pike/dip use elbow angle), `EXERCISE_COLORS` (4 new colors), `checkPositioning` (new exercises mapped to appropriate checks), dropdown (4 new `<option>` elements).
+
+**Tests:** 137 → 152 (+15 new: 3 calibration defaults, 2 calibration derivation, 7 isInPosition, 2 getPrimaryAngle, 1 buildSetSummary). All passing.
+
+**Phone testing needed:**
+1. Do the 4 new exercises appear in the dropdown?
+2. Pike: does the pushup silhouette show? Does "Keep hips high" cue fire when hips drop?
+3. Dips: does the standing silhouette show? Does rep counting work?
+4. Dead Hang: does the timer count up? Does "15 seconds" voice cue fire?
+5. Leg Raises: does hanging silhouette show? Do reps count when legs raise and lower?
+6. Existing exercises: confirm nothing broke (pushup auto-start, plank timer, pullup reps).
+
+**Next:** Phone-test the above. Then add remaining Phase 5 exercises (inverted rows, L-sits, arch hangs, pistol squats).
 
 ### Session: 2026-04-04 (Calibration UX polish + Rest screen)
 **Autonomous session — 4 calibration/UX fixes based on Scott's phone feedback:**
