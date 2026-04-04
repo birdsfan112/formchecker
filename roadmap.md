@@ -267,6 +267,28 @@ Each exercise will need:
 - Pushed .gitignore to existing GitHub repo: birdsfan112/formchecker
 - **Security note:** cert.pem and key.pem were never committed to git — .gitignore now prevents accidental staging.
 
+### Session: 2026-04-04 (Pre-Phase 5 Reliability Sprint)
+**Autonomous session — 7 reliability/accessibility improvements before Phase 5 exercise expansion:**
+
+1. **ARIA live regions** — `#form-feedback`, `#state-message`, `#countdown-display`, `#rep-counter`, `#angle-hint`, `#rep-score-flash` all have appropriate `aria-live` / `role` / `aria-label` attributes. Screen readers can now announce coaching cues and countdown.
+2. **Camera permission rationale dialog** — App now shows a plain-language explanation ("No video is recorded or sent anywhere") before calling `getUserMedia`. User taps "Enable Camera" to trigger the permission prompt. This prevents surprise on first visit. `#loading` is hidden until the button is clicked.
+3. **Colorblind-safe indicators** — Semantic feedback colors changed from red/green to orange/blue: `.feedback-good` → `#60a5fa` (blue), `.feedback-bad` → `#fb923c` (orange). Per-rep flash, form score stat, and guide alignment tint all updated. Brand/skeleton colors (`#4ade80`) unchanged.
+4. **Visibility hysteresis in `checkPositioning`** — Single threshold (0.4) replaced with two-speed hysteresis: 0.45 to *enter* aligned, 0.30 to *stay* aligned. Prevents guide from flickering at the landmark detection boundary (like a thermostat with separate on/off thresholds). Resets on exercise change.
+5. **Wall-clock direction filtering in `analyzeWarmup`** — Frame-count filter (`warmupDirectionFrames >= 3`) replaced with 150ms wall-clock timer (`warmupDirectionStartTime`). Consistent behavior regardless of frame rate (7.5fps idle vs 15fps active). State field renamed accordingly.
+6. **Web Speech re-unlock after backgrounding** — `visibilitychange` listener re-primes iOS speechSynthesis when the page returns to foreground (`speechSynthesis.cancel()` then silent utterance). Prevents stuck/silent voice coaching after switching apps.
+7. **WebGL context loss recovery** — `visibilitychange` listener also runs a 5-second watchdog: if no `pose.onResults` callback has fired since returning from background, calls `poseCamera.start()` to restart the inference pipeline. `poseCamera` and `lastResultTime` extracted to module scope for this purpose.
+
+**Tests:** 127 → 137 (+10 new: 2 wall-clock frame-rate tests, 4 visibility hysteresis tests, 4 colorblind color tests). All passing.
+
+**Phone testing needed:**
+1. First visit: does the "Enable Camera" dialog appear before the camera permission prompt?
+2. Switch apps mid-workout → return: does voice coaching still work? Does pose skeleton reappear?
+3. Calibration warmup: do reps still count reliably (wall-clock filter)?
+4. Position yourself at 6+ feet: does the guide hold blue without flickering (hysteresis)?
+5. Verify coaching cues still show in orange/blue (not red/green).
+
+**Next:** Phone-test the above. Then Phase 5 exercise library expansion.
+
 ### Session: 2026-04-04 (Calibration UX polish + Rest screen)
 **Autonomous session — 4 calibration/UX fixes based on Scott's phone feedback:**
 

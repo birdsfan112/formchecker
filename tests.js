@@ -1486,66 +1486,166 @@ test('floor line: opacity is 0.55 (clearly visible)', () => {
 });
 
 // --- WARMUP DIRECTION CHANGE JITTER FILTER TESTS ---
-// Simulates the analyzeWarmup direction-change logic: requires 4° change AND 3 consecutive frames
-function simulateWarmupDirectionChanges(angleSequence) {
+// Simulates the analyzeWarmup wall-clock direction filter: requires 4° change AND 150ms sustained.
+// frameIntervalMs defaults to 67ms (≈15fps active workout rate).
+function simulateWarmupDirectionChanges(angleSequence, frameIntervalMs = 67) {
+  const DIRECTION_HOLD_MS = 150;
   let warmupPhase = 'up';
   let prevAngle = null;
-  let directionFrames = 0;
+  let directionStartTime = 0;
   const phaseFlips = [];
 
-  for (const primaryAngle of angleSequence) {
+  angleSequence.forEach((primaryAngle, frameIdx) => {
+    const t = frameIdx * frameIntervalMs;
     const goingDown = prevAngle !== null && primaryAngle < prevAngle - 4;
     const goingUp   = prevAngle !== null && primaryAngle > prevAngle + 4;
     prevAngle = primaryAngle;
 
     const wantFlip = (warmupPhase === 'up' && goingDown) || (warmupPhase === 'down' && goingUp);
     if (wantFlip) {
-      directionFrames++;
+      if (directionStartTime === 0) directionStartTime = t;
     } else {
-      directionFrames = 0;
+      directionStartTime = 0;
     }
+    const elapsed = directionStartTime > 0 ? t - directionStartTime : 0;
 
-    if (warmupPhase === 'up' && goingDown && directionFrames >= 3) {
+    if (warmupPhase === 'up' && goingDown && elapsed >= DIRECTION_HOLD_MS) {
       warmupPhase = 'down';
-      directionFrames = 0;
+      directionStartTime = 0;
       phaseFlips.push('down');
     }
-    if (warmupPhase === 'down' && goingUp && directionFrames >= 3) {
+    if (warmupPhase === 'down' && goingUp && elapsed >= DIRECTION_HOLD_MS) {
       warmupPhase = 'up';
-      directionFrames = 0;
+      directionStartTime = 0;
       phaseFlips.push('up');
     }
-  }
+  });
   return phaseFlips;
 }
 
 test('warmup jitter filter: small oscillations do not flip phase', () => {
-  // 2° jitter around 160° — should never flip
+  // 2° jitter around 160° — never exceeds 4° threshold, so never flips
   const angles = [160, 158, 160, 158, 160, 162, 160, 158];
   const flips = simulateWarmupDirectionChanges(angles);
   assertEquals(flips.length, 0, 'Small jitter should produce no phase flips');
 });
 
-test('warmup jitter filter: single large drop then reversal does not flip', () => {
-  // One frame drops 5° but immediately reverses — not 3 consecutive
+test('warmup jitter filter: single large drop then immediate reversal does not flip', () => {
+  // One frame drops 5° but reverses before 150ms wall-clock elapses
   const angles = [160, 155, 160, 165];
   const flips = simulateWarmupDirectionChanges(angles);
   assertEquals(flips.length, 0, 'Single-frame drop should not flip phase');
 });
 
-test('warmup jitter filter: sustained descent flips to down after 3 frames', () => {
-  // Steady descent: each frame drops >4° — should flip after 3 consecutive
+test('warmup jitter filter: sustained descent flips to down after 150ms', () => {
+  // Steady descent: each frame drops >4° — flips after 150ms (~3 frames at 67ms/frame)
   const angles = [170, 165, 160, 155, 150];
   const flips = simulateWarmupDirectionChanges(angles);
   assert(flips.includes('down'), 'Sustained descent should flip phase to down');
 });
 
 test('warmup jitter filter: sustained ascent flips back to up', () => {
-  // Go down first (3+ frames), then come back up (3+ frames)
+  // Go down first (150ms+ of descent), then come back up (150ms+ of ascent)
   const angles = [170, 165, 160, 155, 150, 155, 160, 165, 170];
   const flips = simulateWarmupDirectionChanges(angles);
   assert(flips.includes('down'), 'Should flip to down first');
   assert(flips.includes('up'), 'Should flip back to up on sustained ascent');
+});
+
+test('warmup jitter filter: at slow frame rate (7.5fps) still requires 150ms', () => {
+  // At 133ms/frame, a single frame direction change (133ms) is just under 150ms — no flip
+  const angles = [170, 160, 170]; // two large drops but only 1 frame each direction
+  const flips = simulateWarmupDirectionChanges(angles, 133);
+  assertEquals(flips.length, 0, 'Single-frame at 7.5fps should not flip (133ms < 150ms threshold)');
+});
+
+test('warmup jitter filter: at slow frame rate (7.5fps) sustained movement still flips', () => {
+  // At 133ms/frame, two consecutive frames descending = 266ms > 150ms — should flip
+  const angles = [170, 165, 160, 155, 150];
+  const flips = simulateWarmupDirectionChanges(angles, 133);
+  assert(flips.includes('down'), 'Two frames at 7.5fps (266ms) should flip after 150ms');
+});
+
+// --- VISIBILITY HYSTERESIS TESTS ---
+// Simulates checkPositioning visibility threshold logic:
+// higher threshold (0.45) to become aligned, lower (0.30) to stay aligned.
+function checkVisibilityHysteresis(visValues, initialAligned = false) {
+  let isAligned = initialAligned;
+  const results = [];
+  for (const vis of visValues) {
+    const threshold = isAligned ? 0.30 : 0.45;
+    const meetsThreshold = vis >= threshold;
+    isAligned = meetsThreshold;
+    results.push(meetsThreshold);
+  }
+  return results;
+}
+
+test('visibility hysteresis: landmark at 0.40 — not aligned when starting cold', () => {
+  // 0.40 < 0.45 (enter threshold), so should NOT become aligned from unaligned
+  const result = checkVisibilityHysteresis([0.40], false);
+  assertBool(result[0], false, 'vis=0.40 should not reach aligned state from cold (threshold=0.45)');
+});
+
+test('visibility hysteresis: landmark at 0.40 — stays aligned if already aligned', () => {
+  // 0.40 > 0.30 (stay threshold), so should remain aligned when already aligned
+  const result = checkVisibilityHysteresis([0.40], true);
+  assertBool(result[0], true, 'vis=0.40 should stay aligned (threshold=0.30 when already aligned)');
+});
+
+test('visibility hysteresis: prevents flicker at boundary value', () => {
+  // Sequence: become aligned (vis=0.50), then fluctuate at 0.35 (above stay threshold)
+  // Without hysteresis, 0.35 < 0.45 would drop alignment each frame
+  const sequence = [0.50, 0.35, 0.38, 0.33, 0.50];
+  const results = checkVisibilityHysteresis(sequence, false);
+  assertBool(results[0], true,  'vis=0.50 should become aligned');
+  assertBool(results[1], true,  'vis=0.35 should stay aligned (>0.30 stay threshold)');
+  assertBool(results[2], true,  'vis=0.38 should stay aligned');
+  assertBool(results[3], true,  'vis=0.33 should stay aligned (>0.30 stay threshold)');
+  assertBool(results[4], true,  'vis=0.50 should remain aligned');
+});
+
+test('visibility hysteresis: drops alignment when visibility truly low', () => {
+  // If visibility drops below 0.30, alignment should be lost even when previously aligned
+  const sequence = [0.50, 0.25];
+  const results = checkVisibilityHysteresis(sequence, false);
+  assertBool(results[0], true,  'vis=0.50 should become aligned');
+  assertBool(results[1], false, 'vis=0.25 should lose alignment (<0.30 stay threshold)');
+});
+
+// --- COLORBLIND-SAFE COLOR TESTS ---
+// Verifies the semantic feedback colors use blue/orange (safe for red-green colorblindness)
+// rather than the original green/red pair.
+const FEEDBACK_COLORS = {
+  good: '#60a5fa',  // blue — was green #4ade80
+  warn: '#fbbf24',  // yellow — unchanged
+  bad:  '#fb923c',  // orange — was red #f87171
+};
+
+test('colorblind: good feedback color is blue (not green)', () => {
+  assertEquals(FEEDBACK_COLORS.good, '#60a5fa', 'Good feedback should be blue (#60a5fa)');
+  assert(FEEDBACK_COLORS.good !== '#4ade80', 'Good feedback should not be the old green');
+});
+
+test('colorblind: bad feedback color is orange (not red)', () => {
+  assertEquals(FEEDBACK_COLORS.bad, '#fb923c', 'Bad feedback should be orange (#fb923c)');
+  assert(FEEDBACK_COLORS.bad !== '#f87171', 'Bad feedback should not be the old red');
+});
+
+test('colorblind: warn feedback color is yellow (unchanged)', () => {
+  assertEquals(FEEDBACK_COLORS.warn, '#fbbf24', 'Warning feedback should remain yellow (#fbbf24)');
+});
+
+test('colorblind: rep score threshold — blue for ≥80, yellow for 60-79, orange for <60', () => {
+  function repColor(score) {
+    return score >= 80 ? FEEDBACK_COLORS.good : score >= 60 ? FEEDBACK_COLORS.warn : FEEDBACK_COLORS.bad;
+  }
+  assertEquals(repColor(100), '#60a5fa', 'Perfect score should be blue');
+  assertEquals(repColor(80),  '#60a5fa', 'Score 80 boundary should be blue');
+  assertEquals(repColor(79),  '#fbbf24', 'Score 79 should be yellow');
+  assertEquals(repColor(60),  '#fbbf24', 'Score 60 boundary should be yellow');
+  assertEquals(repColor(59),  '#fb923c', 'Score 59 should be orange');
+  assertEquals(repColor(0),   '#fb923c', 'Score 0 should be orange');
 });
 
 // --- SILHOUETTE GUIDE DIMENSION GUARD TESTS ---
