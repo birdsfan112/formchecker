@@ -239,7 +239,7 @@ Each exercise will need:
 4. **Feature: Floor exercise alignment line** — `drawHorizontalSide()` ground line upgraded: opacity 0.20→0.55, width 2→4px, solid instead of dashed, spans 3%–95% of screen width (was 6%–88%). Added "FLOOR" text label at right end.
 5. **Bug 2: Squat transition feedback** — Standing exercises (squat/lunge/pullup) now get a spoken prompt on switch: "Ready for [exercise]. Raise your hand or tap Ready." Ready button gets a brief scale-up + glow highlight animation on exercise change.
 
-**Tests:** 95 → 106 (+11 new tests). All green.
+**Tests:** 95 → 106 (+11 new tests). All green. *(Running total after merge with 2026-03-28 work: 112.)*
 
 ### Session: 2026-04-03 (Phase 4 — Workout Logger with Persistence)
 **All Phase 4 items complete in one autonomous session:**
@@ -266,4 +266,12 @@ Each exercise will need:
 - Created `.claudeignore` (blocks .claude/ worktrees, .mov video, .pem files, old test reports)
 - Pushed .gitignore to existing GitHub repo: birdsfan112/formchecker
 - **Security note:** cert.pem and key.pem were never committed to git — .gitignore now prevents accidental staging.
-- **Next session:** Resume from Phase 3 completion state.
+
+### 2026-04-02 — Git recovery + sleepy-edison merge
+Two batches of work that existed but had never been committed were landed:
+
+1. **Committed stranded main-branch work** (`a89f6a8`) — 290 lines of changes had been sitting unstaged in the main working directory. Covered: guided 2-exercise calibration sequence, per-rep score flash, silhouette height fix, smart threshold derivation (squat→lunge, pushup→pullup), 6 new tests, `.claudeignore`, `TESTING_SUMMARY.txt`, `TEST_REPORT.md`.
+2. **Merged `claude/sleepy-edison`** (`d096a35`) — branch had one unmerged commit with: 3-frame consecutive-direction filter in `analyzeWarmup`, `drawGuide` dimension guards with `requestAnimationFrame` retry, squat/lunge position gate (hip visibility + Y bounds), floor exercise ground line improvements, standing exercise transition spoken prompts + Ready button glow, 11 new tests.
+3. **Merge conflicts resolved** — all four conflicts were additive (both sides contributed distinct code); nothing was dropped. Final test count: **112, all green**.
+
+**Next session:** Phone-test the calibration flow overhaul and the 2026-03-31 bug fixes (silhouette dimension guard, floor line, squat transition prompt) — these are the most recent unverified changes. If all pass, begin Phase 4 (LocalStorage persistence).
