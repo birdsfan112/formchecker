@@ -905,6 +905,30 @@ function isInPosition(lm, exercise) {
   if (exercise === 'dip') {
     return verticalSpan > 0.3;
   }
+  if (exercise === 'row') {
+    const avgShoulderY2 = (lm[11].y + lm[12].y) / 2;
+    const avgAnkleY2    = (lm[27].y + lm[28].y) / 2;
+    const vertSpan2 = Math.abs(avgAnkleY2 - avgShoulderY2);
+    const avgWristY = (lm[15].y + lm[16].y) / 2;
+    return vertSpan2 < 0.25 && avgWristY < avgShoulderY2 + 0.15;
+  }
+  if (exercise === 'lsit') {
+    const avgShoulderY2 = (lm[11].y + lm[12].y) / 2;
+    const avgHipY = (lm[23].y + lm[24].y) / 2;
+    return avgShoulderY2 < avgHipY;
+  }
+  if (exercise === 'pistol') {
+    const avgShoulderY2 = (lm[11].y + lm[12].y) / 2;
+    const avgAnkleY2    = (lm[27].y + lm[28].y) / 2;
+    const vertSpan2 = Math.abs(avgAnkleY2 - avgShoulderY2);
+    const avgHipY = (lm[23].y + lm[24].y) / 2;
+    return vertSpan2 > 0.35 && avgHipY > avgShoulderY2 + 0.05;
+  }
+  if (exercise === 'glutebridge') {
+    const avgShoulderY2 = (lm[11].y + lm[12].y) / 2;
+    const avgAnkleY2    = (lm[27].y + lm[28].y) / 2;
+    return Math.abs(avgAnkleY2 - avgShoulderY2) < 0.30;
+  }
   return true;
 }
 
@@ -988,16 +1012,63 @@ test('isInPosition: unknown exercise always returns true', () => {
   assertBool(isInPosition(lm, 'dips'), true, 'Unknown exercise should not gate');
 });
 
+test('isInPosition: row accepts horizontal body with wrists above shoulders', () => {
+  const lm = makeLmWithSpan(0.45, 0.55, 0.30); // span=0.10, wrists above shoulders
+  assertBool(isInPosition(lm, 'row'), true, 'Horizontal body + wrists up = inverted row position');
+});
+
+test('isInPosition: row rejects standing body', () => {
+  const lm = makeLmWithSpan(0.15, 0.80, 0.10); // span=0.65 (standing)
+  assertBool(isInPosition(lm, 'row'), false, 'Standing body should be out of row position');
+});
+
+test('isInPosition: lsit accepts upright (shoulders above hips)', () => {
+  const lm = makeLmWithSpan(0.25, 0.80);
+  lm[23].y = 0.55; lm[24].y = 0.55; // hips below shoulders
+  assertBool(isInPosition(lm, 'lsit'), true, 'Shoulders above hips = valid L-sit start');
+});
+
+test('isInPosition: lsit rejects when hips above shoulders', () => {
+  const lm = makeLmWithSpan(0.55, 0.80);
+  lm[23].y = 0.30; lm[24].y = 0.30; // hips above shoulders (upside down)
+  assertBool(isInPosition(lm, 'lsit'), false, 'Hips above shoulders should reject');
+});
+
+test('isInPosition: pistol accepts upright body with visible hips', () => {
+  const lm = makeLmWithSpan(0.20, 0.80); // span=0.60 > 0.35
+  lm[23].y = 0.45; lm[24].y = 0.45; // hips below shoulders (0.20 + 0.05 = 0.25 threshold)
+  assertBool(isInPosition(lm, 'pistol'), true, 'Upright body with hips below shoulders = pistol squat position');
+});
+
+test('isInPosition: pistol rejects horizontal body', () => {
+  const lm = makeLmWithSpan(0.45, 0.55); // span=0.10 < 0.35
+  assertBool(isInPosition(lm, 'pistol'), false, 'Horizontal body should be out of pistol squat position');
+});
+
+test('isInPosition: glutebridge accepts horizontal body', () => {
+  const lm = makeLmWithSpan(0.40, 0.60); // span=0.20 < 0.30
+  assertBool(isInPosition(lm, 'glutebridge'), true, 'Horizontal body should be in glute bridge position');
+});
+
+test('isInPosition: glutebridge rejects standing body', () => {
+  const lm = makeLmWithSpan(0.15, 0.80); // span=0.65 > 0.30
+  assertBool(isInPosition(lm, 'glutebridge'), false, 'Standing body should be out of glute bridge position');
+});
+
 // ===== CALIBRATION TESTS =====
 
 const defaultCalibration_test = {
-  pushup:   { elbow_down: 100, elbow_up: 150 },
-  squat:    { knee_down: 100, knee_up: 160 },
-  pullup:   { elbow_top: 80, elbow_bottom: 150 },
-  lunge:    { knee_down: 110, knee_up: 155 },
-  pike:     { elbow_down: 90, elbow_up: 150 },
-  dip:      { elbow_down: 90, elbow_up: 150 },
-  legraise: { hip_down: 110, hip_up: 150 },
+  pushup:      { elbow_down: 100, elbow_up: 150 },
+  squat:       { knee_down: 100, knee_up: 160 },
+  pullup:      { elbow_top: 80, elbow_bottom: 150 },
+  lunge:       { knee_down: 110, knee_up: 155 },
+  pike:        { elbow_down: 90, elbow_up: 150 },
+  dip:         { elbow_down: 90, elbow_up: 150 },
+  legraise:    { hip_down: 110, hip_up: 150 },
+  row:         { elbow_down: 90, elbow_up: 150 },
+  lsit:        {},
+  pistol:      { knee_down: 80, knee_up: 150 },
+  glutebridge: { hip_down: 150, hip_up: 110 },
 };
 
 function mergeCalibration(defaults, loaded) {
@@ -1070,13 +1141,13 @@ function computeWarmupThresholds(valleys, peaks) {
 
 // getPrimaryAngle extracted for unit tests
 function getPrimaryAngle(lm, ex) {
-  if (ex === 'pushup' || ex === 'pullup' || ex === 'pike' || ex === 'dip') {
+  if (ex === 'pushup' || ex === 'pullup' || ex === 'pike' || ex === 'dip' || ex === 'row') {
     return (angle(lm[11], lm[13], lm[15]) + angle(lm[12], lm[14], lm[16])) / 2;
   }
   if (ex === 'squat') {
     return (angle(lm[23], lm[25], lm[27]) + angle(lm[24], lm[26], lm[28])) / 2;
   }
-  if (ex === 'lunge') {
+  if (ex === 'lunge' || ex === 'pistol') {
     return Math.min(angle(lm[23], lm[25], lm[27]), angle(lm[24], lm[26], lm[28]));
   }
   return 180;
@@ -1124,13 +1195,17 @@ test('computeWarmupThresholds: handles single valley', () => {
 function applyAllCalibrationResults(results) {
   // Need a fresh calibration object for testing (mirrors defaultCalibration in index.html)
   const cal = JSON.parse(JSON.stringify({
-    pushup:   { elbow_down: 100, elbow_up: 150 },
-    squat:    { knee_down: 100, knee_up: 160 },
-    pullup:   { elbow_top: 80, elbow_bottom: 150 },
-    lunge:    { knee_down: 110, knee_up: 155 },
-    pike:     { elbow_down: 90, elbow_up: 150 },
-    dip:      { elbow_down: 90, elbow_up: 150 },
-    legraise: { hip_down: 110, hip_up: 150 },
+    pushup:      { elbow_down: 100, elbow_up: 150 },
+    squat:       { knee_down: 100, knee_up: 160 },
+    pullup:      { elbow_top: 80, elbow_bottom: 150 },
+    lunge:       { knee_down: 110, knee_up: 155 },
+    pike:        { elbow_down: 90, elbow_up: 150 },
+    dip:         { elbow_down: 90, elbow_up: 150 },
+    legraise:    { hip_down: 110, hip_up: 150 },
+    row:         { elbow_down: 90, elbow_up: 150 },
+    lsit:        {},
+    pistol:      { knee_down: 80, knee_up: 150 },
+    glutebridge: { hip_down: 150, hip_up: 110 },
   }));
 
   if (results.squat) {
@@ -1146,11 +1221,18 @@ function applyAllCalibrationResults(results) {
     if (extensionThreshold) cal.pushup.elbow_up = extensionThreshold;
     cal.pullup.elbow_top = Math.max(depthThreshold - 20, 50);
     if (extensionThreshold) cal.pullup.elbow_bottom = extensionThreshold;
-    // Derive pike and dip from pushup — same elbow motion, same ROM
+    // Derive pike, dip, and row from pushup — same elbow motion, same ROM
     cal.pike.elbow_down = depthThreshold;
     if (extensionThreshold) cal.pike.elbow_up = extensionThreshold;
     cal.dip.elbow_down = depthThreshold;
     if (extensionThreshold) cal.dip.elbow_up = extensionThreshold;
+    cal.row.elbow_down = depthThreshold;
+    if (extensionThreshold) cal.row.elbow_up = extensionThreshold;
+  }
+  if (results.squat) {
+    const { depthThreshold } = results.squat;
+    cal.pistol.knee_down = Math.max(depthThreshold - 10, 50);
+    cal.pistol.knee_up   = cal.squat.knee_up;
   }
   return cal;
 }
@@ -1241,6 +1323,47 @@ test('getPrimaryAngle: pullup uses elbow angle same as pushup', () => {
   const pushupResult = getPrimaryAngle(lm, 'pushup');
   const pullupResult = getPrimaryAngle(lm, 'pullup');
   assertEquals(pullupResult, pushupResult, 'Pullup and pushup use the same elbow landmarks');
+});
+
+test('getPrimaryAngle: row uses elbow angle same as pushup', () => {
+  const lm = Array(33).fill({ x: 0.5, y: 0.5 });
+  lm[11] = { x: 0.0, y: 0.0 }; lm[13] = { x: 0.5, y: 0.0 }; lm[15] = { x: 1.0, y: 0.0 };
+  lm[12] = { x: 0.0, y: 1.0 }; lm[14] = { x: 0.5, y: 1.0 }; lm[16] = { x: 1.0, y: 1.0 };
+  const pushupResult = getPrimaryAngle(lm, 'pushup');
+  const rowResult    = getPrimaryAngle(lm, 'row');
+  assertEquals(rowResult, pushupResult, 'Row uses same elbow landmarks as pushup');
+});
+
+test('getPrimaryAngle: pistol returns front (smaller) knee angle', () => {
+  const lm = Array(33).fill({ x: 0.5, y: 0.5 });
+  // Left knee at 90° (working leg), right knee at obtuse angle (free leg)
+  lm[23] = { x: 0.5, y: 0.0 }; lm[25] = { x: 0.5, y: 0.5 }; lm[27] = { x: 1.0, y: 0.5 };
+  lm[24] = { x: 0.0, y: 0.5 }; lm[26] = { x: 0.5, y: 0.5 }; lm[28] = { x: 0.6, y: 1.0 };
+  const result = getPrimaryAngle(lm, 'pistol');
+  const leftKnee  = angle(lm[23], lm[25], lm[27]);
+  const rightKnee = angle(lm[24], lm[26], lm[28]);
+  assertEquals(result, Math.min(leftKnee, rightKnee), 'Pistol should return the smaller (working) knee angle');
+});
+
+test('applyAllCalibrationResults: pushup derives row thresholds', () => {
+  const puResult = computeWarmupThresholds([80, 80, 80], [160, 160]);
+  const cal = applyAllCalibrationResults({ pushup: puResult });
+  assertEquals(cal.row.elbow_down, puResult.depthThreshold, 'Row elbow_down should match pushup depth');
+  assertEquals(cal.row.elbow_up, puResult.extensionThreshold, 'Row elbow_up should match pushup extension');
+});
+
+test('applyAllCalibrationResults: squat derives pistol thresholds (deeper by 10°)', () => {
+  const sqResult = computeWarmupThresholds([90, 90, 90], [165, 165]);
+  const cal = applyAllCalibrationResults({ squat: sqResult });
+  assertEquals(cal.pistol.knee_down, sqResult.depthThreshold - 10, 'Pistol depth = squat depth - 10');
+  assertEquals(cal.pistol.knee_up, cal.squat.knee_up, 'Pistol extension = squat extension');
+});
+
+test('applyAllCalibrationResults: pistol knee_down floors at 50°', () => {
+  // Very flexible: squat depth 55° → pistol would be 45°, but floors at 50
+  const sqResult = computeWarmupThresholds([47, 47], [165]);
+  const cal = applyAllCalibrationResults({ squat: sqResult });
+  assert(cal.pistol.knee_down >= 50, 'Pistol knee_down should floor at 50°');
 });
 
 test('relative depth threshold: default pushup fires at elbow_down + 12', () => {
