@@ -93,6 +93,15 @@
     animation: repScoreFlash 1.6s ease-out forwards;
   }
 
+  /* Rest screen between sets */
+  #rest-screen {
+    position: absolute; inset: 0; background: #1a1a2e; z-index: 20;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+  }
+  #rest-label { font-size: 22px; font-weight: 700; color: rgba(255,255,255,0.45); letter-spacing: 6px; text-transform: uppercase; }
+  #rest-timer { font-size: 96px; font-weight: 900; color: #4ade80; text-shadow: 0 4px 24px rgba(74,222,128,0.35); line-height: 1; }
+  #rest-sub { font-size: 15px; color: rgba(255,255,255,0.35); margin-top: -8px; }
+
   /* Loading */
   #loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #1a1a2e; z-index: 100; }
   #loading h2 { margin-bottom: 12px; }
@@ -158,6 +167,13 @@
     <div id="state-overlay">
       <div id="countdown-display"></div>
       <div id="state-message"></div>
+    </div>
+    <!-- Rest screen between sets — covers camera with dark overlay -->
+    <div id="rest-screen" class="hidden">
+      <div id="rest-label">REST</div>
+      <div id="rest-timer">60</div>
+      <div id="rest-sub">Next set starting soon</div>
+      <button class="btn btn-go" id="btn-skip-rest">Start Next Set</button>
     </div>
   </div>
 
@@ -518,6 +534,7 @@ function analyzeWarmup(lm) {
     if (validBend) {
       state.warmupValleys.push(state.warmupCurrentMin);
       state.warmupReps++;
+      repCounter.textContent = `${state.warmupReps}/3`;
       if (state.warmupReps < 3) {
         stateMessage.textContent = `Rep ${state.warmupReps} ✓ — ${3 - state.warmupReps} more`;
         speakForce(String(state.warmupReps));
@@ -566,6 +583,7 @@ function finishWarmupCalibration() {
     state.prevAngle = null;
     state.warmupSubPhase = 'positioning';
     state.warmupAlignedTime = 0;
+    repCounter.textContent = '0/3';
 
     // Voice guidance for next exercise
     setTimeout(() => {
@@ -587,7 +605,11 @@ function finishWarmupCalibration() {
 
   speakForce('Calibration complete');
   showFeedback('All calibrated!', 'good');
-  setTimeout(() => setWorkoutState('idle'), 1800);
+  repCounter.textContent = '0';
+  setTimeout(() => {
+    setWorkoutState('idle');
+    stateMessage.textContent = `✓ Calibrated! Tap Ready to start your ${exerciseMeta[origEx].name}.`;
+  }, 1800);
 }
 
 // Apply calibration results from all exercises in the guided sequence.
@@ -1627,10 +1649,14 @@ function setWorkoutState(newState) {
       stateOverlay.classList.remove('clickable');
       countdownDisplay.textContent = '';
       if (state.warmupSubPhase === 'positioning') {
-        stateMessage.textContent = `Position for ${exerciseMeta[state.exercise].name}`;
+        const calStep = state.warmupCalStep + 1;
+        const calTotal = state.warmupCalSequence.length;
+        stateMessage.textContent = `Step ${calStep} of ${calTotal}: Get into ${exerciseMeta[state.exercise].name} position`;
+        angleHint.textContent = exerciseMeta[state.exercise].hint || '';
         drawGuide(); // show silhouette so user can align
       } else if (state.warmupSubPhase === 'tracking') {
-        stateMessage.textContent = 'Do 3 slow reps — calibrating your range';
+        stateMessage.textContent = 'Do 3 slow reps — go all the way down, then all the way up';
+        angleHint.textContent = exerciseMeta[state.exercise].hint || '';
         guideCtx.clearRect(0, 0, guideCanvas.width, guideCanvas.height);
       }
       break;
@@ -1995,9 +2021,10 @@ btnPause.addEventListener('click', () => {
   speakForce('Paused');
 });
 
-// Finish Set button — logs the set and resets to idle
+// Finish Set button — logs the set, shows rest screen, then resets to idle
 btnFinish.addEventListener('click', () => {
-  if (state.reps > 0 || (state.exercise === 'plank' && state.plankStart)) {
+  const setLogged = state.reps > 0 || (state.exercise === 'plank' && state.plankStart);
+  if (setLogged) {
     const entry = {
       exercise: exerciseMeta[state.exercise].name,
       reps: state.exercise === 'plank' ? repCounter.textContent : state.reps,
@@ -2014,28 +2041,38 @@ btnFinish.addEventListener('click', () => {
     if (summary) speakForce(summary);
     else speakForce(`${repCounter.textContent} — well done!`); // plank fallback
   }
-  resetSetState();
-  setWorkoutState('idle');
 
-  // If a template is active, advance to the next exercise in the sequence
-  if (state.activeTemplate) {
-    state.activeTemplate.currentIdx++;
-    const { exercises, currentIdx, name } = state.activeTemplate;
-    if (currentIdx < exercises.length) {
-      const nextEx = exercises[currentIdx];
-      if (exerciseMeta[nextEx]) {
-        setTimeout(() => {
+  // Capture template state now (before resetSetState clears things)
+  const templateSnapshot = state.activeTemplate ? { ...state.activeTemplate } : null;
+
+  function afterRest() {
+    resetSetState();
+    setWorkoutState('idle');
+
+    // If a template is active, advance to the next exercise in the sequence
+    if (templateSnapshot) {
+      state.activeTemplate = templateSnapshot;
+      state.activeTemplate.currentIdx++;
+      const { exercises, currentIdx } = state.activeTemplate;
+      if (currentIdx < exercises.length) {
+        const nextEx = exercises[currentIdx];
+        if (exerciseMeta[nextEx]) {
           exerciseSelect.value = nextEx;
           exerciseSelect.dispatchEvent(new Event('change'));
           speakForce(`Next: ${exerciseMeta[nextEx].name}`);
-        }, 2200); // let set summary finish speaking first
+        }
+      } else {
+        state.activeTemplate = null;
+        speakForce('Workout complete! Great job!');
       }
-    } else {
-      state.activeTemplate = null;
       updateTemplateBadge();
-      setTimeout(() => speakForce('Workout complete! Great job!'), 2200);
     }
-    updateTemplateBadge();
+  }
+
+  if (setLogged) {
+    startRestPeriod(afterRest);
+  } else {
+    afterRest();
   }
 });
 
@@ -2057,6 +2094,33 @@ function resetSetState() {
   repCounter.classList.remove('count-paused');
   formFeedback.textContent = '';
   formScoreEl.textContent = '--';
+}
+
+// ===== REST PERIOD =====
+const REST_SECONDS = 60;
+let restTimerInterval = null;
+
+function startRestPeriod(onDone) {
+  const restScreen = document.getElementById('rest-screen');
+  const restTimerEl = document.getElementById('rest-timer');
+  restScreen.classList.remove('hidden');
+  let remaining = REST_SECONDS;
+  restTimerEl.textContent = remaining;
+
+  restTimerInterval = setInterval(() => {
+    remaining--;
+    restTimerEl.textContent = remaining;
+    if (remaining <= 0) endRestPeriod(onDone);
+  }, 1000);
+
+  document.getElementById('btn-skip-rest').onclick = () => endRestPeriod(onDone);
+}
+
+function endRestPeriod(onDone) {
+  clearInterval(restTimerInterval);
+  restTimerInterval = null;
+  document.getElementById('rest-screen').classList.add('hidden');
+  if (onDone) onDone();
 }
 
 // Log button
@@ -2304,7 +2368,8 @@ pose.onResults((results) => {
               const exName = exerciseMeta[state.exercise].name.toLowerCase();
               speakForce(`Do 3 slow ${exName}`);
               state.warmupSubPhase = 'tracking';
-              stateMessage.textContent = 'Do 3 slow reps — calibrating your range';
+              stateMessage.textContent = 'Do 3 slow reps — go all the way down, then all the way up';
+              repCounter.textContent = '0/3';
               guideCtx.clearRect(0, 0, guideCanvas.width, guideCanvas.height);
             }
           }, 1000);
@@ -2326,7 +2391,8 @@ pose.onResults((results) => {
       showFeedback(OUT_OF_POSITION_MSG[state.exercise] || 'Return to position', 'warn');
       return;
     }
-    showFeedback('Moving...', 'good');
+    // Direction cue: tell user which way to move based on current phase
+    showFeedback(state.warmupPhase === 'up' ? '↓ Lower slowly...' : '↑ Come all the way up', 'good');
     analyzeWarmup(lm);
     return;
   }

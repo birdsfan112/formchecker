@@ -267,6 +267,31 @@ Each exercise will need:
 - Pushed .gitignore to existing GitHub repo: birdsfan112/formchecker
 - **Security note:** cert.pem and key.pem were never committed to git — .gitignore now prevents accidental staging.
 
+### Session: 2026-04-04 (Calibration UX polish + Rest screen)
+**Autonomous session — 4 calibration/UX fixes based on Scott's phone feedback:**
+
+1. **Warmup rep counter shows "x/3"** — During calibration tracking phase, `#rep-counter` now shows `0/3` → `1/3` → `2/3` → `3/3` instead of staying at 0. Resets to `0` when returning to idle. The big rep counter at top-right doubles as a warmup progress indicator.
+2. **More guidance text during calibration** — Positioning phase now shows: step number ("Step 1 of 2"), exercise-specific camera hint in `#angle-hint` ("Side view — full body in frame"), and a more descriptive state message. Tracking phase shows live directional cues ("↓ Lower slowly..." / "↑ Come all the way up") in the feedback area each frame.
+3. **Clearer post-calibration transition** — After calibration completes, `stateMessage` now reads "✓ Calibrated! Tap Ready to start your Push-ups." instead of the generic idle prompt. Scott knows exactly what to do next.
+4. **Rest screen between sets** — After "Finish Set" (when a set was actually logged), the camera area goes dark (matching app background `#1a1a2e`) and shows a 60-second rest countdown in large green text. "Start Next Set" button skips the rest early. After the timer, app returns to idle. Template auto-advance now happens after rest ends (not during). If 0 reps recorded, rest is skipped.
+
+**Tests:** 127/127 passing (no new tests needed — all changes are UI/state flow, no new pure logic branches).
+
+**Phone testing needed:**
+1. Warmup Cal → do rep counter digits count up as you do reps?
+2. Calibration positioning phase → does camera hint appear? Does step number show?
+3. Calibration tracking phase → do directional cues ("↓ Lower slowly...") appear?
+4. After calibration → does it say "✓ Calibrated! Tap Ready to start..."?
+5. Finish Set after doing reps → does rest screen appear? Does countdown work? Does "Start Next Set" skip it?
+
+**What needs Scott's input:**
+- Is 60 seconds the right default rest time? Could add a setting.
+- Does the directional cue ("↑ Come all the way up") show at the right moment, or does it feel wrong given the warmup phase tracking logic?
+
+**Next:** Phone-test the above. Then decide: Phase 5 exercise expansion, or more calibration refinement.
+
+---
+
 ### 2026-04-02 — Git recovery + sleepy-edison merge
 Two batches of work that existed but had never been committed were landed:
 
