@@ -384,8 +384,11 @@ Everything built across today's three sessions, untested on real hardware. Work 
 - [ ] **Pike push-ups** — does "Keep hips high" voice cue fire when hips drop below hands during the rep?
 - [ ] **Dead Hang** — does the timer count upward? Does voice say "15 seconds" at 15s?
 - [ ] **Leg Raises** — do reps count when legs raise (hip angle decreases) and return to hang?
+- [ ] **Dips** — do reps track correctly using elbow angle? Does rep count increment on each full dip?
 - [ ] **Regression: pushup auto-start** — does lying face-down trigger 3s countdown automatically?
 - [ ] **Regression: plank timer** — does the plank timer run and show elapsed seconds?
+- [ ] **Regression: squat rep counting** — do squats count correctly with the existing exercises?
+- [ ] **Regression: calibration warmup counter** — does the counter show x/3 format (e.g. 0/3 → 1/3 → 2/3 → 3/3) during warmup?
 
 ### Phase 5 — Batch 2 (Inverted Rows, L-Sit, Pistol Squat, Glute Bridge)
 - [ ] **All 13 exercises in dropdown** — do the 4 new exercises appear (inverted rows, L-sit, pistol squat, glute bridge)?
