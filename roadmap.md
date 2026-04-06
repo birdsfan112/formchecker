@@ -1,16 +1,13 @@
+## Status
+- **Phase:** Phase 5 — Exercise Library Expansion (in progress)
+- **Updated:** 2026-04-05
+- **Summary:** 165 tests passing, 13 exercises implemented. Phone testing checklist pending before adding remaining exercises (arch hangs, mobility).
+- **Autonomous:** Implement arch hangs/scapular pulls and mobility exercises after phone testing results, write new tests
+- **Needs Scott:** Complete phone testing checklist (test existing exercises on actual phone), confirm arch hang/mobility exercise form rules
+- **Blockers:** Phone testing not yet done — blocks remaining Phase 5 exercises
+
 # FormCheck — AI Fitness Form Coach
 ## Architecture & Roadmap
-
----
-
-## Current Status (2026-04-04)
-
-**Phase:** Phase 5 — Exercise Library Expansion (in progress)
-**Tests:** 165/165 passing
-**Exercises:** 13 implemented (pushup, squat, pullup, lunge, plank, pike push-up, dips, dead hang, leg raises, inverted rows, L-sit, pistol squat, glute bridge)
-**Blocking:** Phone testing — arch hangs/scapular pulls + mobility exercises not yet started
-**Last session:** 2026-04-04 — phone testing checklist added to roadmap; added missing Dips and squat regression items
-**Next:** Complete phone testing checklist, then implement remaining Phase 5 exercises (arch hangs, mobility)
 
 ---
 
