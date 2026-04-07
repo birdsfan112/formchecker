@@ -1,10 +1,10 @@
 ## Status
 - **Phase:** Phase 5 — Exercise Library Expansion (in progress)
-- **Updated:** 2026-04-05
-- **Summary:** 165 tests passing, 13 exercises implemented. Phone testing checklist pending before adding remaining exercises (arch hangs, mobility).
-- **Autonomous:** Implement arch hangs/scapular pulls and mobility exercises after phone testing results, write new tests
-- **Needs Scott:** Complete phone testing checklist (test existing exercises on actual phone), confirm arch hang/mobility exercise form rules
-- **Blockers:** Phone testing not yet done — blocks remaining Phase 5 exercises
+- **Updated:** 2026-04-07
+- **Summary:** Second phone-testing session — 6 more bugs fixed: phone heat (canvas cache + throttle extension), deep squat out-of-position false trigger, dips elbow-flare false positive, push-up auto-start threshold. Log modal/template/controls bar fixes from earlier session still in place. Silhouettes for new exercises deferred pending Scott/design decision.
+- **Autonomous:** Implement arch hangs/scapular pulls; write new exercise silhouettes once approach confirmed
+- **Needs Scott:** Re-test heat, squat depth, dips cue, push-up auto-start on phone; decide silhouette approach (code vs. generated images); sign off to proceed with remaining Phase 5 exercises
+- **Blockers:** Silhouette approach decision pending
 
 # FormCheck — AI Fitness Form Coach
 ## Architecture & Roadmap

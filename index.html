@@ -41,7 +41,7 @@
 
   /* Controls bar */
   #controls { display: flex; gap: 8px; padding: 12px 16px; background: #16213e; align-items: center; flex-wrap: wrap; }
-  .btn { padding: 10px 16px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+  .btn { padding: 12px 16px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; min-height: 44px; }
   .btn-primary { background: #e94560; color: white; }
   .btn-primary:hover { background: #c73e54; }
   .btn-go { background: #4ade80; color: #1a1a2e; }
@@ -50,13 +50,13 @@
   .btn-secondary:hover { background: #1a4a7a; }
   .btn-active { background: #4ade80; color: #1a1a2e; }
   .btn-warn { background: #fbbf24; color: #1a1a2e; }
-  #exercise-select { padding: 10px 12px; border-radius: 8px; background: #0f3460; color: #eee; border: 1px solid #1a4a7a; font-size: 14px; flex: 1; min-width: 120px; }
+  #exercise-select { padding: 10px 12px; border-radius: 8px; background: #0f3460; color: #eee; border: 1px solid #1a4a7a; font-size: 16px; flex: 1; min-width: 120px; min-height: 44px; }
 
   /* Stats bar */
   #stats { display: flex; justify-content: space-around; padding: 8px 16px; background: #0f3460; font-size: 13px; }
   .stat { text-align: center; }
   .stat-value { font-size: 20px; font-weight: 700; color: #4ade80; }
-  .stat-label { color: #8899aa; font-size: 11px; text-transform: uppercase; }
+  .stat-label { color: #8899aa; font-size: 12px; text-transform: uppercase; }
 
   /* Exercise transition animations */
   @keyframes counterReset {
@@ -118,8 +118,10 @@
   .hidden { display: none !important; }
 
   /* Workout log modal */
-  #log-modal { position: absolute; inset: 0; background: rgba(0,0,0,0.85); z-index: 200; display: flex; flex-direction: column; padding: 20px; overflow-y: auto; }
-  #log-modal h2 { margin-bottom: 16px; }
+  #log-modal { position: absolute; inset: 0; background: rgba(0,0,0,0.85); z-index: 200; display: flex; flex-direction: column; padding: 20px; overflow: hidden; }
+  #log-modal h2 { margin-bottom: 16px; flex-shrink: 0; }
+  #log-modal-body { flex: 1; overflow-y: auto; min-height: 0; }
+  #log-modal-footer { flex-shrink: 0; display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
   .log-entry { background: #16213e; padding: 12px; border-radius: 8px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
   .log-entry-exercise { font-weight: 600; }
   .log-entry-detail { color: #8899aa; font-size: 13px; }
@@ -127,7 +129,7 @@
 
   /* Log modal tabs */
   #log-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
-  .tab-btn { background: #0f3460; color: #8899aa; border: none; border-radius: 6px; padding: 7px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .tab-btn { background: #0f3460; color: #8899aa; border: none; border-radius: 6px; padding: 10px 16px; font-size: 14px; font-weight: 600; cursor: pointer; min-height: 44px; }
   .tab-btn.active { background: #4ade80; color: #1a1a2e; }
   .tab-panel { display: none; }
   .tab-panel.active { display: block; }
@@ -149,10 +151,15 @@
   .template-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .template-exercises { color: #8899aa; font-size: 12px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .template-actions { display: flex; gap: 6px; flex-shrink: 0; }
-  #template-name-input { width: 100%; padding: 10px; border-radius: 8px; background: #0f3460; color: #eee; border: 1px solid #1a4a7a; font-size: 14px; box-sizing: border-box; margin-bottom: 8px; }
+  #template-name-input { width: 100%; padding: 10px; border-radius: 8px; background: #0f3460; color: #eee; border: 1px solid #1a4a7a; font-size: 16px; box-sizing: border-box; margin-bottom: 8px; min-height: 44px; }
 
   /* Active template badge */
   #template-badge { display: none; font-size: 12px; color: #4ade80; padding: 4px 8px; background: rgba(74,222,128,0.15); border-radius: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
+
+  /* More panel — secondary controls, toggled by More button */
+  #more-panel { display: none; gap: 8px; padding: 8px 16px; background: #16213e; flex-wrap: wrap; align-items: center; border-bottom: 1px solid #0f3460; }
+  #more-panel.open { display: flex; }
+  #btn-more { min-width: 52px; }
 </style>
 </head>
 <body>
@@ -215,6 +222,16 @@
     </div>
   </div>
 
+  <div id="more-panel">
+    <button class="btn btn-secondary" id="btn-templates" title="Save/load workout templates">Templates</button>
+    <span id="template-badge"></span>
+    <button class="btn btn-secondary" id="btn-voice" title="Toggle voice feedback">Voice: On</button>
+    <button class="btn btn-secondary" id="btn-warmup" title="Do 3 slow reps to calibrate to your range">Warmup Cal</button>
+    <button class="btn btn-secondary" id="btn-save-cal" title="Download calibration settings as JSON">Save Cal</button>
+    <label class="btn btn-secondary" style="cursor:pointer" title="Load calibration settings from JSON">Load Cal
+      <input type="file" id="cal-file-input" accept=".json" style="display:none">
+    </label>
+  </div>
   <div id="controls">
     <select id="exercise-select" aria-label="Select exercise">
       <option value="pushup">Push-ups</option>
@@ -235,14 +252,7 @@
     <button class="btn btn-warn hidden" id="btn-pause" aria-label="Pause workout">Pause</button>
     <button class="btn btn-primary hidden" id="btn-finish" aria-label="Finish current set">Finish Set</button>
     <button class="btn btn-secondary" id="btn-log">Log</button>
-    <button class="btn btn-secondary" id="btn-templates" title="Save/load workout templates">Templates</button>
-    <span id="template-badge"></span>
-    <button class="btn btn-secondary" id="btn-voice" title="Toggle voice feedback">Voice: On</button>
-    <button class="btn btn-secondary" id="btn-warmup" title="Do 3 slow reps to calibrate to your range">Warmup Cal</button>
-    <button class="btn btn-secondary" id="btn-save-cal" title="Download calibration settings as JSON">Save Cal</button>
-    <label class="btn btn-secondary" style="cursor:pointer" title="Load calibration settings from JSON">Load Cal
-      <input type="file" id="cal-file-input" accept=".json" style="display:none">
-    </label>
+    <button class="btn btn-secondary" id="btn-more" aria-label="More options" aria-expanded="false">More</button>
   </div>
 
   <div id="log-modal" class="hidden">
@@ -252,18 +262,20 @@
       <button class="tab-btn" data-tab="history">History</button>
       <button class="tab-btn" data-tab="charts">Progress</button>
     </div>
-    <div id="tab-today" class="tab-panel active">
-      <div id="log-entries"></div>
+    <div id="log-modal-body">
+      <div id="tab-today" class="tab-panel active">
+        <div id="log-entries"></div>
+      </div>
+      <div id="tab-history" class="tab-panel">
+        <div id="history-entries"></div>
+      </div>
+      <div id="tab-charts" class="tab-panel">
+        <canvas id="progress-chart-canvas" height="200"></canvas>
+        <div class="chart-legend" id="chart-legend"></div>
+        <p style="color:#8899aa;font-size:12px;margin-top:6px;">Total reps per session — last 7 days</p>
+      </div>
     </div>
-    <div id="tab-history" class="tab-panel">
-      <div id="history-entries"></div>
-    </div>
-    <div id="tab-charts" class="tab-panel">
-      <canvas id="progress-chart-canvas" height="200"></canvas>
-      <div class="chart-legend" id="chart-legend"></div>
-      <p style="color:#8899aa;font-size:12px;margin-top:6px;">Total reps per session — last 7 days</p>
-    </div>
-    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">
+    <div id="log-modal-footer">
       <button class="btn btn-secondary" id="btn-export-json">Export JSON</button>
       <button class="btn btn-secondary" id="btn-export-csv">Export CSV</button>
       <button class="btn btn-primary" id="btn-close-log" style="flex:1">Close</button>
@@ -272,11 +284,13 @@
 
   <div id="template-modal" class="hidden">
     <h2>Workout Templates</h2>
+    <p style="font-size:13px;color:#8899aa;margin-bottom:12px;">Save your exercise sequence as a template to repeat workouts in one tap. The app will auto-advance through exercises after each set.</p>
     <div id="template-list"></div>
     <div style="margin-top:16px;border-top:1px solid #1a4a7a;padding-top:12px;">
       <p style="font-size:13px;color:#8899aa;margin-bottom:8px;">Save today's exercises as a template:</p>
       <input type="text" id="template-name-input" placeholder="Template name (e.g. BWF Routine)" maxlength="40">
       <button class="btn btn-go" id="btn-save-template">Save Template</button>
+      <p id="template-save-hint" style="font-size:12px;color:#8899aa;margin-top:6px;display:none;">Finish at least one set first to save a template.</p>
     </div>
     <button class="btn btn-primary" id="btn-close-templates" style="margin-top:12px;">Close</button>
   </div>
@@ -419,7 +433,9 @@ const exerciseRegistry = {
       const hipVis = Math.min(lm[23].visibility, lm[24].visibility);
       if (hipVis < 0.5) return false;
       const hipCenter = (lm[23].y + lm[24].y) / 2;
-      if (hipCenter < 0.25 || hipCenter > 0.75) return false;
+      // Upper bound loosened 0.75 → 0.88: at full squat/lunge depth hips drop
+      // to Y ≈ 0.80-0.85 in normalized coords; 0.75 triggered "Stand up" on deep reps.
+      if (hipCenter < 0.25 || hipCenter > 0.88) return false;
       return true;
     },
     outOfPositionMsg: 'Stand up to continue',
@@ -515,7 +531,9 @@ const exerciseRegistry = {
       const hipVis = Math.min(lm[23].visibility, lm[24].visibility);
       if (hipVis < 0.5) return false;
       const hipCenter = (lm[23].y + lm[24].y) / 2;
-      if (hipCenter < 0.25 || hipCenter > 0.75) return false;
+      // Upper bound loosened 0.75 → 0.88: at full squat/lunge depth hips drop
+      // to Y ≈ 0.80-0.85 in normalized coords; 0.75 triggered "Stand up" on deep reps.
+      if (hipCenter < 0.25 || hipCenter > 0.88) return false;
       return true;
     },
     outOfPositionMsg: 'Stand up to continue',
@@ -655,11 +673,17 @@ const exerciseRegistry = {
       if (state.phase === 'down' && goingDown && avgElbow > calibration.dip.elbow_down + 12) {
         score -= 15; feedback.push('Go deeper');
       }
-      // Elbows flaring too wide is a shoulder-health concern
+      // Elbow-flare check: only meaningful from a front view and only when bent.
+      // shoulderSpan > 0.15 ensures we're clearly front-facing (side view gives ~0.05).
+      // Only in 'down' phase — flare at the extended top position is meaningless.
       const shoulderSpan = Math.abs(lm[11].x - lm[12].x);
       const elbowSpan = Math.abs(lm[13].x - lm[14].x);
-      if (shoulderSpan > 0.05 && elbowSpan > shoulderSpan * 1.6) {
+      if (shoulderSpan > 0.15 && state.phase === 'down' && elbowSpan > shoulderSpan * 1.6) {
         score -= 20; if (feedback.length === 0) feedback.push('Keep elbows closer in');
+      }
+      // If side-on (shoulderSpan small), nudge user to face camera
+      if (shoulderSpan < 0.10 && cueShouldFire('dip-orient', 20000)) {
+        angleHint.textContent = 'Face the camera for best tracking';
       }
       if (feedback.length === 0) { showFeedback('Good form', 'good'); }
       else { showFeedback(feedback[0], score > 60 ? 'warn' : 'bad'); if (cueShouldFire('dip-form', 15000)) speak(feedback[0]); }
@@ -1473,7 +1497,7 @@ function renderTemplateModal() {
   }
 
   if (templates.length === 0) {
-    listEl.innerHTML = '<p style="color:#8899aa;">No saved templates yet.</p>';
+    listEl.innerHTML = '<p style="color:#8899aa;">No saved templates yet — complete a workout and save it below.</p>';
   } else {
     listEl.innerHTML = templates.map((t, idx) => `
       <div class="template-entry">
@@ -1482,8 +1506,8 @@ function renderTemplateModal() {
           <div class="template-exercises">${t.exercises.map(e => escapeHtml(exerciseRegistry[e]?.name || e)).join(' → ')}</div>
         </div>
         <div class="template-actions">
-          <button class="btn btn-go" style="padding:6px 10px;font-size:12px" data-action="load" data-idx="${idx}">Load</button>
-          <button class="btn btn-primary" style="padding:6px 10px;font-size:12px" data-action="del" data-idx="${idx}">Del</button>
+          <button class="btn btn-go" data-action="load" data-idx="${idx}">Load</button>
+          <button class="btn btn-primary" data-action="del" data-idx="${idx}">Del</button>
         </div>
       </div>`).join('');
   }
@@ -1500,11 +1524,13 @@ function renderTemplateModal() {
 
   // Update save button label based on today's exercises
   const saveBtn = document.getElementById('btn-save-template');
+  const saveHint = document.getElementById('template-save-hint');
   if (todayExercises.length === 0) {
     saveBtn.disabled = true;
-    saveBtn.title = 'Finish at least one set first';
+    saveHint.style.display = 'block';
   } else {
     saveBtn.disabled = false;
+    saveHint.style.display = 'none';
     saveBtn.title = `Saves: ${todayExercises.map(e => exerciseRegistry[e].name).join(' → ')}`;
   }
 }
@@ -1655,8 +1681,15 @@ function checkPositioning(lm) {
 // ===== SILHOUETTE GUIDE =====
 // Draw a thick outlined human shape using bezier curves for a recognizable body
 function drawGuide(retryCount) {
-  guideCanvas.width = guideCanvas.clientWidth;
-  guideCanvas.height = guideCanvas.clientHeight;
+  // Only reset canvas dimensions when they've actually changed — matches the
+  // skeleton canvas pattern. Unconditional assignment causes a full GPU context
+  // reset every frame on mobile, which is a significant heat source.
+  const newGW = guideCanvas.clientWidth;
+  const newGH = guideCanvas.clientHeight;
+  if (guideCanvas.width !== newGW || guideCanvas.height !== newGH) {
+    guideCanvas.width  = newGW;
+    guideCanvas.height = newGH;
+  }
 
   // If canvas has zero dimensions (not laid out yet), retry up to 3 times
   if (guideCanvas.width === 0 || guideCanvas.height === 0) {
@@ -2088,7 +2121,10 @@ function detectAutoStart(lm) {
   const leftElbow = angle(lm[11], lm[13], lm[15]);
   const rightElbow = angle(lm[12], lm[14], lm[16]);
   const avgElbow = (leftElbow + rightElbow) / 2;
-  const armsExtended = avgElbow > 140;
+  // Lowered from 140° → 120°: at 6+ feet elbow landmarks are less precise,
+  // and a user resting their weight with slightly bent arms was getting rejected.
+  // The 3-second hold timer already prevents false triggers.
+  const armsExtended = avgElbow > 120;
 
   // Plank: horizontal body is enough (could be on forearms, elbows bent)
   // Pushup: horizontal body + arms extended
@@ -2452,6 +2488,15 @@ btnVoice.addEventListener('click', () => {
   state.voiceEnabled = !state.voiceEnabled;
   btnVoice.textContent = `Voice: ${state.voiceEnabled ? 'On' : 'Off'}`;
   btnVoice.classList.toggle('btn-active', state.voiceEnabled);
+});
+
+// More button — toggles secondary controls panel
+document.getElementById('btn-more').addEventListener('click', () => {
+  const panel = document.getElementById('more-panel');
+  const btn   = document.getElementById('btn-more');
+  const open  = panel.classList.toggle('open');
+  btn.textContent = open ? 'Less' : 'More';
+  btn.setAttribute('aria-expanded', open);
 });
 
 // Warmup calibration — do 3 reps to learn the user's actual range of motion
@@ -2869,7 +2914,13 @@ async function startCamera() {
     poseCamera = new Camera(video, {
       onFrame: async () => {
         frameCount++;
-        const throttle = (state.workoutState === 'idle') ? 4 : 2;
+        // High throttle (every 4th frame ≈ 7.5 fps) when user is stationary:
+        //   idle, paused, or warmup-positioning (just standing by the guide).
+        // Low throttle (every 2nd frame ≈ 15 fps) when actively moving.
+        const lowActivity = state.workoutState === 'idle'
+          || state.workoutState === 'paused'
+          || (state.workoutState === 'warmup' && state.warmupSubPhase === 'positioning');
+        const throttle = lowActivity ? 4 : 2;
         if (frameCount % throttle !== 0) return;
         await pose.send({ image: video });
       },
