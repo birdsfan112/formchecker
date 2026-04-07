@@ -1,10 +1,10 @@
 ## Status
 - **Phase:** Phase 5 — Exercise Library Expansion (in progress)
 - **Updated:** 2026-04-07
-- **Summary:** Thermal/performance pass — modelComplexity lowered to 0 (lite model, ~50% less GPU), rest period now throttles to 4fps, checkPositioning() no longer double-called per frame. 165 tests passing.
-- **Autonomous:** Implement arch hangs/scapular pulls; write new exercise silhouettes once approach confirmed
-- **Needs Scott:** Re-test phone heat after these fixes; decide silhouette approach (code vs. generated images); sign off to proceed with remaining Phase 5 exercises
-- **Blockers:** Silhouette approach decision pending
+- **Summary:** Added welcome screen (3-button launch flow) and visual exercise picker (card grid with mini silhouettes). 165 tests passing.
+- **Autonomous:** Implement arch hangs/scapular pulls; continue Phase 5 exercise additions
+- **Needs Scott:** Phone test — verify welcome screen buttons and exercise picker feel right on iOS Safari; decide silhouette approach for remaining Phase 5 exercises
+- **Blockers:** None
 
 # FormCheck — AI Fitness Form Coach
 ## Architecture & Roadmap
@@ -53,6 +53,10 @@ LocalStorage persistence (90-session cap), session history tab, stacked progress
 - [x] **Type flags** — `isFloor`, `isTimed`, `drawStyle`, `drawVariant` replace all hardcoded `exercise === 'plank'` / `exercise === 'pushup'` checks throughout the state machine, drawGuide, and detectAutoStart.
 - [x] **`isInPosition` delegated** to registry — standalone function is now a thin wrapper.
 - [x] **`getOutOfPositionMsg`** replaces `OUT_OF_POSITION_MSG` lookup table — uses registry.
+
+### UX Polish
+- [x] **Welcome screen** — 3-button launch flow: Calibrate &amp; Start, Load Calibration, Jump to Workout. Replaces bare "Enable Camera" button with intentional onboarding.
+- [x] **Visual exercise picker** — replaces dropdown with a full-screen modal grid; each exercise card shows its name and a mini stick-figure silhouette (standing / horizontal / hanging style). Picker button in controls bar shows current exercise name.
 
 ### Bodyweight Strength
 - [x] Pike push-ups (side view, elbow angle, hips-high form check, derives calibration from pushup)

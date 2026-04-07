@@ -160,17 +160,52 @@
   #more-panel { display: none; gap: 8px; padding: 8px 16px; background: #16213e; flex-wrap: wrap; align-items: center; border-bottom: 1px solid #0f3460; }
   #more-panel.open { display: flex; }
   #btn-more { min-width: 52px; }
+
+  /* Welcome screen — 3-button layout */
+  #camera-permission-box { display: flex; flex-direction: column; gap: 12px; }
+  #camera-permission-box h2 { margin-bottom: 4px; }
+  #camera-permission-box p { margin-bottom: 0; }
+  #camera-permission .btn { margin-top: 0; }
+  #welcome-divider { height: 1px; background: rgba(255,255,255,0.12); margin: 4px 0; }
+
+  /* Exercise picker modal */
+  #exercise-picker { position: absolute; inset: 0; background: rgba(16,18,40,0.97); z-index: 200;
+    display: flex; flex-direction: column; padding: 16px; overflow: hidden; }
+  #exercise-picker-header { display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 12px; flex-shrink: 0; }
+  #exercise-picker-header h2 { font-size: 20px; }
+  #exercise-picker-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;
+    overflow-y: auto; flex: 1; padding-bottom: 4px; }
+  .exercise-card { background: #16213e; border-radius: 10px; padding: 10px 6px;
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    cursor: pointer; border: 2px solid transparent; transition: border-color 0.15s, background 0.15s;
+    min-height: 110px; }
+  .exercise-card.selected { border-color: #4ade80; }
+  .exercise-card:active { background: #1a4a7a; }
+  .exercise-card-name { font-size: 12px; font-weight: 600; text-align: center;
+    color: #eee; line-height: 1.3; }
+  .exercise-card canvas { display: block; border-radius: 4px; }
+
+  /* Exercise picker trigger button — same flex sizing as the old select */
+  #btn-exercise-picker { padding: 10px 12px; border-radius: 8px; background: #0f3460; color: #eee;
+    border: 1px solid #1a4a7a; font-size: 16px; flex: 1; min-width: 120px; min-height: 44px;
+    text-align: left; cursor: pointer; font-family: inherit; font-weight: 600; }
+  #btn-exercise-picker:hover { background: #1a4a7a; }
 </style>
 </head>
 <body>
 <div id="app">
-  <!-- Camera permission rationale — shown before getUserMedia is called on first visit -->
+  <!-- Welcome screen — shown on first visit before camera access is granted -->
   <div id="camera-permission" role="dialog" aria-labelledby="cam-perm-title" aria-describedby="cam-perm-desc">
-    <div id="camera-permission-box">
-      <h2 id="cam-perm-title">Camera Access Needed</h2>
-      <p id="cam-perm-desc">FormCheck uses your camera to watch your exercise form and count reps in real time.</p>
-      <p>No video is recorded or sent anywhere — everything runs entirely in your browser.</p>
-      <button class="btn btn-go" id="btn-grant-camera">Enable Camera</button>
+    <div id="camera-permission-box" style="max-width:340px;text-align:center;">
+      <h2 id="cam-perm-title">FormCheck</h2>
+      <p id="cam-perm-desc" style="margin-bottom:6px;">Real-time AI form coach — uses your camera to count reps and coach your form.</p>
+      <p style="font-size:13px;">No video is recorded or sent anywhere.</p>
+      <div id="welcome-divider"></div>
+      <button class="btn btn-go" id="btn-calibrate" style="width:100%;font-size:16px;padding:14px;">Calibrate &amp; Start</button>
+      <button class="btn btn-secondary" id="btn-welcome-load-cal" style="width:100%;font-size:16px;padding:14px;">Load Calibration</button>
+      <input type="file" id="welcome-cal-input" accept=".json" style="display:none">
+      <button class="btn btn-secondary" id="btn-jump-workout" style="width:100%;font-size:16px;padding:14px;">Jump to Workout</button>
     </div>
   </div>
 
@@ -233,7 +268,8 @@
     </label>
   </div>
   <div id="controls">
-    <select id="exercise-select" aria-label="Select exercise">
+    <!-- Hidden select kept for internal state management (templates, calibration sequence) -->
+    <select id="exercise-select" aria-label="Select exercise" style="display:none">
       <option value="pushup">Push-ups</option>
       <option value="squat">Squats</option>
       <option value="pullup">Pull-ups</option>
@@ -248,6 +284,7 @@
       <option value="pistol">Pistol Squat</option>
       <option value="glutebridge">Glute Bridge</option>
     </select>
+    <button id="btn-exercise-picker" aria-label="Select exercise" aria-haspopup="dialog">Push-ups ▾</button>
     <button class="btn btn-go" id="btn-start" aria-label="Start workout">Ready</button>
     <button class="btn btn-warn hidden" id="btn-pause" aria-label="Pause workout">Pause</button>
     <button class="btn btn-primary hidden" id="btn-finish" aria-label="Finish current set">Finish Set</button>
@@ -293,6 +330,17 @@
       <p id="template-save-hint" style="font-size:12px;color:#8899aa;margin-top:6px;display:none;">Finish at least one set first to save a template.</p>
     </div>
     <button class="btn btn-primary" id="btn-close-templates" style="margin-top:12px;">Close</button>
+  </div>
+
+  <!-- Exercise picker modal — visual exercise selector with silhouettes -->
+  <div id="exercise-picker" class="hidden">
+    <div id="exercise-picker-header">
+      <h2>Choose Exercise</h2>
+      <button class="btn btn-secondary" id="btn-close-picker" style="padding:8px 14px;">✕</button>
+    </div>
+    <div id="exercise-picker-grid">
+      <!-- Cards rendered by JS in renderExercisePicker() -->
+    </div>
   </div>
 </div>
 
@@ -969,6 +1017,10 @@ const defaultCalibration = {
 
 // Working copy — modified by loadCalibration(), reset by saveCalibration()
 let calibration = JSON.parse(JSON.stringify(defaultCalibration));
+
+// Tracks which action was chosen on the welcome screen so startCamera() can act on it.
+// 'workout' = go straight to idle; 'calibrate' = auto-trigger warmup calibration after camera starts.
+let pendingStartAction = 'workout';
 
 function saveCalibration() {
   const json = JSON.stringify(calibration, null, 2);
@@ -2303,10 +2355,12 @@ function buildSetSummary(reps, repScores, exercise) {
 
 // ===== EVENT HANDLERS =====
 
-// Exercise select
+// Exercise select (hidden) — keep picker button label in sync
 exerciseSelect.addEventListener('change', () => {
   state.exercise = exerciseSelect.value;
   const newName = exerciseRegistry[state.exercise].name;
+
+  document.getElementById('btn-exercise-picker').textContent = newName + ' \u25be';
 
   // Reset hysteresis so the new exercise starts with a fresh alignment check
   state.lastPositioningAligned = false;
@@ -2896,6 +2950,142 @@ document.addEventListener('visibilitychange', () => {
   }, 5000);
 });
 
+// ===== EXERCISE PICKER =====
+
+// Draw a simple self-contained stick figure onto any canvas context.
+// Separate from the guide-canvas drawing functions (which use the global guideCtx).
+function drawMiniSilhouette(ctx, w, h, drawStyle) {
+  ctx.clearRect(0, 0, w, h);
+  ctx.strokeStyle = 'rgba(255,255,255,0.82)';
+  ctx.fillStyle   = 'rgba(255,255,255,0.16)';
+  ctx.lineWidth   = Math.max(1.5, w * 0.03);
+  ctx.lineCap     = 'round';
+  ctx.lineJoin    = 'round';
+
+  const cx = w / 2;
+
+  if (drawStyle === 'standing') {
+    // Side-profile stick figure — head, body, arm, two legs, feet
+    const headR = w * 0.11;
+    const headY = h * 0.17;
+    ctx.beginPath(); ctx.arc(cx, headY, headR, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+    const neckY  = headY + headR;
+    const waistY = h * 0.54;
+    const hipY   = h * 0.58;
+    // Spine
+    ctx.beginPath(); ctx.moveTo(cx, neckY); ctx.lineTo(cx, hipY); ctx.stroke();
+    // Arms (one visible arm from shoulder)
+    const shoulderY = neckY + (waistY - neckY) * 0.15;
+    ctx.beginPath();
+    ctx.moveTo(cx - w * 0.18, shoulderY + h * 0.12);
+    ctx.lineTo(cx, shoulderY);
+    ctx.lineTo(cx + w * 0.19, shoulderY + h * 0.12);
+    ctx.stroke();
+    // Legs
+    const footY = h * 0.93;
+    ctx.beginPath();
+    ctx.moveTo(cx, hipY); ctx.lineTo(cx - w * 0.14, footY);
+    ctx.moveTo(cx, hipY); ctx.lineTo(cx + w * 0.14, footY);
+    ctx.stroke();
+    // Feet
+    ctx.beginPath();
+    ctx.moveTo(cx - w * 0.14, footY); ctx.lineTo(cx - w * 0.26, footY);
+    ctx.moveTo(cx + w * 0.14, footY); ctx.lineTo(cx + w * 0.26, footY);
+    ctx.stroke();
+
+  } else if (drawStyle === 'horizontal') {
+    // Side-view prone / floor figure — head left, feet right
+    const midY  = h * 0.52;
+    const headR = h * 0.11;
+    const headX = w * 0.13;
+    // Head
+    ctx.beginPath(); ctx.arc(headX, midY, headR, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+    // Body
+    const bodyEndX = w * 0.73;
+    ctx.beginPath(); ctx.moveTo(headX + headR, midY); ctx.lineTo(bodyEndX, midY); ctx.stroke();
+    // Arms bent down (pushup position)
+    const shoulderX = headX + headR + w * 0.09;
+    ctx.beginPath();
+    ctx.moveTo(shoulderX, midY);
+    ctx.lineTo(shoulderX - w * 0.04, midY + h * 0.28);
+    ctx.stroke();
+    // Legs & feet
+    ctx.beginPath();
+    ctx.moveTo(bodyEndX, midY);
+    ctx.lineTo(w * 0.88, midY + h * 0.22);
+    ctx.stroke();
+
+  } else if (drawStyle === 'hanging') {
+    // Front-view hanging figure — bar at top, arms up, body + legs down
+    const barY = h * 0.10;
+    // Bar
+    ctx.beginPath(); ctx.moveTo(cx - w * 0.38, barY); ctx.lineTo(cx + w * 0.38, barY); ctx.stroke();
+    // Head
+    const headR = w * 0.11;
+    const headY = h * 0.32;
+    ctx.beginPath(); ctx.arc(cx, headY, headR, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+    // Arms up to bar
+    ctx.beginPath();
+    ctx.moveTo(cx - w * 0.12, headY - headR * 0.6);
+    ctx.lineTo(cx - w * 0.22, barY);
+    ctx.moveTo(cx + w * 0.12, headY - headR * 0.6);
+    ctx.lineTo(cx + w * 0.22, barY);
+    ctx.stroke();
+    // Body
+    ctx.beginPath(); ctx.moveTo(cx, headY + headR); ctx.lineTo(cx, h * 0.68); ctx.stroke();
+    // Legs
+    ctx.beginPath();
+    ctx.moveTo(cx, h * 0.68); ctx.lineTo(cx - w * 0.10, h * 0.92);
+    ctx.moveTo(cx, h * 0.68); ctx.lineTo(cx + w * 0.10, h * 0.92);
+    ctx.stroke();
+  }
+}
+
+function renderExercisePicker() {
+  const grid = document.getElementById('exercise-picker-grid');
+  grid.innerHTML = '';
+  Object.entries(exerciseRegistry).forEach(([key, meta]) => {
+    const card = document.createElement('div');
+    card.className = 'exercise-card' + (key === state.exercise ? ' selected' : '');
+    card.dataset.exercise = key;
+
+    // Mini silhouette canvas
+    const cvs = document.createElement('canvas');
+    const cw = 70, ch = 62;
+    cvs.width = cw; cvs.height = ch;
+    const ctx = cvs.getContext('2d');
+    drawMiniSilhouette(ctx, cw, ch, meta.drawStyle || 'standing');
+
+    // Name label
+    const label = document.createElement('div');
+    label.className = 'exercise-card-name';
+    label.textContent = meta.name;
+
+    card.appendChild(cvs);
+    card.appendChild(label);
+
+    card.addEventListener('click', () => {
+      exerciseSelect.value = key;
+      exerciseSelect.dispatchEvent(new Event('change'));
+      document.getElementById('exercise-picker').classList.add('hidden');
+    });
+
+    grid.appendChild(card);
+  });
+}
+
+document.getElementById('btn-exercise-picker').addEventListener('click', () => {
+  renderExercisePicker();
+  document.getElementById('exercise-picker').classList.remove('hidden');
+});
+
+document.getElementById('btn-close-picker').addEventListener('click', () => {
+  document.getElementById('exercise-picker').classList.add('hidden');
+});
+
 // ===== CAMERA =====
 async function startCamera() {
   // Show loading spinner while we wait for camera + pose model init
@@ -2943,14 +3133,63 @@ async function startCamera() {
     setTimeout(() => { angleHint.textContent = ''; }, 15000);
     setWorkoutState('idle');
     loadTodaySession(); // restore any sets already logged today before the page reload
-    speakForce('FormCheck ready. Line up with the guide, then raise your hand to start.');
+
+    if (pendingStartAction === 'calibrate') {
+      pendingStartAction = 'workout'; // reset so it doesn't re-trigger
+      // Slight delay so the camera has a frame to display before calibration dialog appears
+      setTimeout(() => {
+        document.getElementById('btn-warmup').click();
+        speakForce('Calibration starting. Get into position.');
+      }, 800);
+    } else {
+      speakForce('FormCheck ready. Line up with the guide, then raise your hand to start.');
+    }
   } catch (err) {
     loading.innerHTML = `<h2>Camera Error</h2><p>${err.message}</p><p style="margin-top:12px;">Please allow camera access and reload.</p>`;
   }
 }
 
-// Show the permission rationale dialog on startup — user clicks to trigger getUserMedia
-document.getElementById('btn-grant-camera').addEventListener('click', startCamera);
+// ===== WELCOME SCREEN HANDLERS =====
+
+// Calibrate & Start — enable camera then auto-trigger warmup calibration
+document.getElementById('btn-calibrate').addEventListener('click', () => {
+  pendingStartAction = 'calibrate';
+  startCamera();
+});
+
+// Jump to Workout — enable camera and go straight to idle (no calibration)
+document.getElementById('btn-jump-workout').addEventListener('click', () => {
+  pendingStartAction = 'workout';
+  startCamera();
+});
+
+// Load Calibration — pick a JSON file, load it, then start camera and go to workout
+document.getElementById('btn-welcome-load-cal').addEventListener('click', () => {
+  document.getElementById('welcome-cal-input').click();
+});
+document.getElementById('welcome-cal-input').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const loaded = JSON.parse(ev.target.result);
+      calibration = JSON.parse(JSON.stringify(defaultCalibration));
+      for (const ex of Object.keys(defaultCalibration)) {
+        if (loaded[ex] && typeof loaded[ex] === 'object') {
+          for (const key of Object.keys(defaultCalibration[ex])) {
+            if (typeof loaded[ex][key] === 'number') calibration[ex][key] = loaded[ex][key];
+          }
+        }
+      }
+      pendingStartAction = 'workout';
+      startCamera();
+    } catch (err) {
+      alert('Could not read calibration file. Make sure it\'s a valid FormCheck calibration JSON.');
+    }
+  };
+  reader.readAsText(file);
+});
 
 
 }); // end window.onload
