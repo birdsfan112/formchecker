@@ -1,9 +1,9 @@
 ## Status
 - **Phase:** Phase 5 — Exercise Library Expansion (in progress)
 - **Updated:** 2026-04-07
-- **Summary:** Second phone-testing session — 6 more bugs fixed: phone heat (canvas cache + throttle extension), deep squat out-of-position false trigger, dips elbow-flare false positive, push-up auto-start threshold. Log modal/template/controls bar fixes from earlier session still in place. Silhouettes for new exercises deferred pending Scott/design decision.
+- **Summary:** Thermal/performance pass — modelComplexity lowered to 0 (lite model, ~50% less GPU), rest period now throttles to 4fps, checkPositioning() no longer double-called per frame. 165 tests passing.
 - **Autonomous:** Implement arch hangs/scapular pulls; write new exercise silhouettes once approach confirmed
-- **Needs Scott:** Re-test heat, squat depth, dips cue, push-up auto-start on phone; decide silhouette approach (code vs. generated images); sign off to proceed with remaining Phase 5 exercises
+- **Needs Scott:** Re-test phone heat after these fixes; decide silhouette approach (code vs. generated images); sign off to proceed with remaining Phase 5 exercises
 - **Blockers:** Silhouette approach decision pending
 
 # FormCheck — AI Fitness Form Coach

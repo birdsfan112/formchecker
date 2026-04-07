@@ -322,6 +322,8 @@ const state = {
   cueCooldowns: {},
   iosAudioUnlocked: false,
   lastLandmarks: null,     // most recent pose landmarks (for drawGuide alignment check)
+  lastPositionResult: null, // cached checkPositioning() result — reused by drawGuide to avoid double-call per frame
+  isResting: false,        // true during the 45s rest period — ensures 4fps throttle, not 2fps
   palmDetectedTime: 0,    // when we first saw the palm gesture
   palmTriggered: false,    // prevent re-triggering during same idle
   positionDetectedTime: 0, // when auto-start first saw valid exercise position
@@ -1712,7 +1714,8 @@ function drawGuide(retryCount) {
 
   // Tint guide blue when body is well-aligned, white otherwise
   // Blue is colorblind-safe — distinguishable under red-green colorblindness
-  const posResult = checkPositioning(state.lastLandmarks);
+  // Use the cached result from onResults to avoid a redundant checkPositioning() call per frame.
+  const posResult = state.lastPositionResult || checkPositioning(state.lastLandmarks);
   const guideColor = posResult.aligned
     ? 'rgba(96, 165, 250, 0.85)'   // blue — good position (was green, colorblind-safe)
     : 'rgba(255, 255, 255, 0.80)'; // white — still positioning
@@ -2455,6 +2458,7 @@ const REST_SECONDS = 45;
 let restTimerInterval = null;
 
 function startRestPeriod(onDone) {
+  state.isResting = true;  // throttle to 4fps during rest — no analysis needed
   const restScreen = document.getElementById('rest-screen');
   const restTimerEl = document.getElementById('rest-timer');
   restScreen.classList.remove('hidden');
@@ -2471,6 +2475,7 @@ function startRestPeriod(onDone) {
 }
 
 function endRestPeriod(onDone) {
+  state.isResting = false;
   clearInterval(restTimerInterval);
   restTimerInterval = null;
   document.getElementById('rest-screen').classList.add('hidden');
@@ -2621,7 +2626,7 @@ const pose = new Pose({
 });
 
 pose.setOptions({
-  modelComplexity: 1,
+  modelComplexity: 0,   // lite model: ~50% less GPU vs full (1). Accurate enough for large rep movements.
   smoothLandmarks: true,
   enableSegmentation: false,
   minDetectionConfidence: 0.5,
@@ -2642,6 +2647,7 @@ pose.onResults((results) => {
   if (!results.poseLandmarks) return;
   const lm = results.poseLandmarks;
   state.lastLandmarks = lm; // used by drawGuide() for alignment tinting
+  state.lastPositionResult = checkPositioning(lm); // cached so drawGuide doesn't recompute it
 
   // Always draw skeleton (even when idle — helps with positioning)
   ctx.save();
@@ -2688,7 +2694,7 @@ pose.onResults((results) => {
 
   // Positioning hint: update state message when idle and no gesture/auto-start is in progress
   if (state.workoutState === 'idle' && state.palmDetectedTime === 0 && state.positionDetectedTime === 0) {
-    const pos = checkPositioning(lm);
+    const pos = state.lastPositionResult;
     if (pos.hint && !pos.aligned) {
       stateMessage.textContent = pos.hint;
     } else if (pos.aligned) {
@@ -2706,7 +2712,7 @@ pose.onResults((results) => {
   if (state.workoutState === 'warmup') {
     if (state.warmupSubPhase === 'positioning') {
       // Show silhouette guide and wait for user to get aligned
-      const pos = checkPositioning(lm);
+      const pos = state.lastPositionResult; // already computed above for this frame
       drawGuide(); // keep redrawing so it tints green/white
 
       if (pos.aligned) {
@@ -2919,6 +2925,7 @@ async function startCamera() {
         // Low throttle (every 2nd frame ≈ 15 fps) when actively moving.
         const lowActivity = state.workoutState === 'idle'
           || state.workoutState === 'paused'
+          || state.isResting
           || (state.workoutState === 'warmup' && state.warmupSubPhase === 'positioning');
         const throttle = lowActivity ? 4 : 2;
         if (frameCount % throttle !== 0) return;
