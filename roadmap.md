@@ -1,9 +1,9 @@
 ## Status
 - **Phase:** Phase 5 — Exercise Library Expansion (in progress)
 - **Updated:** 2026-04-07
-- **Summary:** Added welcome screen (3-button launch flow) and visual exercise picker (card grid with mini silhouettes). 165 tests passing.
+- **Summary:** Three sprints today: thermal fix (lite model + 4fps rest throttle + cached positioning), welcome screen (Calibrate / Load / Jump to Workout), visual exercise picker (card grid with mini silhouettes), and exercise testing protocol written to docs/exercise-testing-protocol.md. 165 tests passing.
 - **Autonomous:** Implement arch hangs/scapular pulls; continue Phase 5 exercise additions
-- **Needs Scott:** Phone test — verify welcome screen buttons and exercise picker feel right on iOS Safari; decide silhouette approach for remaining Phase 5 exercises
+- **Needs Scott:** Phone test welcome screen + exercise picker on iOS Safari; run exercise-testing-protocol.md for each of the 13 exercises; decide silhouette approach for remaining Phase 5 exercises
 - **Blockers:** None
 
 # FormCheck — AI Fitness Form Coach
@@ -189,3 +189,25 @@ For each exercise, define a small keyframe sequence (2–4 poses as arrays of [x
 ---
 
 *Detailed session logs and completed phase checklists: `docs/roadmap-archive.md`*
+
+---
+
+## Session Log
+
+### 2026-04-07 — Thermal fix, welcome screen, exercise picker, testing protocol
+
+**Accomplished:**
+- `index.html` — `modelComplexity` lowered 1→0 (lite MediaPipe model, ~50% less GPU); rest period now correctly throttles to 4fps via `isResting` flag; `checkPositioning()` cached on `state.lastPositionResult` so it's only called once per frame
+- `index.html` — Welcome screen added: "Calibrate & Start", "Load Calibration", "Jump to Workout" buttons replace bare Enable Camera button
+- `index.html` — Exercise dropdown replaced with visual picker modal: 2-column card grid, each card shows exercise name + mini stick-figure silhouette (standing/horizontal/hanging style); hidden `<select>` kept for internal state
+- `docs/exercise-testing-protocol.md` — New doc: repeatable per-exercise phone testing checklist (9 steps per exercise, covers silhouette, position detection, start flow, rep counting, form cues, out-of-position, finish set)
+- `roadmap.md` — Status block updated; session log added
+- 165 tests passing throughout
+
+**Still open:**
+- Arch hangs / scapular pulls (next exercise to implement)
+- Mobility/PT exercises (Phase 5 lower half)
+- Silhouette approach decision (PNG vs. canvas for remaining exercises)
+- Phone testing of all 13 exercises using the new protocol
+
+**Next session:** Start by running `node tests.js` to confirm baseline, then either implement arch hangs or run the exercise testing protocol on phone (Scott's call).
