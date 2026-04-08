@@ -1,213 +1,64 @@
 ## Status
-- **Phase:** Phase 5 — Exercise Library Expansion (in progress)
-- **Updated:** 2026-04-07
-- **Summary:** Three sprints today: thermal fix (lite model + 4fps rest throttle + cached positioning), welcome screen (Calibrate / Load / Jump to Workout), visual exercise picker (card grid with mini silhouettes), and exercise testing protocol written to docs/exercise-testing-protocol.md. 165 tests passing.
-- **Autonomous:** Implement arch hangs/scapular pulls; continue Phase 5 exercise additions
-- **Needs Scott:** Phone test welcome screen + exercise picker on iOS Safari; run exercise-testing-protocol.md for each of the 13 exercises; decide silhouette approach for remaining Phase 5 exercises
-- **Blockers:** None
+| Field | Value |
+|-------|-------|
+| Phase | Phase 5 — Exercise Library Expansion |
+| Updated | 2026-04-08 |
+| Summary | Engine refactor + 9/10 strength exercises complete; welcome screen + visual exercise picker shipped. 165 tests passing. |
+| Next Session | Run `node tests.js`, then implement arch hangs/scapular pulls or run exercise-testing-protocol.md on phone (Scott's call). |
+| Needs Scott | Phone test welcome screen + exercise picker on iOS Safari; run exercise-testing-protocol.md for all 13 exercises; decide silhouette approach for remaining Phase 5 exercises |
+| Autonomous | Implement arch hangs/scapular pulls; continue Phase 5 exercise additions |
+| External Blockers | None |
+
+<!-- CHIEF OF STAFF NOTE: The Status block above is read by the daily review. Keep every field current.
+     Format must stay as a table. Do not rename fields. "None" is a valid value for any field. -->
 
 # FormCheck — AI Fitness Form Coach
-## Architecture & Roadmap
 
----
+## Current Sprint
 
-### Vision
-A real-time AI fitness form coach that uses your phone camera + MediaPipe pose estimation to analyze bodyweight exercise form, count reps, give audio coaching cues, and log workouts. Personal use first, potential monetization later.
+- [ ] Arch hangs / scapular pulls (next bodyweight strength exercise)
+- [ ] Phone test all 13 exercises — use `docs/exercise-testing-protocol.md`; full regression list in `docs/specs/phase5-phone-testing-checklist.md`
 
-### Tech Stack
-- **Pose Detection:** MediaPipe Pose (33 body landmarks, 30+ FPS, runs in browser)
-- **Frontend:** Single-file Progressive Web App (HTML/JS/CSS)
-- **Audio Coaching:** Web Speech API (plays alongside music)
-- **Serving:** Python HTTPS server locally, ngrok for remote access; GitHub Pages for static hosting
-- **Live URL:** https://birdsfan112.github.io/formchecker/
-- **No backend required** — everything runs client-side
+## Backlog
 
----
+1. **Mobility & PT exercises** — shoulder dislocates, hip flexor stretches, wrist warm-up, band pull-aparts, foam roller positions, cat-cow/bird-dog
+2. **Visual polish sprint** — PNG silhouettes + CSS-animated how-to skeletons; spec in `docs/specs/visual-polish-sprint.md`
+3. **Phase 6 — Monetization & Distribution** — PWA install prompt, landing page, freemium model, user accounts, social sharing, app store wrapper (Capacitor/Ionic)
 
-## Phase 1: Core Tracking MVP ✅ (Complete)
-Skeleton overlay, rep counting (pushup/squat/pullup/lunge), plank timer, voice coaching, set tracking, iOS audio unlock, HTTPS/ngrok serving.
+## Decisions
 
----
-
-## Phase 2: UX & Positioning ✅ (Complete)
-Filled silhouettes for all exercises, palm gesture start + auto-start for floor exercises, Ready/Pause/Finish Set controls, position auto-detect (green tint + hints), exercise transition polish, debug cleanup.
-
----
-
-## Phase 3: Enhanced Form Analysis + Audio ✅ (Complete)
-Guided warmup calibration (squat → pushup flow, learns real ROM), relative depth cues, per-rep form score flash, end-of-set spoken summary, milestone/breathing/tempo audio cues, colorblind-safe indicators, visibility hysteresis, Web Speech re-unlock after backgrounding.
-
----
-
-## Phase 4: Workout Logger with Persistence ✅ (Complete)
-LocalStorage persistence (90-session cap), session history tab, stacked progress chart (last 7 days), JSON/CSV export, workout templates with auto-advance.
-
----
-
-## Phase 5: Exercise Library Expansion
-**Goal:** Cover the full r/bodyweightfitness recommended routine + mobility/PT
-**Test count:** 165, all passing
-
-### Engine Refactor ✅
-- [x] **Data-driven exerciseRegistry** — merged `exerciseMeta` + `exercises` into one registry. Each entry is self-contained: metadata, silhouette flags, `isInPosition`, `outOfPositionMsg`, and `analyze`. Adding a new exercise is now one object + one `<option>`.
-- [x] **Type flags** — `isFloor`, `isTimed`, `drawStyle`, `drawVariant` replace all hardcoded `exercise === 'plank'` / `exercise === 'pushup'` checks throughout the state machine, drawGuide, and detectAutoStart.
-- [x] **`isInPosition` delegated** to registry — standalone function is now a thin wrapper.
-- [x] **`getOutOfPositionMsg`** replaces `OUT_OF_POSITION_MSG` lookup table — uses registry.
-
-### UX Polish
-- [x] **Welcome screen** — 3-button launch flow: Calibrate &amp; Start, Load Calibration, Jump to Workout. Replaces bare "Enable Camera" button with intentional onboarding.
-- [x] **Visual exercise picker** — replaces dropdown with a full-screen modal grid; each exercise card shows its name and a mini stick-figure silhouette (standing / horizontal / hanging style). Picker button in controls bar shows current exercise name.
-
-### Bodyweight Strength
-- [x] Pike push-ups (side view, elbow angle, hips-high form check, derives calibration from pushup)
-- [x] Dips (front/side view, elbow angle, elbow-flare form check, derives calibration from pushup)
-- [x] Dead Hang (timed, hanging front view, same as plank-style timer)
-- [x] Leg Raises (hanging, front view, hip angle tracking, straight-leg form check)
-- [x] Inverted Rows (horizontal body, elbow angle, body-sag form check, derives calibration from pushup)
-- [x] L-Sit (timed, seated with legs extended, hip angle form check)
-- [x] Pistol Squat (single-leg, min knee angle, derives calibration from squat -10°)
-- [x] Glute Bridge (floor, hip angle rep counting, full extension cue)
-- [ ] Arch hangs / scapular pulls
-
-### Mobility & PT
-- [ ] Shoulder dislocates (band/dowel)
-- [ ] Hip flexor stretches
-- [ ] Wrist warm-up circles
-- [ ] Dead hangs
-- [ ] Band pull-aparts
-- [ ] Foam roller positions
-- [ ] Cat-cow / bird-dog
-
-### Exercise Metadata (for new additions)
-Each exercise needs: primary joint angles, phase detection thresholds, camera angle requirement, form check rules with severity, regression suggestions, silhouette guide coordinates.
-
----
-
-## Phase 5 Phone Testing Checklist
-Everything built across the 2026-04-04 sessions, untested on real hardware. Work through top to bottom and mark each ✅ or ❌.
-
-### Pre-Phase 5 Reliability Sprint
-- [ ] **Permission dialog** — does the camera permission prompt appear before the OS camera prompt (not after)?
-- [ ] **Background → resume** — start a workout, background the app, return. Does voice resume? Does the skeleton reappear on camera?
-- [ ] **Guide alignment at 6ft** — does the silhouette guide hold blue (aligned) without flickering while standing still?
-- [ ] **Warmup calibration reps** — do reps count reliably during the calibration tracking phase (no false reps, no missed reps)?
-
-### Phase 5 — Engine Refactor + Batch 1 (Pike, Dips, Dead Hang, Leg Raises)
-- [ ] **All 9 exercises in dropdown** — do push-ups, squats, pull-ups, lunges, plank, pike push-ups, dips, dead hang, leg raises all appear?
-- [ ] **Each new exercise shows a silhouette** — switch to each one; does a guide shape appear in idle state?
-- [ ] **Pike push-ups** — does "Keep hips high" voice cue fire when hips drop below hands during the rep?
-- [ ] **Dead Hang** — does the timer count upward? Does voice say "15 seconds" at 15s?
-- [ ] **Leg Raises** — do reps count when legs raise (hip angle decreases) and return to hang?
-- [ ] **Dips** — do reps track correctly using elbow angle? Does rep count increment on each full dip?
-- [ ] **Regression: pushup auto-start** — does lying face-down trigger 3s countdown automatically?
-- [ ] **Regression: plank timer** — does the plank timer run and show elapsed seconds?
-- [ ] **Regression: squat rep counting** — do squats count correctly with the existing exercises?
-- [ ] **Regression: calibration warmup counter** — does the counter show x/3 format (e.g. 0/3 → 1/3 → 2/3 → 3/3) during warmup?
-
-### Phase 5 — Batch 2 (Inverted Rows, L-Sit, Pistol Squat, Glute Bridge)
-- [ ] **All 13 exercises in dropdown** — do the 4 new exercises appear (inverted rows, L-sit, pistol squat, glute bridge)?
-- [ ] **Glute bridge auto-start** — does lying on back with knees bent trigger the 3s hold countdown?
-- [ ] **Glute bridge reps** — do reps count as hips drive up and return to floor?
-- [ ] **Pistol squat tracking** — does rep counting track the bending (working) leg, not the extended leg?
-- [ ] **L-Sit timer** — does the timer count upward? Does "Keep legs horizontal" cue fire when legs drop?
-- [ ] **Inverted rows** — do reps count pulling up to bar and returning? Does "Keep hips up" cue fire when sagging?
-
-### Calibration UX + Rest Screen
-- [ ] **Warmup rep counter** — during calibration tracking, does #rep-counter show 0/3 → 1/3 → 2/3 → 3/3?
-- [ ] **Post-calibration message** — after calibration completes, does it say "✓ Calibrated! Tap Ready to start your [exercise]"?
-- [ ] **Rest screen** — after finishing a set with reps, does the rest screen appear with a 60s countdown?
-- [ ] **Skip rest** — does "Start Next Set" button end the rest early and return to idle?
-
----
-
-## Sprint: Visual Polish — Silhouettes & How-To Animations
-**Goal:** Replace drawn-in-code silhouette outlines with photorealistic PNG silhouettes, and add looping skeleton animations that show correct movement form while idle on each exercise.
-
-### Approach
-
-**Silhouettes — PNG base64 in-HTML**
-Generate a photorealistic transparent-background PNG silhouette for each of the 13 exercises using an image generator (one pose per exercise — the canonical "in position" view). Convert each to a base64 data URI and embed directly in `index.html` as `<img>` tags or CSS background-image values. The existing `drawGuide()` canvas overlay remains for alignment tinting and the floor line; the PNG renders beneath it as a visual reference. Single-file constraint preserved — no external assets.
-
-**How-to animations — CSS-animated MediaPipe skeleton**
-For each exercise, define a small keyframe sequence (2–4 poses as arrays of [x, y] landmark positions) representing the correct movement arc. While the app is idle on that exercise, loop through the keyframe poses using CSS animations or a lightweight `requestAnimationFrame` loop, drawing the skeleton on the guide canvas. Reuses the existing `drawConnectors`/`drawLandmarks` helpers — no new dependencies. Shows the user exactly what the movement looks like before they start.
-
-### Why this approach
-- **PNGs over canvas-drawn shapes**: Canvas silhouettes required precise coordinate math per exercise; photo-quality PNGs are instantly readable at 6+ feet and don't need redrawing on every frame.
-- **Base64 embed**: Keeps the single-file constraint. No CDN, no extra HTTP requests.
-- **CSS-animated skeleton over video**: Consistent with the app's visual language (MediaPipe skeleton), zero file size overhead, loops infinitely without user interaction.
-- **No new ML models or libraries**: Everything runs on existing draw utilities.
-
-### Tasks
-
-#### Silhouettes
-- [ ] Generate PNG silhouettes for all 13 exercises (transparent background, side or front profile matching current camera angle per exercise)
-  - Exercises: push-ups, squats, pull-ups, lunges, plank, pike push-ups, dips, dead hang, leg raises, inverted rows, L-sit, pistol squat, glute bridge
-- [ ] Convert each PNG to base64 data URI
-- [ ] Add an `img` element (or CSS background) for the silhouette in the canvas container, positioned to align with the guide overlay
-- [ ] Show/hide the correct silhouette when exercise changes (mirrors existing drawGuide logic)
-- [ ] Confirm silhouettes render correctly on phone at 6+ feet — must be readable without labels
-
-#### How-to animations
-- [ ] For each exercise, define 2–4 keyframe landmark arrays (normalized 0–1 coordinates) representing the movement arc (e.g., pushup: arms extended → arms bent at bottom)
-- [ ] Build a `playHowToAnimation(exercise)` function: cycles through keyframes at ~1s per step using `setInterval` or `requestAnimationFrame`, draws skeleton on guide canvas
-- [ ] Trigger animation when app enters idle state on an exercise; cancel when workout starts or exercise changes
-- [ ] Confirm animation doesn't interfere with `checkPositioning` (green tint) or `drawGuide` floor line — layering order matters
-- [ ] Phone test: does animation loop smoothly at 6+ feet? Is the movement arc clear?
-
-#### Integration
-- [ ] Write regression tests confirming: exercise change shows correct silhouette, animation starts on idle and stops on workout start
-- [ ] Update `docs/architecture-map.md` to document new silhouette layer and animation function
-
----
-
-## Phase 6: Monetization & Distribution
-**Goal:** Make it available to others
-
-- [ ] **PWA install prompt** — add to home screen on iOS/Android
-- [ ] **Landing page** — simple marketing site
-- [ ] **Freemium model** — basic exercises free, full library + progress tracking paid
-- [ ] **User accounts** — cloud sync of workout data
-- [ ] **Social sharing** — share workout summaries
-- [ ] **App store** — consider Capacitor/Ionic wrapper for native app stores
-
----
-
-## Key Technical Decisions
-- **Single HTML file** — keeps deployment dead simple, no build step
-- **MediaPipe over TensorFlow.js** — faster, more accurate, better mobile support
-- **Web Speech API** — works alongside music, no audio file management
-- **No backend** — privacy-first, no data leaves the device
-- **Self-signed HTTPS + ngrok** — solves mobile camera access without deployment
-
-## Known Limitations
-- Baggy clothing can throw off landmark detection
-- Side view vs front view affects which checks are reliable
-- MediaPipe occasionally jitters on partially occluded limbs
-- iOS Safari requires user gesture to unlock speech synthesis
-- Self-signed certs need manual "trust" step on each device
-
----
-
-*Detailed session logs and completed phase checklists: `docs/roadmap-archive.md`*
-
----
+| Date | Decision | Context | Status |
+|------|----------|---------|--------|
+| 2025-Q1 | Single HTML file — no build step | Keeps deployment dead simple; GitHub Pages auto-deploys on push to main | Accepted |
+| 2025-Q1 | MediaPipe Pose over TensorFlow.js | Faster, more accurate, better mobile support | Accepted |
+| 2025-Q1 | Web Speech API for audio coaching | Plays alongside music; no audio file management needed | Accepted |
+| 2025-Q1 | No backend — fully client-side | Privacy-first; no data leaves the device | Accepted |
+| 2025-Q2 | GitHub Pages hosting (not Vercel) | Free, auto-deploys on push to main via GitHub Actions | Accepted |
+| 2026-Q1 | Data-driven exerciseRegistry | Merged exerciseMeta + exercises — adding an exercise is now one object + one `<option>` | Accepted |
+| 2026-Q1 | Lite MediaPipe model (complexity 0) | Reduced thermal load ~50% on mobile; acceptable accuracy tradeoff for bodyweight exercises | Accepted |
+| 2026-Q1 | Smart calibration covers multiple exercises | Squat ROM → squat + lunge; pushup ROM → pushup + pike + pullup. 6 reps calibrates all 4 rep-based exercises | Accepted |
 
 ## Session Log
 
 ### 2026-04-07 — Thermal fix, welcome screen, exercise picker, testing protocol
 
-**Accomplished:**
-- `index.html` — `modelComplexity` lowered 1→0 (lite MediaPipe model, ~50% less GPU); rest period now correctly throttles to 4fps via `isResting` flag; `checkPositioning()` cached on `state.lastPositionResult` so it's only called once per frame
-- `index.html` — Welcome screen added: "Calibrate & Start", "Load Calibration", "Jump to Workout" buttons replace bare Enable Camera button
-- `index.html` — Exercise dropdown replaced with visual picker modal: 2-column card grid, each card shows exercise name + mini stick-figure silhouette (standing/horizontal/hanging style); hidden `<select>` kept for internal state
-- `docs/exercise-testing-protocol.md` — New doc: repeatable per-exercise phone testing checklist (9 steps per exercise, covers silhouette, position detection, start flow, rep counting, form cues, out-of-position, finish set)
-- `roadmap.md` — Status block updated; session log added
+- Lowered MediaPipe `modelComplexity` 1→0 (~50% less GPU); rest period throttles to 4fps via `isResting` flag; `checkPositioning()` cached per frame
+- Welcome screen: "Calibrate & Start", "Load Calibration", "Jump to Workout" replace bare Enable Camera button
+- Exercise dropdown replaced with visual picker modal (2-column card grid, name + mini silhouette per card)
+- `docs/exercise-testing-protocol.md` — new repeatable 9-step per-exercise phone testing checklist
 - 165 tests passing throughout
+- Next: Arch hangs/scapular pulls, or phone test all 13 exercises
 
-**Still open:**
-- Arch hangs / scapular pulls (next exercise to implement)
-- Mobility/PT exercises (Phase 5 lower half)
-- Silhouette approach decision (PNG vs. canvas for remaining exercises)
-- Phone testing of all 13 exercises using the new protocol
+### 2026-04-04 — Batch 2 exercises (Inverted Rows, L-Sit, Pistol Squat, Glute Bridge)
 
-**Next session:** Start by running `node tests.js` to confirm baseline, then either implement arch hangs or run the exercise testing protocol on phone (Scott's call).
+- Added Inverted Rows (body-sag check), L-Sit (timed, hip angle), Pistol Squat (single-leg, derives from squat -10°), Glute Bridge (floor, hip angle, auto-start from lying on back)
+- All 13 exercises in registry; 165 tests passing
+
+### 2026-04-04 — Phase 5 engine refactor + Batch 1 (Pike, Dips, Dead Hang, Leg Raises)
+
+- Data-driven `exerciseRegistry` merges metadata + analyzers; type flags replace hardcoded exercise-name checks
+- Added pike push-ups, dips, dead hang, leg raises
+- Calibration: squat ROM → squat + lunge; pushup ROM → pushup + pike + pullup (6 reps covers all)
+- Consecutive-frame direction filter (3 frames) prevents jitter-triggered false reps
+
+> Earlier sessions archived in `docs/roadmap-archive.md`
