@@ -194,3 +194,11 @@ No code changes. No test changes.
 5. **Supporting updates:** `defaultCalibration`, `applyAllCalibrationResults`, `getPrimaryAngle`, `checkPositioning`, `EXERCISE_COLORS`, dropdown.
 
 **Tests:** 152 → 165 (+13). **Current test count: 165, all passing.**
+
+### Session: 2026-04-07 — Thermal fix, welcome screen, exercise picker, testing protocol
+1. **Thermal reduction** — `modelComplexity` lowered 1→0 (lite MediaPipe model, ~50% less GPU); rest period throttles to 4fps via `isResting` flag; `checkPositioning()` cached on `state.lastPositionResult` (called once per frame, not twice).
+2. **Welcome screen** — "Calibrate & Start", "Load Calibration", "Jump to Workout" replace bare Enable Camera button with intentional onboarding.
+3. **Visual exercise picker** — dropdown replaced with full-screen modal grid; 2-column card layout, each card shows name + mini stick-figure silhouette (standing/horizontal/hanging style); hidden `<select>` retained for internal state.
+4. **`docs/exercise-testing-protocol.md`** — new doc: repeatable 9-step per-exercise phone testing checklist.
+
+**Tests:** 165, all passing (no new tests — changes were all UI/performance).
