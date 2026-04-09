@@ -283,6 +283,8 @@
       <option value="lsit">L-Sit (timed)</option>
       <option value="pistol">Pistol Squat</option>
       <option value="glutebridge">Glute Bridge</option>
+      <option value="archhang">Arch Hang (timed)</option>
+      <option value="scapularpull">Scapular Pulls (timed)</option>
     </select>
     <button id="btn-exercise-picker" aria-label="Select exercise" aria-haspopup="dialog">Push-ups ▾</button>
     <button class="btn btn-go" id="btn-start" aria-label="Start workout">Ready</button>
@@ -961,6 +963,77 @@ const exerciseRegistry = {
       else { showFeedback(feedback[0], score > 60 ? 'warn' : 'bad'); if (cueShouldFire('legraise-form', 15000)) speak(feedback[0]); }
       return { repCounted, score: Math.max(0, score) };
     }
+  },
+
+  archhang: {
+    name: 'Arch Hang',
+    hint: 'Front view — grip bar, arch back and pack shoulders down',
+    guide: [], guideLines: [],
+    isFloor: false, isTimed: true, drawStyle: 'hanging',
+    isInPosition(lm) {
+      const avgWristY    = (lm[15].y + lm[16].y) / 2;
+      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+      return avgWristY < avgShoulderY + 0.2;
+    },
+    outOfPositionMsg: 'Grip the bar to continue',
+    analyze(lm) {
+      if (!state.plankStart) state.plankStart = Date.now();
+      const hangSecs = Math.floor((Date.now() - state.plankStart) / 1000);
+      let score = 100; let feedback = [];
+      // Check shoulder packing: shoulders should be DEPRESSED (dropped away from bar).
+      // In passive hang, shoulders shrug up → gap is small. In arch hang (packed) → larger gap.
+      // Gap < 0.08 means shoulders are essentially at bar level = shrugging, not packed.
+      const avgWristY    = (lm[15].y + lm[16].y) / 2;
+      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+      const gap = avgShoulderY - avgWristY;
+      if (gap < 0.08) {
+        score -= 25; feedback.push('Pack shoulders down — away from the bar');
+      }
+      repCounter.textContent = `${Math.floor(hangSecs / 60)}:${String(hangSecs % 60).padStart(2, '0')}`;
+      if (feedback.length === 0) {
+        showFeedback('Good arch — hold it!', 'good');
+        if (hangSecs > 0 && hangSecs % 15 === 0) speakForce(`${hangSecs} seconds`);
+      } else {
+        showFeedback(feedback[0], score > 60 ? 'warn' : 'bad');
+        if (cueShouldFire('archhang-form', 8000)) speakForce(feedback[0]);
+      }
+      return { repCounted: false, score: Math.max(0, score) };
+    }
+  },
+
+  scapularpull: {
+    name: 'Scapular Pulls',
+    hint: 'Front view — arms straight, depress shoulder blades to rise slightly',
+    guide: [], guideLines: [],
+    isFloor: false, isTimed: true, drawStyle: 'hanging',
+    isInPosition(lm) {
+      const avgWristY    = (lm[15].y + lm[16].y) / 2;
+      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+      return avgWristY < avgShoulderY + 0.2;
+    },
+    outOfPositionMsg: 'Grip the bar to continue',
+    analyze(lm) {
+      if (!state.plankStart) state.plankStart = Date.now();
+      const hangSecs = Math.floor((Date.now() - state.plankStart) / 1000);
+      let score = 100; let feedback = [];
+      // Key form requirement: arms must stay straight (no elbow bend).
+      // If elbows bend, it becomes a pull-up — not a scapular pull.
+      const leftElbow  = angle(lm[11], lm[13], lm[15]);
+      const rightElbow = angle(lm[12], lm[14], lm[16]);
+      const avgElbow = (leftElbow + rightElbow) / 2;
+      if (avgElbow < 150) {
+        score -= 25; feedback.push('Keep arms straight — no elbow bend');
+      }
+      repCounter.textContent = `${Math.floor(hangSecs / 60)}:${String(hangSecs % 60).padStart(2, '0')}`;
+      if (feedback.length === 0) {
+        showFeedback('Good — pack and hold!', 'good');
+        if (hangSecs > 0 && hangSecs % 15 === 0) speakForce(`${hangSecs} seconds`);
+      } else {
+        showFeedback(feedback[0], score > 60 ? 'warn' : 'bad');
+        if (cueShouldFire('scapularpull-form', 20000)) speakForce(feedback[0]);
+      }
+      return { repCounted: false, score: Math.max(0, score) };
+    }
   }
 
 };
@@ -1005,6 +1078,8 @@ const defaultCalibration = {
     elbow_up:   150,  // elbow angle at bottom (arms extended)
   },
   lsit: {},           // timed — no rep thresholds
+  archhang: {},       // timed — no rep thresholds
+  scapularpull: {},   // timed — no rep thresholds
   pistol: {
     knee_down: 80,    // deep single-leg squat depth
     knee_up:   150,   // standing threshold to count rep
@@ -1276,6 +1351,8 @@ const EXERCISE_COLORS = {
   'L-Sit':          '#c084fc',
   'Pistol Squat':   '#f87171',
   'Glute Bridge':   '#facc15',
+  'Arch Hang':      '#38bdf8',
+  'Scapular Pulls': '#fb7185',
 };
 
 function loadHistory() {
@@ -2336,7 +2413,7 @@ function startCountdown() {
 // Extracted as pure function for unit testing.
 function buildSetSummary(reps, repScores, exercise) {
   if (reps === 0) return 'Set done.';
-  if (exercise === 'plank' || exercise === 'deadhang') return null; // timed exercises use their own message
+  if (exerciseRegistry[exercise]?.isTimed) return null; // timed exercises use their own message
   if (repScores.length === 0) return `${reps} rep${reps === 1 ? '' : 's'}.`;
 
   const avg = Math.round(repScores.reduce((a, b) => a + b, 0) / repScores.length);

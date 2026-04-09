@@ -893,7 +893,8 @@ function isInPosition(lm, exercise) {
     if (hipCenter < 0.25 || hipCenter > 0.75) return false;
     return true;
   }
-  if (exercise === 'pullup' || exercise === 'deadhang' || exercise === 'legraise') {
+  if (exercise === 'pullup' || exercise === 'deadhang' || exercise === 'legraise' ||
+      exercise === 'archhang' || exercise === 'scapularpull') {
     const avgWristY = (lm[15].y + lm[16].y) / 2;
     return avgWristY < avgShoulderY + 0.2;
   }
@@ -1542,7 +1543,8 @@ test('breathing cue: fires exactly once per set (at rep 2)', () => {
 
 function buildSetSummary(reps, repScores, exercise) {
   if (reps === 0) return 'Set done.';
-  if (exercise === 'plank' || exercise === 'deadhang') return null; // timed exercises use their own message
+  if (exercise === 'plank' || exercise === 'deadhang' || exercise === 'lsit' ||
+      exercise === 'archhang' || exercise === 'scapularpull') return null; // timed exercises use their own message
   if (repScores.length === 0) return `${reps} rep${reps === 1 ? '' : 's'}.`;
   const avg = Math.round(repScores.reduce((a, b) => a + b, 0) / repScores.length);
   const goodCount = repScores.filter(s => s >= 80).length;
@@ -2050,6 +2052,128 @@ test('getPrimaryAngle: dip uses elbow angle (same as pushup)', () => {
 // --- buildSetSummary for timed exercises ---
 test('buildSetSummary: deadhang returns null (timed exercise)', () => {
   assert(buildSetSummary(1, [90], 'deadhang') === null, 'Dead hang should return null like plank');
+});
+
+// ===== ARCH HANG TESTS =====
+
+/**
+ * Arch hang form check: shoulder packing.
+ * Returns feedback if shoulder-wrist gap < 0.08 (shoulders shrugged, not packed).
+ */
+function archHangFormCheck(lm) {
+  const avgWristY    = (lm[15].y + lm[16].y) / 2;
+  const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+  const gap = avgShoulderY - avgWristY;
+  if (gap < 0.08) return 'Pack shoulders down — away from the bar';
+  return null;
+}
+
+test('isInPosition: archhang accepts wrists above shoulders (hanging)', () => {
+  const lm = makeLmWithSpan(0.30, 0.80, 0.10); // wristY=0.10, shoulderY=0.30
+  assertBool(isInPosition(lm, 'archhang'), true, 'Wrists above shoulders = hanging = in position');
+});
+
+test('isInPosition: archhang rejects wrists far below shoulders', () => {
+  const lm = makeLmWithSpan(0.25, 0.80, 0.70); // wristY=0.70, shoulderY=0.25
+  assertBool(isInPosition(lm, 'archhang'), false, 'Wrists far below shoulders = not at bar');
+});
+
+test('archhang form: fires packing cue when gap < 0.08 (shoulders shrugged)', () => {
+  const lm = Array(33).fill(null).map(() => ({ x: 0.5, y: 0.5, visibility: 0.9 }));
+  // Wrists at 0.10, shoulders at 0.15 → gap = 0.05 < 0.08 → should fire
+  lm[15] = { x: 0.4, y: 0.10, visibility: 0.9 };
+  lm[16] = { x: 0.6, y: 0.10, visibility: 0.9 };
+  lm[11] = { x: 0.4, y: 0.15, visibility: 0.9 };
+  lm[12] = { x: 0.6, y: 0.15, visibility: 0.9 };
+  const feedback = archHangFormCheck(lm);
+  assert(feedback !== null, 'Should fire packing cue when gap is tiny');
+  assert(feedback.includes('Pack shoulders'), `Expected packing cue, got: ${feedback}`);
+});
+
+test('archhang form: no cue when gap >= 0.08 (shoulders packed)', () => {
+  const lm = Array(33).fill(null).map(() => ({ x: 0.5, y: 0.5, visibility: 0.9 }));
+  // Wrists at 0.10, shoulders at 0.30 → gap = 0.20 >= 0.08 → no cue
+  lm[15] = { x: 0.4, y: 0.10, visibility: 0.9 };
+  lm[16] = { x: 0.6, y: 0.10, visibility: 0.9 };
+  lm[11] = { x: 0.4, y: 0.30, visibility: 0.9 };
+  lm[12] = { x: 0.6, y: 0.30, visibility: 0.9 };
+  const feedback = archHangFormCheck(lm);
+  assert(feedback === null, `Should not fire cue with good gap (got: ${feedback})`);
+});
+
+test('archhang form: gap just above threshold (0.09) — no cue', () => {
+  const lm = Array(33).fill(null).map(() => ({ x: 0.5, y: 0.5, visibility: 0.9 }));
+  lm[15] = { x: 0.4, y: 0.10, visibility: 0.9 };
+  lm[16] = { x: 0.6, y: 0.10, visibility: 0.9 };
+  lm[11] = { x: 0.4, y: 0.19, visibility: 0.9 }; // gap = 0.09 (above 0.08 threshold)
+  lm[12] = { x: 0.6, y: 0.19, visibility: 0.9 };
+  const gap = 0.19 - 0.10;
+  assert(gap >= 0.08, `Setup: gap should be ≥0.08, got ${gap}`);
+  const feedback = archHangFormCheck(lm);
+  assert(feedback === null, `Gap above threshold (${gap.toFixed(3)}) should not fire cue`);
+});
+
+// ===== SCAPULAR PULLS TESTS =====
+
+/**
+ * Scapular pull form check: arm straightness.
+ * Returns feedback if elbow angle < 150° (elbows bending = performing a pull-up, not a scapular pull).
+ */
+function scapularpullFormCheck(lm) {
+  const leftElbow  = angle(lm[11], lm[13], lm[15]);
+  const rightElbow = angle(lm[12], lm[14], lm[16]);
+  const avgElbow = (leftElbow + rightElbow) / 2;
+  if (avgElbow < 150) return 'Keep arms straight — no elbow bend';
+  return null;
+}
+
+test('isInPosition: scapularpull accepts wrists above shoulders (hanging)', () => {
+  const lm = makeLmWithSpan(0.30, 0.80, 0.10);
+  assertBool(isInPosition(lm, 'scapularpull'), true, 'Wrists above shoulders = hanging = in position');
+});
+
+test('isInPosition: scapularpull rejects wrists far below shoulders', () => {
+  const lm = makeLmWithSpan(0.25, 0.80, 0.70);
+  assertBool(isInPosition(lm, 'scapularpull'), false, 'Wrists far below shoulders = not at bar');
+});
+
+test('scapularpull form: fires elbow cue when arms bent (~90°)', () => {
+  const lm = Array(33).fill(null).map(() => ({ x: 0.5, y: 0.5, visibility: 0.9 }));
+  // Bent elbow: shoulder at top, elbow bent down, wrist up — ~90° angle
+  lm[11] = { x: 0.3, y: 0.10, visibility: 0.9 }; // left shoulder
+  lm[13] = { x: 0.3, y: 0.30, visibility: 0.9 }; // left elbow (bent down)
+  lm[15] = { x: 0.3, y: 0.10, visibility: 0.9 }; // left wrist (at bar)
+  lm[12] = { x: 0.7, y: 0.10, visibility: 0.9 }; // right shoulder
+  lm[14] = { x: 0.7, y: 0.30, visibility: 0.9 }; // right elbow (bent down)
+  lm[16] = { x: 0.7, y: 0.10, visibility: 0.9 }; // right wrist (at bar)
+  const elbowAngle = (angle(lm[11], lm[13], lm[15]) + angle(lm[12], lm[14], lm[16])) / 2;
+  assert(elbowAngle < 150, `Setup: elbow should be bent (<150°), got ${elbowAngle.toFixed(1)}°`);
+  const feedback = scapularpullFormCheck(lm);
+  assert(feedback !== null, 'Should fire elbow cue when arms are bent');
+  assert(feedback.includes('Keep arms straight'), `Expected arm cue, got: ${feedback}`);
+});
+
+test('scapularpull form: no cue when arms straight (~180°)', () => {
+  const lm = Array(33).fill(null).map(() => ({ x: 0.5, y: 0.5, visibility: 0.9 }));
+  // Straight arms: shoulder, elbow, wrist all in a vertical line
+  lm[11] = { x: 0.3, y: 0.10, visibility: 0.9 };
+  lm[13] = { x: 0.3, y: 0.30, visibility: 0.9 }; // elbow in line
+  lm[15] = { x: 0.3, y: 0.50, visibility: 0.9 }; // wrist below (body hanging down)
+  lm[12] = { x: 0.7, y: 0.10, visibility: 0.9 };
+  lm[14] = { x: 0.7, y: 0.30, visibility: 0.9 };
+  lm[16] = { x: 0.7, y: 0.50, visibility: 0.9 };
+  const elbowAngle = (angle(lm[11], lm[13], lm[15]) + angle(lm[12], lm[14], lm[16])) / 2;
+  assert(elbowAngle >= 150, `Setup: arms should be straight (≥150°), got ${elbowAngle.toFixed(1)}°`);
+  const feedback = scapularpullFormCheck(lm);
+  assert(feedback === null, `Should not fire cue with straight arms (got: ${feedback})`);
+});
+
+test('buildSetSummary: archhang returns null (timed exercise)', () => {
+  assert(buildSetSummary(1, [90], 'archhang') === null, 'Arch hang should return null like plank');
+});
+
+test('buildSetSummary: scapularpull returns null (timed exercise)', () => {
+  assert(buildSetSummary(1, [90], 'scapularpull') === null, 'Scapular pulls should return null like plank');
 });
 
 // ===== RUN TESTS =====
