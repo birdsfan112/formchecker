@@ -76,7 +76,7 @@ Move into the correct starting position for the exercise.
 - [ ] **5d. Rep fires at the right moment** — the count ticks up when you complete the movement (e.g., at the top of a squat, not at the bottom).
 - [ ] **5e. No phantom reps** — hold at the bottom of the movement for 3 seconds without moving. Counter should NOT increase.
 
-**For timed exercises** (plank, dead hang, L-sit):
+**For timed exercises** (plank, dead hang, L-sit, arch hang, scapular pulls, shoulder dislocates, hip flexor stretch, wrist warm-up, foam roller, cat-cow, bird-dog):
 - [ ] **5a. Timer starts at 0:00** when workout begins.
 - [ ] **5b. Timer counts upward** — confirm it advances each second.
 - [ ] **5c. 15-second voice cue** — at 15 seconds, the app says something (e.g., "15 seconds"). _Write what it says:_ ________________________
@@ -104,6 +104,15 @@ Each exercise has at least one form check. You need to intentionally trigger the
 | L-sit | Let your legs drop below horizontal | "Keep legs horizontal" |
 | Pistol squat | Use your other foot to assist | Balance cue (if any) |
 | Glute bridge | Don't drive hips to full extension | Full extension cue |
+| Arch hang | Let shoulders shrug up toward bar | "Pack shoulders down" |
+| Scapular pulls | Bend elbows during the movement | "Keep arms straight" |
+| Shoulder dislocates | Bend elbows during the pass | "Keep arms straight — widen your grip" |
+| Hip flexor stretch | Lean forward / collapse torso | "Sit tall — lift your chest" |
+| Wrist warm-up | Drop arms below shoulder height | "Raise arms to shoulder height" |
+| Band pull-aparts | Let arms drift below shoulder height | "Keep arms at shoulder height" |
+| Foam roller | Stand up / leave position | No form cue — just stay in position |
+| Cat-Cow | Hips collapse sideways | "Keep hips level" |
+| Bird-Dog | Hips rotate during extension | "Keep hips level — don't rotate" |
 
 - [ ] **6a. Bad form triggers a voice cue** — simulate the bad form above. Did the app say something? _Write what it said:_ ________________________
 - [ ] **6b. Cue is not spammy** — the same cue doesn't fire every 2 seconds. It waits before repeating.
@@ -160,6 +169,15 @@ Track completion below. Run the full checklist above for each one.
 | L-sit | | | |
 | Pistol squat | | | |
 | Glute bridge | | | |
+| Arch hang | | | |
+| Scapular pulls | | | |
+| Shoulder dislocates | | | |
+| Hip flexor stretch | | | |
+| Wrist warm-up | | | |
+| Band pull-aparts | | | |
+| Foam roller | | | |
+| Cat-Cow | | | |
+| Bird-Dog | | | |
 
 ---
 

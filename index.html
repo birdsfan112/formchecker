@@ -285,6 +285,13 @@
       <option value="glutebridge">Glute Bridge</option>
       <option value="archhang">Arch Hang (timed)</option>
       <option value="scapularpull">Scapular Pulls (timed)</option>
+      <option value="shoulderdislocate">Shoulder Dislocates (timed)</option>
+      <option value="hipflexor">Hip Flexor Stretch (timed)</option>
+      <option value="wristwarmup">Wrist Warm-up (timed)</option>
+      <option value="bandpullapart">Band Pull-Aparts</option>
+      <option value="foamroller">Foam Roller (timed)</option>
+      <option value="catcow">Cat-Cow (timed)</option>
+      <option value="birddog">Bird-Dog (timed)</option>
     </select>
     <button id="btn-exercise-picker" aria-label="Select exercise" aria-haspopup="dialog">Push-ups ▾</button>
     <button class="btn btn-go" id="btn-start" aria-label="Start workout">Ready</button>
@@ -1034,6 +1041,228 @@ const exerciseRegistry = {
       }
       return { repCounted: false, score: Math.max(0, score) };
     }
+  },
+
+  // ===== MOBILITY / PT EXERCISES (Phase 5 batch 3) =====
+
+  shoulderdislocate: {
+    name: 'Shoulder Dislocates',
+    hint: 'Front view — hold a stick or band with a wide grip',
+    guide: [], guideLines: [],
+    isFloor: false, isTimed: true, drawStyle: 'standing',
+    isInPosition(lm) {
+      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+      const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
+      return Math.abs(avgAnkleY - avgShoulderY) > 0.30;
+    },
+    outOfPositionMsg: 'Stand up straight to begin',
+    analyze(lm) {
+      if (!state.plankStart) state.plankStart = Date.now();
+      const secs = Math.floor((Date.now() - state.plankStart) / 1000);
+      let score = 100; let feedback = [];
+      // Arms must stay straight throughout the pass — bending = grip too narrow
+      const leftElbow  = angle(lm[11], lm[13], lm[15]);
+      const rightElbow = angle(lm[12], lm[14], lm[16]);
+      const avgElbow = (leftElbow + rightElbow) / 2;
+      if (avgElbow < 150) {
+        score -= 20; feedback.push('Keep arms straight — widen your grip');
+      }
+      repCounter.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+      if (feedback.length === 0) {
+        showFeedback('Good — keep moving!', 'good');
+        if (secs > 0 && secs % 15 === 0) speakForce(`${secs} seconds`);
+      } else {
+        showFeedback(feedback[0], score > 60 ? 'warn' : 'bad');
+        if (cueShouldFire('shoulderdislocate-form', 10000)) speakForce(feedback[0]);
+      }
+      return { repCounted: false, score: Math.max(0, score) };
+    }
+  },
+
+  hipflexor: {
+    name: 'Hip Flexor Stretch',
+    hint: 'Side view — one knee down, opposite foot forward, torso tall',
+    guide: [], guideLines: [],
+    isFloor: false, isTimed: true, drawStyle: 'kneeling',
+    isInPosition(lm) {
+      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+      const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
+      return Math.abs(avgAnkleY - avgShoulderY) > 0.30;
+    },
+    outOfPositionMsg: 'Get into a kneeling lunge position',
+    analyze(lm) {
+      if (!state.plankStart) state.plankStart = Date.now();
+      const secs = Math.floor((Date.now() - state.plankStart) / 1000);
+      let score = 100; let feedback = [];
+      // Torso upright: shoulder should be well above hip (gap > 0.10 in Y)
+      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+      const avgHipY      = (lm[23].y + lm[24].y) / 2;
+      if (avgHipY - avgShoulderY < 0.10) {
+        score -= 20; feedback.push('Sit tall — lift your chest');
+      }
+      repCounter.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+      if (feedback.length === 0) {
+        showFeedback('Good — feel the stretch!', 'good');
+        if (secs > 0 && secs % 15 === 0) speakForce(`${secs} seconds`);
+      } else {
+        showFeedback(feedback[0], score > 60 ? 'warn' : 'bad');
+        if (cueShouldFire('hipflexor-form', 10000)) speakForce(feedback[0]);
+      }
+      return { repCounted: false, score: Math.max(0, score) };
+    }
+  },
+
+  wristwarmup: {
+    name: 'Wrist Warm-up',
+    hint: 'Front view — extend arms forward at shoulder height',
+    guide: [], guideLines: [],
+    isFloor: false, isTimed: true, drawStyle: 'standing',
+    isInPosition(lm) {
+      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+      const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
+      return Math.abs(avgAnkleY - avgShoulderY) > 0.30;
+    },
+    outOfPositionMsg: 'Stand facing the camera',
+    analyze(lm) {
+      if (!state.plankStart) state.plankStart = Date.now();
+      const secs = Math.floor((Date.now() - state.plankStart) / 1000);
+      let score = 100; let feedback = [];
+      // Arms should be raised to shoulder height for effective wrist circles
+      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+      const avgWristY    = (lm[15].y + lm[16].y) / 2;
+      if (avgWristY > avgShoulderY + 0.12) {
+        score -= 15; feedback.push('Raise arms to shoulder height');
+      }
+      repCounter.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+      if (feedback.length === 0) {
+        showFeedback('Good — rotate those wrists!', 'good');
+        if (secs > 0 && secs % 15 === 0) speakForce(`${secs} seconds`);
+      } else {
+        showFeedback(feedback[0], score > 60 ? 'warn' : 'bad');
+        if (cueShouldFire('wristwarmup-form', 12000)) speakForce(feedback[0]);
+      }
+      return { repCounted: false, score: Math.max(0, score) };
+    }
+  },
+
+  bandpullapart: {
+    name: 'Band Pull-Aparts',
+    hint: 'Front view — hold band at shoulder height, arms extended in front',
+    guide: [], guideLines: [],
+    isFloor: false, isTimed: false, drawStyle: 'standing',
+    isInPosition(lm) {
+      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+      const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
+      return Math.abs(avgAnkleY - avgShoulderY) > 0.30;
+    },
+    outOfPositionMsg: 'Stand facing the camera, arms at shoulder height',
+    analyze(lm) {
+      const wristSpan    = Math.abs(lm[15].x - lm[16].x);
+      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+      const avgWristY    = (lm[15].y + lm[16].y) / 2;
+      let repCounted = false;
+      // Rep: arms start close (center) → pull apart (spread) → return to center = 1 rep
+      if (wristSpan < calibration.bandpullapart.wrist_center && state.phase === 'spread') {
+        state.phase = 'center'; state.spokenThisRep = false; repCounted = true;
+      } else if (wristSpan > calibration.bandpullapart.wrist_spread && state.phase === 'center') {
+        state.phase = 'spread';
+      }
+      let score = 100; let feedback = [];
+      if (avgWristY > avgShoulderY + 0.15) {
+        score -= 20; feedback.push('Keep arms at shoulder height');
+      }
+      if (feedback.length === 0) { showFeedback('Good pull!', 'good'); }
+      else { showFeedback(feedback[0], score > 60 ? 'warn' : 'bad'); if (cueShouldFire('bandpullapart-form', 12000)) speak(feedback[0]); }
+      return { repCounted, score: Math.max(0, score) };
+    }
+  },
+
+  foamroller: {
+    name: 'Foam Roller',
+    hint: 'Side view — lie on roller, breathe and relax into it',
+    guide: [], guideLines: [],
+    isFloor: true, isTimed: true, drawStyle: 'horizontal', drawVariant: 'foamroller',
+    isInPosition(lm) {
+      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+      const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
+      return Math.abs(avgAnkleY - avgShoulderY) < 0.30;
+    },
+    outOfPositionMsg: 'Lie down on the foam roller to continue',
+    analyze(lm) {
+      if (!state.plankStart) state.plankStart = Date.now();
+      const secs = Math.floor((Date.now() - state.plankStart) / 1000);
+      repCounter.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+      showFeedback('Breathe and relax into the roller', 'good');
+      if (secs > 0 && secs % 15 === 0) speakForce(`${secs} seconds`);
+      return { repCounted: false, score: 100 };
+    }
+  },
+
+  catcow: {
+    name: 'Cat-Cow',
+    hint: 'Side view — on all fours, hands under shoulders, knees under hips',
+    guide: [], guideLines: [],
+    isFloor: true, isTimed: true, drawStyle: 'quadruped',
+    isInPosition(lm) {
+      // Quadruped: body roughly horizontal, wrists near ground level
+      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+      const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
+      const avgWristY    = (lm[15].y + lm[16].y) / 2;
+      return Math.abs(avgAnkleY - avgShoulderY) < 0.35 && avgWristY > 0.55;
+    },
+    outOfPositionMsg: 'Get onto all fours — hands under shoulders',
+    analyze(lm) {
+      if (!state.plankStart) state.plankStart = Date.now();
+      const secs = Math.floor((Date.now() - state.plankStart) / 1000);
+      let score = 100; let feedback = [];
+      // Hips should stay level (not collapse to one side)
+      const hipSpan = Math.abs(lm[23].y - lm[24].y);
+      if (hipSpan > 0.12) {
+        score -= 15; feedback.push('Keep hips level');
+      }
+      repCounter.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+      if (feedback.length === 0) {
+        showFeedback('Breathe — arch and round!', 'good');
+        if (secs > 0 && secs % 15 === 0) speakForce(`${secs} seconds`);
+      } else {
+        showFeedback(feedback[0], score > 60 ? 'warn' : 'bad');
+        if (cueShouldFire('catcow-form', 10000)) speakForce(feedback[0]);
+      }
+      return { repCounted: false, score: Math.max(0, score) };
+    }
+  },
+
+  birddog: {
+    name: 'Bird-Dog',
+    hint: 'Side view — on all fours, extend opposite arm and leg',
+    guide: [], guideLines: [],
+    isFloor: true, isTimed: true, drawStyle: 'quadruped', drawVariant: 'birddog',
+    isInPosition(lm) {
+      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+      const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
+      const avgWristY    = (lm[15].y + lm[16].y) / 2;
+      return Math.abs(avgAnkleY - avgShoulderY) < 0.35 && avgWristY > 0.55;
+    },
+    outOfPositionMsg: 'Get onto all fours to begin',
+    analyze(lm) {
+      if (!state.plankStart) state.plankStart = Date.now();
+      const secs = Math.floor((Date.now() - state.plankStart) / 1000);
+      let score = 100; let feedback = [];
+      // Key form cue: keep hips level — don't rotate when extending arm/leg
+      const hipSpan = Math.abs(lm[23].y - lm[24].y);
+      if (hipSpan > 0.12) {
+        score -= 20; feedback.push("Keep hips level — don't rotate");
+      }
+      repCounter.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+      if (feedback.length === 0) {
+        showFeedback('Good — hold each extension!', 'good');
+        if (secs > 0 && secs % 15 === 0) speakForce(`${secs} seconds`);
+      } else {
+        showFeedback(feedback[0], score > 60 ? 'warn' : 'bad');
+        if (cueShouldFire('birddog-form', 10000)) speakForce(feedback[0]);
+      }
+      return { repCounted: false, score: Math.max(0, score) };
+    }
   }
 
 };
@@ -1087,7 +1316,18 @@ const defaultCalibration = {
   glutebridge: {
     hip_down: 150,    // hip angle above which = hips are raised (rep phase)
     hip_up:   110,    // hip angle below which = hips returned to floor (rep counted)
-  }
+  },
+  // Mobility / PT batch
+  shoulderdislocate: {},  // timed — no rep thresholds
+  hipflexor:         {},  // timed — no rep thresholds
+  wristwarmup:       {},  // timed — no rep thresholds
+  bandpullapart: {
+    wrist_center: 0.18,   // wristSpan below which = arms in front (start position)
+    wrist_spread: 0.32,   // wristSpan above which = arms spread to T (rep triggered)
+  },
+  foamroller:  {},  // timed — no rep thresholds
+  catcow:      {},  // timed — no rep thresholds
+  birddog:     {},  // timed — no rep thresholds
 };
 
 // Working copy — modified by loadCalibration(), reset by saveCalibration()
@@ -1351,8 +1591,15 @@ const EXERCISE_COLORS = {
   'L-Sit':          '#c084fc',
   'Pistol Squat':   '#f87171',
   'Glute Bridge':   '#facc15',
-  'Arch Hang':      '#38bdf8',
-  'Scapular Pulls': '#fb7185',
+  'Arch Hang':           '#38bdf8',
+  'Scapular Pulls':      '#fb7185',
+  'Shoulder Dislocates': '#a3e635',
+  'Hip Flexor Stretch':  '#f97316',
+  'Wrist Warm-up':       '#22d3ee',
+  'Band Pull-Aparts':    '#e879f9',
+  'Foam Roller':         '#94a3b8',
+  'Cat-Cow':             '#86efac',
+  'Bird-Dog':            '#fde68a',
 };
 
 function loadHistory() {
@@ -1779,8 +2026,15 @@ function checkPositioning(lm) {
     legraise:    [11, 12, 13, 14, 15, 16, 23, 24, 25, 26],
     row:         [11, 12, 13, 14, 15, 16, 23, 24, 27, 28],
     lsit:        [11, 12, 13, 14, 15, 16, 23, 24, 25, 26],
-    pistol:      [11, 12, 23, 24, 25, 26, 27, 28],
-    glutebridge: [11, 12, 23, 24, 25, 26, 27, 28],
+    pistol:            [11, 12, 23, 24, 25, 26, 27, 28],
+    glutebridge:       [11, 12, 23, 24, 25, 26, 27, 28],
+    shoulderdislocate: [11, 12, 13, 14, 15, 16],
+    hipflexor:         [11, 12, 23, 24, 25, 26, 27, 28],
+    wristwarmup:       [11, 12, 15, 16],
+    bandpullapart:     [11, 12, 15, 16],
+    foamroller:        [11, 12, 23, 24, 27, 28],
+    catcow:            [11, 12, 15, 16, 23, 24],
+    birddog:           [11, 12, 15, 16, 23, 24],
   };
   const landmarks = required[ex] || [];
   if (!landmarks.every(i => lm[i] && lm[i].visibility > visThreshold)) {
@@ -1804,6 +2058,23 @@ function checkPositioning(lm) {
   if (ex === 'pullup' || ex === 'deadhang' || ex === 'legraise') {
     const avgWristY = (lm[15].y + lm[16].y) / 2;
     if (avgWristY > avgShoulderY + 0.05) return setResult(false, 'Grip the bar');
+    return setResult(true, 'Good position!');
+  }
+  if (ex === 'shoulderdislocate' || ex === 'hipflexor' ||
+      ex === 'wristwarmup' || ex === 'bandpullapart') {
+    if (vertSpan < 0.30) return setResult(false, 'Move back — too close');
+    if (vertSpan > 0.80) return setResult(false, 'Move closer');
+    return setResult(true, 'Good position!');
+  }
+  if (ex === 'foamroller') {
+    if (vertSpan < 0.06) return setResult(false, 'Move back — too close');
+    if (vertSpan > 0.30) return setResult(false, 'Lie down on the roller');
+    return setResult(true, 'Good position!');
+  }
+  if (ex === 'catcow' || ex === 'birddog') {
+    const avgWristY = (lm[15].y + lm[16].y) / 2;
+    if (vertSpan > 0.35) return setResult(false, 'Get onto all fours');
+    if (avgWristY < 0.55) return setResult(false, 'Hands to the floor');
     return setResult(true, 'Good position!');
   }
   return setResult(true, null);
@@ -1862,6 +2133,10 @@ function drawGuide(retryCount) {
     drawHorizontalSide(w, h, meta.drawVariant || ex, posResult.aligned);
   } else if (drawStyle === 'hanging') {
     drawHangingFront(w, h, posResult.aligned);
+  } else if (drawStyle === 'kneeling') {
+    drawKneelingStretch(w, h, posResult.aligned);
+  } else if (drawStyle === 'quadruped') {
+    drawQuadruped(w, h, posResult.aligned, meta.drawVariant || ex);
   }
 }
 
@@ -2169,6 +2444,190 @@ function drawHangingFront(w, h, aligned) {
   g.fillRect(cx + legGap - w * 0.005, footY, legW + w * 0.01, h * 0.015);
   g.strokeRect(cx + legGap - w * 0.005, footY, legW + w * 0.01, h * 0.015);
 
+  g.restore();
+}
+
+function drawKneelingStretch(w, h, aligned) {
+  // SIDE-VIEW kneeling hip flexor stretch — person facing RIGHT (appears left on mirrored camera).
+  // One knee on the floor (rear), opposite foot planted forward, torso upright.
+  const g = guideCtx;
+  const groundY = h * 0.88;
+  const headR   = h * 0.040;
+  const cx      = w * 0.50;
+  const bw      = w * 0.055;
+
+  const headCX = cx + w * 0.01;
+  const headCY = h * 0.10;
+  const neckY  = headCY + headR + h * 0.01;
+  const hipY   = neckY + h * 0.33;
+
+  g.save();
+  g.fillStyle = aligned ? 'rgba(96, 165, 250, 0.15)' : 'rgba(255, 255, 255, 0.18)';
+
+  // HEAD + nose pointing right (side view indicator)
+  g.beginPath();
+  g.arc(headCX, headCY, headR, 0, Math.PI * 2);
+  g.fill(); g.stroke();
+  g.beginPath();
+  g.moveTo(headCX + headR * 0.85, headCY - headR * 0.25);
+  g.lineTo(headCX + headR * 1.5,  headCY + headR * 0.05);
+  g.lineTo(headCX + headR * 0.85, headCY + headR * 0.25);
+  g.closePath(); g.fill(); g.stroke();
+
+  // TORSO — upright body block
+  g.beginPath();
+  g.moveTo(cx + bw * 0.4, neckY);
+  g.quadraticCurveTo(cx + bw, neckY + h * 0.07, cx + bw * 0.6, neckY + h * 0.18);
+  g.lineTo(cx + bw * 0.4, hipY);
+  g.lineTo(cx - bw * 0.4, hipY);
+  g.quadraticCurveTo(cx - bw * 0.5, neckY + h * 0.07, cx - bw * 0.3, neckY);
+  g.closePath(); g.fill(); g.stroke();
+
+  // FRONT LEG — knee bent ~90°, foot planted forward
+  const frontKneeX = cx + bw * 1.2;
+  const frontKneeY = hipY + h * 0.22;
+  const frontAnkleX = cx + bw * 2.0;
+  g.lineWidth = 5;
+  g.beginPath();
+  g.moveTo(cx + bw * 0.35, hipY);      // hip
+  g.lineTo(frontKneeX, frontKneeY);    // knee
+  g.lineTo(frontAnkleX, groundY);      // ankle
+  g.stroke();
+  // Front foot
+  g.beginPath();
+  g.moveTo(frontAnkleX - w * 0.01, groundY);
+  g.lineTo(frontAnkleX + w * 0.03,  groundY);
+  g.stroke();
+
+  // REAR LEG — knee on the ground behind body
+  const rearKneeX = cx - bw * 1.8;
+  g.beginPath();
+  g.moveTo(cx - bw * 0.3, hipY);     // hip
+  g.quadraticCurveTo(cx - bw * 1.0, hipY + h * 0.12, rearKneeX, groundY);
+  g.stroke();
+  // Rear shin (foot up behind the knee)
+  g.beginPath();
+  g.moveTo(rearKneeX, groundY);
+  g.lineTo(rearKneeX + w * 0.01, groundY - h * 0.09);
+  g.stroke();
+
+  // ARM — hanging at side
+  g.beginPath();
+  g.moveTo(cx + bw * 0.3, neckY + h * 0.04);
+  g.quadraticCurveTo(cx + bw * 0.6, neckY + h * 0.15, cx + bw * 0.4, neckY + h * 0.26);
+  g.stroke();
+  g.lineWidth = 7;
+
+  g.restore();
+
+  // Ground line
+  g.save();
+  g.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+  g.lineWidth = 4;
+  g.beginPath();
+  g.moveTo(w * 0.03, groundY); g.lineTo(w * 0.97, groundY);
+  g.stroke();
+  g.fillStyle = 'rgba(255, 255, 255, 0.50)';
+  g.font = `bold ${Math.round(h * 0.018)}px sans-serif`;
+  g.textAlign = 'right'; g.textBaseline = 'top';
+  g.fillText('FLOOR', w * 0.96, groundY + 4);
+  g.restore();
+}
+
+function drawQuadruped(w, h, aligned, variant) {
+  // SIDE-VIEW quadruped (all-fours) — person facing LEFT (appears right on mirrored camera).
+  // Used for cat-cow and bird-dog. Bird-dog variant adds extended arm + leg.
+  const g = guideCtx;
+  const groundY   = h * 0.85;
+  const headR     = w * 0.028;
+  const bodyThick = h * 0.055;
+
+  // Key joint positions
+  const shoulderX = w * 0.30;  // front (near hands)
+  const shoulderY = groundY - h * 0.27;
+  const hipX      = w * 0.62;  // rear
+  const hipY      = groundY - h * 0.25;
+
+  g.save();
+  g.fillStyle = aligned ? 'rgba(96, 165, 250, 0.15)' : 'rgba(255, 255, 255, 0.18)';
+
+  // HEAD — slightly in front of and below shoulders, nose pointing LEFT (forward)
+  const headCX = shoulderX - w * 0.06;
+  const headCY = shoulderY + h * 0.04;
+  g.beginPath();
+  g.arc(headCX, headCY, headR, 0, Math.PI * 2);
+  g.fill(); g.stroke();
+  // Nose bump pointing LEFT
+  g.beginPath();
+  g.moveTo(headCX - headR * 0.85, headCY - headR * 0.25);
+  g.lineTo(headCX - headR * 1.5,  headCY + headR * 0.05);
+  g.lineTo(headCX - headR * 0.85, headCY + headR * 0.25);
+  g.closePath(); g.fill(); g.stroke();
+
+  // BODY — horizontal torso block
+  g.beginPath();
+  g.moveTo(shoulderX, shoulderY - bodyThick * 0.5);
+  g.lineTo(hipX, hipY - bodyThick * 0.5);
+  g.lineTo(hipX, hipY + bodyThick * 0.5);
+  g.lineTo(shoulderX, shoulderY + bodyThick * 0.5);
+  g.closePath(); g.fill(); g.stroke();
+
+  g.lineWidth = 5;
+
+  if (variant === 'birddog') {
+    // Bird-dog: one arm extended forward, opposite leg extended back (horizontal)
+    // Extended ARM — forward from shoulder (toward smaller X = LEFT = forward in mirrored view)
+    const extArmX = shoulderX - w * 0.16;
+    const extArmY = shoulderY - h * 0.03;
+    g.beginPath();
+    g.moveTo(shoulderX, shoulderY);
+    g.lineTo(extArmX, extArmY);
+    g.stroke();
+    // Supporting arm (other side, arm down to ground)
+    g.beginPath();
+    g.moveTo(shoulderX, shoulderY);
+    g.lineTo(shoulderX + w * 0.03, groundY);
+    g.stroke();
+
+    // Extended LEG — backward from hip (toward larger X = RIGHT = backward)
+    const extLegX = hipX + w * 0.18;
+    const extLegY = hipY - h * 0.02;
+    g.beginPath();
+    g.moveTo(hipX, hipY);
+    g.lineTo(extLegX, extLegY);
+    g.stroke();
+    // Supporting leg (knee on ground)
+    g.beginPath();
+    g.moveTo(hipX, hipY);
+    g.lineTo(hipX - w * 0.03, groundY);
+    g.stroke();
+  } else {
+    // Cat-cow: both arms straight down (hands on floor), both knees on floor
+    g.beginPath();
+    g.moveTo(shoulderX, shoulderY); g.lineTo(shoulderX, groundY);
+    g.stroke();
+    g.beginPath();
+    g.moveTo(hipX, hipY); g.lineTo(hipX, groundY);
+    g.stroke();
+    // Hand and knee dots on the ground
+    g.beginPath(); g.arc(shoulderX, groundY, h * 0.012, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.arc(hipX, groundY, h * 0.012, 0, Math.PI * 2); g.fill();
+  }
+
+  g.lineWidth = 7;
+  g.restore();
+
+  // Ground line
+  g.save();
+  g.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+  g.lineWidth = 4;
+  g.beginPath();
+  g.moveTo(w * 0.03, groundY); g.lineTo(w * 0.97, groundY);
+  g.stroke();
+  g.fillStyle = 'rgba(255, 255, 255, 0.50)';
+  g.font = `bold ${Math.round(h * 0.018)}px sans-serif`;
+  g.textAlign = 'right'; g.textBaseline = 'top';
+  g.fillText('FLOOR', w * 0.96, groundY + 4);
   g.restore();
 }
 

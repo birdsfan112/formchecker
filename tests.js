@@ -930,6 +930,17 @@ function isInPosition(lm, exercise) {
     const avgAnkleY2    = (lm[27].y + lm[28].y) / 2;
     return Math.abs(avgAnkleY2 - avgShoulderY2) < 0.30;
   }
+  if (exercise === 'shoulderdislocate' || exercise === 'hipflexor' ||
+      exercise === 'wristwarmup' || exercise === 'bandpullapart') {
+    return verticalSpan > 0.30;
+  }
+  if (exercise === 'foamroller') {
+    return verticalSpan < 0.30;
+  }
+  if (exercise === 'catcow' || exercise === 'birddog') {
+    const avgWristY = (lm[15].y + lm[16].y) / 2;
+    return verticalSpan < 0.35 && avgWristY > 0.55;
+  }
   return true;
 }
 
@@ -1544,7 +1555,10 @@ test('breathing cue: fires exactly once per set (at rep 2)', () => {
 function buildSetSummary(reps, repScores, exercise) {
   if (reps === 0) return 'Set done.';
   if (exercise === 'plank' || exercise === 'deadhang' || exercise === 'lsit' ||
-      exercise === 'archhang' || exercise === 'scapularpull') return null; // timed exercises use their own message
+      exercise === 'archhang' || exercise === 'scapularpull' ||
+      exercise === 'shoulderdislocate' || exercise === 'hipflexor' ||
+      exercise === 'wristwarmup' || exercise === 'foamroller' ||
+      exercise === 'catcow' || exercise === 'birddog') return null; // timed exercises use their own message
   if (repScores.length === 0) return `${reps} rep${reps === 1 ? '' : 's'}.`;
   const avg = Math.round(repScores.reduce((a, b) => a + b, 0) / repScores.length);
   const goodCount = repScores.filter(s => s >= 80).length;
@@ -2174,6 +2188,303 @@ test('buildSetSummary: archhang returns null (timed exercise)', () => {
 
 test('buildSetSummary: scapularpull returns null (timed exercise)', () => {
   assert(buildSetSummary(1, [90], 'scapularpull') === null, 'Scapular pulls should return null like plank');
+});
+
+// ===== SHOULDER DISLOCATES TESTS =====
+
+/**
+ * Shoulder dislocate form check: arms must stay straight throughout the pass.
+ * Returns feedback if average elbow angle < 150° (bent = grip too narrow).
+ */
+function shoulderDislocateFormCheck(lm) {
+  const leftElbow  = angle(lm[11], lm[13], lm[15]);
+  const rightElbow = angle(lm[12], lm[14], lm[16]);
+  const avgElbow = (leftElbow + rightElbow) / 2;
+  if (avgElbow < 150) return 'Keep arms straight — widen your grip';
+  return null;
+}
+
+test('isInPosition: shoulderdislocate accepts standing (span 0.65)', () => {
+  const lm = makeLmWithSpan(0.15, 0.80);
+  assertBool(isInPosition(lm, 'shoulderdislocate'), true, 'Standing person should be in position');
+});
+
+test('isInPosition: shoulderdislocate rejects lying flat (span 0.05)', () => {
+  const lm = makeLmWithSpan(0.47, 0.52);
+  assertBool(isInPosition(lm, 'shoulderdislocate'), false, 'Lying flat should not be in position');
+});
+
+test('shoulderdislocate form: fires cue when elbows bent (<150°)', () => {
+  const lm = Array(33).fill(null).map(() => ({ x: 0.5, y: 0.5, visibility: 0.9 }));
+  // Bent elbow: shoulder → elbow offset → wrist back at shoulder (90° bend)
+  lm[11] = { x: 0.3, y: 0.30, visibility: 0.9 }; // left shoulder
+  lm[13] = { x: 0.3, y: 0.50, visibility: 0.9 }; // left elbow (down)
+  lm[15] = { x: 0.3, y: 0.30, visibility: 0.9 }; // left wrist (back up = bent)
+  lm[12] = { x: 0.7, y: 0.30, visibility: 0.9 };
+  lm[14] = { x: 0.7, y: 0.50, visibility: 0.9 };
+  lm[16] = { x: 0.7, y: 0.30, visibility: 0.9 };
+  const elbowAngle = (angle(lm[11], lm[13], lm[15]) + angle(lm[12], lm[14], lm[16])) / 2;
+  assert(elbowAngle < 150, `Setup: elbow should be bent (<150°), got ${elbowAngle.toFixed(1)}°`);
+  const feedback = shoulderDislocateFormCheck(lm);
+  assert(feedback !== null, 'Should fire cue when elbows bent');
+  assert(feedback.includes('Keep arms straight'), `Expected arm-straight cue, got: ${feedback}`);
+});
+
+test('shoulderdislocate form: no cue when arms straight (>150°)', () => {
+  const lm = Array(33).fill(null).map(() => ({ x: 0.5, y: 0.5, visibility: 0.9 }));
+  // Straight arms: shoulder → elbow → wrist all collinear horizontally
+  lm[11] = { x: 0.2, y: 0.40, visibility: 0.9 };
+  lm[13] = { x: 0.35, y: 0.40, visibility: 0.9 };
+  lm[15] = { x: 0.50, y: 0.40, visibility: 0.9 };
+  lm[12] = { x: 0.8, y: 0.40, visibility: 0.9 };
+  lm[14] = { x: 0.65, y: 0.40, visibility: 0.9 };
+  lm[16] = { x: 0.50, y: 0.40, visibility: 0.9 };
+  const elbowAngle = (angle(lm[11], lm[13], lm[15]) + angle(lm[12], lm[14], lm[16])) / 2;
+  assert(elbowAngle >= 150, `Setup: arms should be straight (≥150°), got ${elbowAngle.toFixed(1)}°`);
+  const feedback = shoulderDislocateFormCheck(lm);
+  assert(feedback === null, `Should not fire cue with straight arms (got: ${feedback})`);
+});
+
+test('buildSetSummary: shoulderdislocate returns null (timed exercise)', () => {
+  assert(buildSetSummary(1, [90], 'shoulderdislocate') === null, 'Shoulder dislocates should return null');
+});
+
+// ===== HIP FLEXOR STRETCH TESTS =====
+
+/**
+ * Hip flexor stretch form check: torso must be upright.
+ * Returns feedback if hip Y is not at least 0.10 below shoulder Y.
+ */
+function hipFlexorFormCheck(lm) {
+  const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+  const avgHipY      = (lm[23].y + lm[24].y) / 2;
+  if (avgHipY - avgShoulderY < 0.10) return 'Sit tall — lift your chest';
+  return null;
+}
+
+test('isInPosition: hipflexor accepts kneeling/standing (span 0.50)', () => {
+  const lm = makeLmWithSpan(0.20, 0.70);
+  assertBool(isInPosition(lm, 'hipflexor'), true, 'Upright kneeling should be in position');
+});
+
+test('isInPosition: hipflexor rejects lying flat (span 0.05)', () => {
+  const lm = makeLmWithSpan(0.47, 0.52);
+  assertBool(isInPosition(lm, 'hipflexor'), false, 'Lying flat is not a kneeling position');
+});
+
+test('hipflexor form: fires cue when torso collapsed (hip not below shoulder)', () => {
+  const lm = Array(33).fill(null).map(() => ({ x: 0.5, y: 0.5, visibility: 0.9 }));
+  // Shoulders and hips at same height = collapsed / leaning forward
+  lm[11] = { x: 0.4, y: 0.40, visibility: 0.9 };
+  lm[12] = { x: 0.6, y: 0.40, visibility: 0.9 };
+  lm[23] = { x: 0.4, y: 0.44, visibility: 0.9 }; // hip only 0.04 below shoulder = not upright
+  lm[24] = { x: 0.6, y: 0.44, visibility: 0.9 };
+  const gap = 0.44 - 0.40;
+  assert(gap < 0.10, `Setup: gap should be <0.10, got ${gap}`);
+  const feedback = hipFlexorFormCheck(lm);
+  assert(feedback !== null, 'Should fire cue when torso is collapsed');
+  assert(feedback.includes('Sit tall'), `Expected sit-tall cue, got: ${feedback}`);
+});
+
+test('hipflexor form: no cue when torso upright (hip well below shoulder)', () => {
+  const lm = Array(33).fill(null).map(() => ({ x: 0.5, y: 0.5, visibility: 0.9 }));
+  lm[11] = { x: 0.4, y: 0.30, visibility: 0.9 };
+  lm[12] = { x: 0.6, y: 0.30, visibility: 0.9 };
+  lm[23] = { x: 0.4, y: 0.55, visibility: 0.9 }; // hip 0.25 below shoulder = upright
+  lm[24] = { x: 0.6, y: 0.55, visibility: 0.9 };
+  const feedback = hipFlexorFormCheck(lm);
+  assert(feedback === null, `Should not fire cue with upright torso (got: ${feedback})`);
+});
+
+test('buildSetSummary: hipflexor returns null (timed exercise)', () => {
+  assert(buildSetSummary(1, [90], 'hipflexor') === null, 'Hip flexor stretch should return null');
+});
+
+// ===== WRIST WARM-UP TESTS =====
+
+/**
+ * Wrist warm-up form check: arms should be at shoulder height.
+ * Returns feedback if average wrist Y is more than 0.12 below shoulder Y.
+ */
+function wristWarmupFormCheck(lm) {
+  const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+  const avgWristY    = (lm[15].y + lm[16].y) / 2;
+  if (avgWristY > avgShoulderY + 0.12) return 'Raise arms to shoulder height';
+  return null;
+}
+
+test('isInPosition: wristwarmup accepts standing (span 0.65)', () => {
+  const lm = makeLmWithSpan(0.15, 0.80);
+  assertBool(isInPosition(lm, 'wristwarmup'), true, 'Standing person should be in position');
+});
+
+test('wristwarmup form: fires cue when arms too low', () => {
+  const lm = Array(33).fill(null).map(() => ({ x: 0.5, y: 0.5, visibility: 0.9 }));
+  lm[11] = { x: 0.4, y: 0.30, visibility: 0.9 }; // shoulder
+  lm[12] = { x: 0.6, y: 0.30, visibility: 0.9 };
+  lm[15] = { x: 0.4, y: 0.60, visibility: 0.9 }; // wrist far below shoulder
+  lm[16] = { x: 0.6, y: 0.60, visibility: 0.9 };
+  const feedback = wristWarmupFormCheck(lm);
+  assert(feedback !== null, 'Should fire cue when arms are at sides');
+  assert(feedback.includes('Raise arms'), `Expected raise-arms cue, got: ${feedback}`);
+});
+
+test('wristwarmup form: no cue when arms at shoulder height', () => {
+  const lm = Array(33).fill(null).map(() => ({ x: 0.5, y: 0.5, visibility: 0.9 }));
+  lm[11] = { x: 0.4, y: 0.30, visibility: 0.9 };
+  lm[12] = { x: 0.6, y: 0.30, visibility: 0.9 };
+  lm[15] = { x: 0.4, y: 0.33, visibility: 0.9 }; // wrist near shoulder height
+  lm[16] = { x: 0.6, y: 0.33, visibility: 0.9 };
+  const feedback = wristWarmupFormCheck(lm);
+  assert(feedback === null, `Should not fire cue with arms raised (got: ${feedback})`);
+});
+
+test('buildSetSummary: wristwarmup returns null (timed exercise)', () => {
+  assert(buildSetSummary(1, [90], 'wristwarmup') === null, 'Wrist warm-up should return null');
+});
+
+// ===== BAND PULL-APARTS TESTS =====
+
+/**
+ * Band pull-apart rep detection: track wrist span going from center → spread → center.
+ * Returns true when a rep is counted (returned to center after being spread).
+ */
+function bandPullApartRep(wristSpan, phase, calibration) {
+  let repCounted = false;
+  let newPhase = phase;
+  if (wristSpan < calibration.wrist_center && phase === 'spread') {
+    newPhase = 'center'; repCounted = true;
+  } else if (wristSpan > calibration.wrist_spread && phase === 'center') {
+    newPhase = 'spread';
+  }
+  return { repCounted, newPhase };
+}
+
+const defaultBandCal = { wrist_center: 0.18, wrist_spread: 0.32 };
+
+test('isInPosition: bandpullapart accepts standing (span 0.65)', () => {
+  const lm = makeLmWithSpan(0.15, 0.80);
+  assertBool(isInPosition(lm, 'bandpullapart'), true, 'Standing should be in position');
+});
+
+test('bandpullapart rep: spread phase triggered when wristSpan > 0.32', () => {
+  const { repCounted, newPhase } = bandPullApartRep(0.40, 'center', defaultBandCal);
+  assert(!repCounted, 'No rep on spread phase entry');
+  assertEquals(newPhase, 'spread', 'Phase should switch to spread');
+});
+
+test('bandpullapart rep: rep counted when returning to center from spread', () => {
+  const { repCounted, newPhase } = bandPullApartRep(0.10, 'spread', defaultBandCal);
+  assert(repCounted, 'Rep should be counted when wristSpan returns below center threshold');
+  assertEquals(newPhase, 'center', 'Phase should switch back to center');
+});
+
+test('bandpullapart rep: no rep if wristSpan stays in center (never spread)', () => {
+  const { repCounted } = bandPullApartRep(0.10, 'center', defaultBandCal);
+  assert(!repCounted, 'No rep when starting from center and staying center');
+});
+
+// ===== FOAM ROLLER TESTS =====
+
+test('isInPosition: foamroller accepts horizontal body (span 0.08)', () => {
+  const lm = makeLmWithSpan(0.46, 0.54);
+  assertBool(isInPosition(lm, 'foamroller'), true, 'Horizontal body should be in foam roller position');
+});
+
+test('isInPosition: foamroller rejects standing body (span 0.65)', () => {
+  const lm = makeLmWithSpan(0.15, 0.80);
+  assertBool(isInPosition(lm, 'foamroller'), false, 'Standing body should not be in foam roller position');
+});
+
+test('buildSetSummary: foamroller returns null (timed exercise)', () => {
+  assert(buildSetSummary(1, [90], 'foamroller') === null, 'Foam roller should return null');
+});
+
+// ===== CAT-COW TESTS =====
+
+/**
+ * Cat-cow form check: hips should stay level (not collapse to one side).
+ * Returns feedback if Y-difference between left and right hip > 0.12.
+ */
+function catCowFormCheck(lm) {
+  const hipSpan = Math.abs(lm[23].y - lm[24].y);
+  if (hipSpan > 0.12) return 'Keep hips level';
+  return null;
+}
+
+test('isInPosition: catcow accepts quadruped (span 0.20, wristY 0.80)', () => {
+  const lm = makeLmWithSpan(0.40, 0.60, 0.80); // wrists near ground
+  assertBool(isInPosition(lm, 'catcow'), true, 'Quadruped body should be in cat-cow position');
+});
+
+test('isInPosition: catcow rejects standing (span 0.65)', () => {
+  const lm = makeLmWithSpan(0.15, 0.80, 0.30); // wrists at waist = not quadruped
+  assertBool(isInPosition(lm, 'catcow'), false, 'Standing body should not be in cat-cow position');
+});
+
+test('catcow form: fires cue when hips unlevel (span > 0.12)', () => {
+  const lm = Array(33).fill(null).map(() => ({ x: 0.5, y: 0.5, visibility: 0.9 }));
+  lm[23] = { x: 0.4, y: 0.35, visibility: 0.9 }; // left hip
+  lm[24] = { x: 0.6, y: 0.50, visibility: 0.9 }; // right hip 0.15 lower
+  const hipSpan = Math.abs(0.35 - 0.50);
+  assert(hipSpan > 0.12, `Setup: hip span should be >0.12, got ${hipSpan}`);
+  const feedback = catCowFormCheck(lm);
+  assert(feedback !== null, 'Should fire cue when hips are unlevel');
+  assert(feedback.includes('Keep hips level'), `Expected hips-level cue, got: ${feedback}`);
+});
+
+test('catcow form: no cue when hips level (span < 0.12)', () => {
+  const lm = Array(33).fill(null).map(() => ({ x: 0.5, y: 0.5, visibility: 0.9 }));
+  lm[23] = { x: 0.4, y: 0.40, visibility: 0.9 };
+  lm[24] = { x: 0.6, y: 0.45, visibility: 0.9 }; // only 0.05 difference
+  const feedback = catCowFormCheck(lm);
+  assert(feedback === null, `Should not fire cue with level hips (got: ${feedback})`);
+});
+
+test('buildSetSummary: catcow returns null (timed exercise)', () => {
+  assert(buildSetSummary(1, [90], 'catcow') === null, 'Cat-cow should return null');
+});
+
+// ===== BIRD-DOG TESTS =====
+
+/**
+ * Bird-dog form check: same hip-level check as cat-cow — don't rotate when extending.
+ */
+function birdDogFormCheck(lm) {
+  const hipSpan = Math.abs(lm[23].y - lm[24].y);
+  if (hipSpan > 0.12) return "Keep hips level — don't rotate";
+  return null;
+}
+
+test('isInPosition: birddog accepts quadruped (span 0.20, wristY 0.80)', () => {
+  const lm = makeLmWithSpan(0.40, 0.60, 0.80);
+  assertBool(isInPosition(lm, 'birddog'), true, 'Quadruped body should be in bird-dog position');
+});
+
+test('isInPosition: birddog rejects wrists too high (not on floor)', () => {
+  const lm = makeLmWithSpan(0.40, 0.60, 0.40); // wristY 0.40 < 0.55 = hands up = not quadruped
+  assertBool(isInPosition(lm, 'birddog'), false, 'Wrists not near ground = not quadruped');
+});
+
+test('birddog form: fires cue when hips rotate (span > 0.12)', () => {
+  const lm = Array(33).fill(null).map(() => ({ x: 0.5, y: 0.5, visibility: 0.9 }));
+  lm[23] = { x: 0.4, y: 0.35, visibility: 0.9 };
+  lm[24] = { x: 0.6, y: 0.52, visibility: 0.9 }; // 0.17 difference
+  const feedback = birdDogFormCheck(lm);
+  assert(feedback !== null, 'Should fire cue when hips rotate during extension');
+  assert(feedback.includes('Keep hips level'), `Expected hips-level cue, got: ${feedback}`);
+});
+
+test('birddog form: no cue when hips stay level', () => {
+  const lm = Array(33).fill(null).map(() => ({ x: 0.5, y: 0.5, visibility: 0.9 }));
+  lm[23] = { x: 0.4, y: 0.40, visibility: 0.9 };
+  lm[24] = { x: 0.6, y: 0.43, visibility: 0.9 }; // only 0.03 difference
+  const feedback = birdDogFormCheck(lm);
+  assert(feedback === null, `Should not fire cue with level hips (got: ${feedback})`);
+});
+
+test('buildSetSummary: birddog returns null (timed exercise)', () => {
+  assert(buildSetSummary(1, [90], 'birddog') === null, 'Bird-dog should return null');
 });
 
 // ===== RUN TESTS =====
