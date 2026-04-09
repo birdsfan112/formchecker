@@ -3,27 +3,47 @@
 |-------|-------|
 | Phase | Phase 5 — Exercise Library Expansion |
 | Updated | 2026-04-09 |
-| Summary | 22 exercises in registry; mobility/PT batch added (shoulder dislocates, hip flexor stretch, wrist warm-up, band pull-aparts, foam roller, cat-cow, bird-dog). 207 tests passing. |
-| Next Session | Phone test all 22 exercises with exercise-testing-protocol.md; then visual polish sprint |
-| Needs Scott | Phone test all 22 exercises on iOS Safari (exercise-testing-protocol.md) |
-| Autonomous | Visual polish sprint (PNG silhouettes); any remaining Phase 5 items |
-| External Blockers | None |
+| Summary | 22 exercises, 207 tests. Framework spec complete. Next: Scott reviews open questions + phone tests while framework refactor begins. |
+| Autonomous | Exercise framework refactor (after open questions resolved) |
+| Needs Scott | (1) Review framework spec open questions (listed below); (2) Phone test all 22 exercises (exercise-testing-protocol.md) |
+| Blockers | Open questions from framework spec block the refactor |
 
 <!-- CHIEF OF STAFF NOTE: The Status block above is read by the daily review. Keep every field current.
      Format must stay as a table. Do not rename fields. "None" is a valid value for any field. -->
 
 # FormCheck — AI Fitness Form Coach
 
-## Current Sprint
+## Phase 5 — Remaining Work (in order)
+
+### Step 1 — Scott: Review framework spec open questions
+*Can run in parallel with or before phone testing. Decisions needed before refactor begins.*
+
+From `docs/specs/exercise-framework-spec.md` § Open Questions:
+
+1. **Scoped state:** `buildRepAnalyzer()` uses closure for `prevAngle`, `phase`, etc. Closure is cleaner; named object on config is easier to inspect in DevTools. Which do you prefer?
+2. **Test scaffold generation:** DEV_MODE generates a test stub per exercise. What's the minimum useful scaffold — a blank describe block, or a pre-filled set of rep-count assertions?
+3. **Picker redesign timing:** Is Step 4 (search + filter chips) in scope for the same sprint as the migration, or a follow-on sprint?
+4. **visual-polish-sprint.md update timing:** The spec covers 13 exercises; needs 9 more added before PNG work begins. Update before or after framework migration?
+
+### Step 2 — Scott: Phone test all 22 exercises
+*Use `docs/exercise-testing-protocol.md` — 9-step checklist per exercise.*
 
 - [x] Arch hangs / scapular pulls (timed hanging exercises, 14-15 in registry)
 - [x] Mobility/PT batch — shoulder dislocates, hip flexor stretch, wrist warm-up, band pull-aparts, foam roller, cat-cow, bird-dog (exercises 16-22)
 - [ ] Phone test all 22 exercises — use `docs/exercise-testing-protocol.md`
 
+### Step 3 — Exercise framework refactor
+*Per `docs/specs/exercise-framework-spec.md`. Single config object per exercise, shared analysis patterns, auto-wiring registration, quality gates. Migration is one exercise at a time with tests after each.*
+
+### Step 4 — Update visual polish spec (13 → 22 exercises)
+*Add the 9 exercises missing from `docs/specs/visual-polish-sprint.md` before PNG work begins.*
+
+### Step 5 — Visual polish sprint
+*PNG silhouettes + CSS-animated how-to keyframes. Framework provides clean structure for this.*
+
 ## Backlog
 
-1. **Visual polish sprint** — PNG silhouettes + CSS-animated how-to skeletons; spec in `docs/specs/visual-polish-sprint.md`
-2. **Phase 6 — Monetization & Distribution** — PWA install prompt, landing page, freemium model, user accounts, social sharing, app store wrapper (Capacitor/Ionic)
+1. **Phase 6 — Monetization & Distribution** — PWA install prompt, landing page, freemium model, user accounts, social sharing, app store wrapper (Capacitor/Ionic)
 
 ## Decisions
 
@@ -39,6 +59,14 @@
 | 2026-Q1 | Smart calibration covers multiple exercises | Squat ROM → squat + lunge; pushup ROM → pushup + pike + pullup. 6 reps calibrates all 4 rep-based exercises | Accepted |
 
 ## Session Log
+
+### 2026-04-09 — Framework spec, research docs, roadmap sequencing
+
+- Research docs persisted to `docs/`: UX research (`ux-research.md`), system audit (`system-audit.md`), exercise framework spec (`specs/exercise-framework-spec.md`)
+- `dispatch-protocol` skill created and installed (pre/post-flight checklist for agent dispatch)
+- Roadmap updated with full sequenced plan: open questions → phone testing → framework refactor → visual polish spec update → visual polish sprint
+- Open questions from framework spec surfaced in roadmap for Scott's review (Step 1 above)
+- Stale worktrees pruned: loving-gauss, nifty-feistel, nostalgic-fermat, wonderful-mcclintock
 
 ### 2026-04-09 — Mobility/PT Batch (exercises 16-22)
 
