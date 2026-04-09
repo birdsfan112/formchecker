@@ -3,10 +3,10 @@
 |-------|-------|
 | Phase | Phase 5 — Exercise Library Expansion |
 | Updated | 2026-04-09 |
-| Summary | 15 exercises in registry; arch hang + scapular pulls added (both timed, hanging). 176 tests passing. buildSetSummary now uses isTimed flag instead of hardcoded names. |
-| Next Session | Phone test all 15 exercises with exercise-testing-protocol.md; then continue Phase 5 additions (mobility/PT exercises) or visual polish sprint |
-| Needs Scott | Phone test all 15 exercises on iOS Safari (exercise-testing-protocol.md); validate arch hang packing cue fires reliably at 6+ feet |
-| Autonomous | Continue Phase 5 exercise additions (mobility/PT backlog); silhouette polish |
+| Summary | 22 exercises in registry; mobility/PT batch added (shoulder dislocates, hip flexor stretch, wrist warm-up, band pull-aparts, foam roller, cat-cow, bird-dog). 207 tests passing. |
+| Next Session | Phone test all 22 exercises with exercise-testing-protocol.md; then visual polish sprint |
+| Needs Scott | Phone test all 22 exercises on iOS Safari (exercise-testing-protocol.md) |
+| Autonomous | Visual polish sprint (PNG silhouettes); any remaining Phase 5 items |
 | External Blockers | None |
 
 <!-- CHIEF OF STAFF NOTE: The Status block above is read by the daily review. Keep every field current.
@@ -17,13 +17,13 @@
 ## Current Sprint
 
 - [x] Arch hangs / scapular pulls (timed hanging exercises, 14-15 in registry)
-- [ ] Phone test all 15 exercises — use `docs/exercise-testing-protocol.md`
+- [x] Mobility/PT batch — shoulder dislocates, hip flexor stretch, wrist warm-up, band pull-aparts, foam roller, cat-cow, bird-dog (exercises 16-22)
+- [ ] Phone test all 22 exercises — use `docs/exercise-testing-protocol.md`
 
 ## Backlog
 
-1. **Mobility & PT exercises** — shoulder dislocates, hip flexor stretches, wrist warm-up, band pull-aparts, foam roller positions, cat-cow/bird-dog
-2. **Visual polish sprint** — PNG silhouettes + CSS-animated how-to skeletons; spec in `docs/specs/visual-polish-sprint.md`
-3. **Phase 6 — Monetization & Distribution** — PWA install prompt, landing page, freemium model, user accounts, social sharing, app store wrapper (Capacitor/Ionic)
+1. **Visual polish sprint** — PNG silhouettes + CSS-animated how-to skeletons; spec in `docs/specs/visual-polish-sprint.md`
+2. **Phase 6 — Monetization & Distribution** — PWA install prompt, landing page, freemium model, user accounts, social sharing, app store wrapper (Capacitor/Ionic)
 
 ## Decisions
 
@@ -39,6 +39,20 @@
 | 2026-Q1 | Smart calibration covers multiple exercises | Squat ROM → squat + lunge; pushup ROM → pushup + pike + pullup. 6 reps calibrates all 4 rep-based exercises | Accepted |
 
 ## Session Log
+
+### 2026-04-09 — Mobility/PT Batch (exercises 16-22)
+
+- **Shoulder Dislocates** (`shoulderdislocate`): timed; form checks elbow angle (<150° → "Keep arms straight — widen your grip"); drawStyle: `standing`
+- **Hip Flexor Stretch** (`hipflexor`): timed; form checks torso upright (hip-shoulder gap < 0.10 → "Sit tall — lift your chest"); drawStyle: `kneeling` (new silhouette)
+- **Wrist Warm-up** (`wristwarmup`): timed; form checks arms at shoulder height; drawStyle: `standing`
+- **Band Pull-Aparts** (`bandpullapart`): rep-based; counts when wrist span goes from spread (>0.32) back to center (<0.18); form checks arm height; drawStyle: `standing`
+- **Foam Roller** (`foamroller`): timed, isFloor (auto-start); no active form cue — coaching cue is just the timer; drawStyle: `horizontal`
+- **Cat-Cow** (`catcow`): timed, isFloor (auto-start); form checks hip level (span > 0.12 → "Keep hips level"); drawStyle: `quadruped` (new silhouette)
+- **Bird-Dog** (`birddog`): timed, isFloor (auto-start); form checks hip rotation during extension; drawStyle: `quadruped` with `birddog` variant (shows extended arm + leg)
+- Two new silhouette functions: `drawKneelingStretch()` and `drawQuadruped()` (with bird-dog variant)
+- 31 new tests; 207 total, 0 failing
+- `docs/exercise-testing-protocol.md` updated: all 22 exercises in the testing table + form cues for each new exercise
+- Next session: phone test all 22 exercises
 
 ### 2026-04-09 — Arch Hang + Scapular Pulls (exercises 14-15)
 
