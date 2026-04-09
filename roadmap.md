@@ -2,11 +2,11 @@
 | Field | Value |
 |-------|-------|
 | Phase | Phase 5 — Exercise Library Expansion |
-| Updated | 2026-04-08 |
-| Summary | Engine refactor + 9/10 strength exercises complete; welcome screen + visual exercise picker shipped. 165 tests passing. |
-| Next Session | Run `node tests.js`, then implement arch hangs/scapular pulls or run exercise-testing-protocol.md on phone (Scott's call). |
-| Needs Scott | Phone test welcome screen + exercise picker on iOS Safari; run exercise-testing-protocol.md for all 13 exercises; decide silhouette approach for remaining Phase 5 exercises |
-| Autonomous | Implement arch hangs/scapular pulls; continue Phase 5 exercise additions |
+| Updated | 2026-04-09 |
+| Summary | 15 exercises in registry; arch hang + scapular pulls added (both timed, hanging). 176 tests passing. buildSetSummary now uses isTimed flag instead of hardcoded names. |
+| Next Session | Phone test all 15 exercises with exercise-testing-protocol.md; then continue Phase 5 additions (mobility/PT exercises) or visual polish sprint |
+| Needs Scott | Phone test all 15 exercises on iOS Safari (exercise-testing-protocol.md); validate arch hang packing cue fires reliably at 6+ feet |
+| Autonomous | Continue Phase 5 exercise additions (mobility/PT backlog); silhouette polish |
 | External Blockers | None |
 
 <!-- CHIEF OF STAFF NOTE: The Status block above is read by the daily review. Keep every field current.
@@ -16,8 +16,8 @@
 
 ## Current Sprint
 
-- [ ] Arch hangs / scapular pulls (next bodyweight strength exercise)
-- [ ] Phone test all 13 exercises — use `docs/exercise-testing-protocol.md`; full regression list in `docs/specs/phase5-phone-testing-checklist.md`
+- [x] Arch hangs / scapular pulls (timed hanging exercises, 14-15 in registry)
+- [ ] Phone test all 15 exercises — use `docs/exercise-testing-protocol.md`
 
 ## Backlog
 
@@ -39,6 +39,15 @@
 | 2026-Q1 | Smart calibration covers multiple exercises | Squat ROM → squat + lunge; pushup ROM → pushup + pike + pullup. 6 reps calibrates all 4 rep-based exercises | Accepted |
 
 ## Session Log
+
+### 2026-04-09 — Arch Hang + Scapular Pulls (exercises 14-15)
+
+- **Arch Hang** (`archhang`): timed hanging exercise; form cue checks shoulder-wrist gap (<0.08 → "Pack shoulders down — away from the bar")
+- **Scapular Pulls** (`scapularpull`): timed hanging exercise; form cue checks elbow angle (<150° → "Keep arms straight — no elbow bend")
+- `buildSetSummary` refactored: checks `exerciseRegistry[exercise]?.isTimed` instead of hardcoded exercise names — scales automatically as more timed exercises are added
+- Both exercises registered in `defaultCalibration` (`{}`), `EXERCISE_COLORS` (sky blue / rose), and hidden `<select>`
+- 11 new tests; 176 total, 0 failing
+- Next session: start by running phone test protocol for all 15 exercises
 
 ### 2026-04-07 — Thermal fix, welcome screen, exercise picker, testing protocol
 
