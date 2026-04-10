@@ -413,859 +413,295 @@ const state = {
 };
 
 // ===== EXERCISE REGISTRY =====
-// Single source of truth for all exercise data: metadata, silhouette, position validation, and analysis.
-// Adding a new exercise = one entry here + a <option> in the dropdown + defaults in defaultCalibration.
+// Backing store populated at script init by addExercise(config). All 22
+// exercises are declared as config objects in the "FRAMEWORK-BASED EXERCISE
+// CONFIGS" section below (pushupConfig, squatConfig, etc.). The rest of the
+// app reads exerciseRegistry[id] as before — framework is an implementation
+// detail of how entries get populated, not a new API for readers.
+const exerciseRegistry = {};
+
+// ===== EXERCISE FRAMEWORK =====
+// Shared plumbing so a new exercise can be declared as a single config object
+// instead of hand-writing a state machine + registry entry + silhouette wiring.
+// Spec: docs/specs/exercise-framework-spec.md
 //
-// Each entry has:
-//   name, hint          — display strings
-//   guide, guideLines   — normalized silhouette wireframe (legacy, kept for compatibility)
-//   isFloor             — true → enables auto-start + "get in position" idle message
-//   isTimed             — true → plank-style timer instead of rep counter
-//   drawStyle           — 'standing' | 'horizontal' | 'hanging' (which drawing function to use)
-//   drawVariant         — optional sub-type passed to drawHorizontalSide (e.g. 'pushup' vs 'plank')
-//   isInPosition(lm)    — returns true when user is in the correct general body position
-//   outOfPositionMsg    — shown when isInPosition returns false during an active set
-//   analyze(lm)         — form analysis; returns { repCounted, score }
-const exerciseRegistry = {
+// STATUS: LIVE — all 22 exercises migrated (2026-04-10). Adding a new exercise
+// means writing one config object + addExercise(config) + a <option> in the
+// dropdown + a defaultCalibration entry if it's rep-based.
+//
+// Key design choices (from the framework spec's Decisions section, 2026-04-10):
+//   A1  trackingJoint is a function (lm) => number  — handles single/average/min joints
+//   A2  calibrationKeys maps {bottom, top} to the existing per-exercise key names
+//       (e.g. 'elbow_down'/'elbow_up') instead of renaming the global calibration
+//       object. Revisit if warmup calibration is ever refactored.
+//   A3  Rep phase transitions use DIRECT threshold compares, not fractional-range
+//       formulas — preserves current behavior exactly.
+//   A4  Direction detection uses phase-local EXTREMUM tracking (max in 'up' phase,
+//       min in 'down' phase) with a 3° jitter filter. Handles slow-tempo reps
+//       (e.g. 5s down 5s up) that frame-to-frame compare would miss.
+//   A5  Form checks receive (lm, angle, phase, goingDown).
+//   A6  First failing form check wins the shown feedback + voice cue; all failing
+//       checks still deduct score.
 
-  // ===== EXISTING EXERCISES =====
+// Registered analyzer reset functions. resetSetState() calls each one to clear
+// closure-scoped state between sets (same contract as the old global state reset).
+const analyzerResets = [];
 
-  pushup: {
-    name: 'Push-ups',
-    hint: 'Side view — full body in frame',
-    guide: [
-      {x: 0.30, y: 0.35}, {x: 0.35, y: 0.40}, {x: 0.50, y: 0.42}, {x: 0.65, y: 0.42},
-      {x: 0.75, y: 0.42}, {x: 0.35, y: 0.40}, {x: 0.32, y: 0.50}, {x: 0.30, y: 0.58},
-    ],
-    guideLines: [[0,1],[1,2],[2,3],[3,4],[5,6],[6,7]],
-    isFloor: true, isTimed: false, drawStyle: 'horizontal', drawVariant: 'pushup',
-    isInPosition(lm) {
-      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
-      const avgAnkleY = (lm[27].y + lm[28].y) / 2;
-      return Math.abs(avgShoulderY - avgAnkleY) < 0.25;
-    },
-    outOfPositionMsg: 'Get into pushup position',
-    analyze(lm) {
-      const leftElbow = angle(lm[11], lm[13], lm[15]);
-      const rightElbow = angle(lm[12], lm[14], lm[16]);
-      const avgElbow = (leftElbow + rightElbow) / 2;
-      const goingDown = state.prevAngle !== null && avgElbow < state.prevAngle - 1;
-      state.prevAngle = avgElbow;
-      const leftBack = angle(lm[11], lm[23], lm[27]);
-      const rightBack = angle(lm[12], lm[24], lm[28]);
-      const avgBack = (leftBack + rightBack) / 2;
-      let repCounted = false;
-      if (avgElbow < calibration.pushup.elbow_down && state.phase === 'up') {
-        state.phase = 'down';
-      } else if (avgElbow > calibration.pushup.elbow_up && state.phase === 'down') {
-        state.phase = 'up'; state.spokenThisRep = false; repCounted = true;
-      }
-      let score = 100; let feedback = [];
-      if (avgBack < 145) {
-        score -= 30;
-        feedback.push(pastFirstSet() ? 'Hips dropping — try knees down or incline' : 'Tighten your core');
-      } else if (avgBack > 195) {
-        score -= 20; feedback.push('Hips too high — straighten your body');
-      }
-      if (state.phase === 'down' && goingDown && avgElbow > calibration.pushup.elbow_down + 12) {
-        score -= 15; if (feedback.length === 0) feedback.push('Go deeper');
-      }
-      if (feedback.length === 0) { showFeedback('Good form', 'good'); }
-      else { showFeedback(feedback[0], score > 60 ? 'warn' : 'bad'); if (cueShouldFire('pushup-form', 15000)) speak(feedback[0]); }
-      return { repCounted, score: Math.max(0, score) };
+// Valid drawStyle values for validateExerciseConfig().
+const VALID_DRAW_STYLES = ['standing', 'horizontal', 'hanging', 'kneeling', 'quadruped'];
+
+// Throws on malformed config. Called at the top of addExercise().
+function validateExerciseConfig(config) {
+  if (!config || typeof config !== 'object') {
+    throw new Error('Exercise config must be an object');
+  }
+  const required = ['id', 'name', 'isFloor', 'isTimed', 'hint',
+                    'isInPosition', 'outOfPositionMsg', 'silhouette', 'analysis'];
+  for (const field of required) {
+    if (config[field] === undefined) {
+      throw new Error(`Exercise "${config.id || '(no id)'}" missing field: ${field}`);
     }
-  },
+  }
+  if (typeof config.isInPosition !== 'function') {
+    throw new Error(`Exercise "${config.id}" isInPosition must be a function`);
+  }
+  if (!config.silhouette || !VALID_DRAW_STYLES.includes(config.silhouette.drawStyle)) {
+    throw new Error(`Exercise "${config.id}" has unknown drawStyle: ${config.silhouette && config.silhouette.drawStyle}`);
+  }
+  // Rep-based exercises must declare how to track their primary joint and which
+  // calibration keys to read.
+  if (!config.isTimed) {
+    if (typeof config.analysis.trackingJoint !== 'function') {
+      throw new Error(`Exercise "${config.id}" must define analysis.trackingJoint as a function (lm) => number`);
+    }
+    const keys = config.analysis.calibrationKeys;
+    if (!keys || typeof keys.bottom !== 'string' || typeof keys.top !== 'string') {
+      throw new Error(`Exercise "${config.id}" must define analysis.calibrationKeys as {bottom, top} string pair`);
+    }
+    const defs = config.analysis.calibrationDefaults;
+    if (!defs || typeof defs[keys.bottom] !== 'number' || typeof defs[keys.top] !== 'number') {
+      throw new Error(`Exercise "${config.id}" calibrationDefaults must contain numeric values for "${keys.bottom}" and "${keys.top}"`);
+    }
+    // Top must exceed bottom unless polarity is inverted (glute-bridge style).
+    if (!config.analysis.invertedPolarity && defs[keys.top] <= defs[keys.bottom]) {
+      throw new Error(`Exercise "${config.id}" calibrationDefaults: "${keys.top}" (${defs[keys.top]}) must be greater than "${keys.bottom}" (${defs[keys.bottom]})`);
+    }
+  }
+  // Form checks are optional but if present must be well-formed.
+  const checks = config.analysis.formChecks || [];
+  for (const check of checks) {
+    if (typeof check.check !== 'function') {
+      throw new Error(`Exercise "${config.id}" formCheck "${check.id || '?'}" must have a check() function`);
+    }
+    if (typeof check.scoreDeduction !== 'number') {
+      throw new Error(`Exercise "${config.id}" formCheck "${check.id || '?'}" must have a numeric scoreDeduction`);
+    }
+  }
+  // Landmark indices (if declared for documentation) must be 0–32.
+  const lmIdx = config.analysis.landmarks;
+  if (Array.isArray(lmIdx)) {
+    for (const idx of lmIdx) {
+      if (!Number.isInteger(idx) || idx < 0 || idx > 32) {
+        throw new Error(`Exercise "${config.id}" analysis.landmarks contains out-of-range index ${idx} (must be 0–32)`);
+      }
+    }
+  }
+}
 
-  squat: {
-    name: 'Squats',
-    hint: 'Side view — stand back so full body is visible',
-    guide: [
-      {x: 0.50, y: 0.15}, {x: 0.50, y: 0.28}, {x: 0.50, y: 0.48},
-      {x: 0.50, y: 0.68}, {x: 0.50, y: 0.88}, {x: 0.50, y: 0.28}, {x: 0.40, y: 0.32},
-    ],
-    guideLines: [[0,1],[1,2],[2,3],[3,4],[5,6]],
-    isFloor: false, isTimed: false, drawStyle: 'standing',
-    isInPosition(lm) {
-      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
-      const avgAnkleY = (lm[27].y + lm[28].y) / 2;
-      if (Math.abs(avgShoulderY - avgAnkleY) <= 0.25) return false;
-      const hipVis = Math.min(lm[23].visibility, lm[24].visibility);
-      if (hipVis < 0.5) return false;
-      const hipCenter = (lm[23].y + lm[24].y) / 2;
-      // Upper bound loosened 0.75 → 0.88: at full squat/lunge depth hips drop
-      // to Y ≈ 0.80-0.85 in normalized coords; 0.75 triggered "Stand up" on deep reps.
-      if (hipCenter < 0.25 || hipCenter > 0.88) return false;
-      return true;
-    },
-    outOfPositionMsg: 'Stand up to continue',
-    analyze(lm) {
-      const leftKnee = angle(lm[23], lm[25], lm[27]);
-      const rightKnee = angle(lm[24], lm[26], lm[28]);
-      const avgKnee = (leftKnee + rightKnee) / 2;
-      const goingDown = state.prevAngle !== null && avgKnee < state.prevAngle - 1;
-      state.prevAngle = avgKnee;
-      let repCounted = false;
-      if (avgKnee < calibration.squat.knee_down && state.phase === 'up') {
-        state.phase = 'down';
-      } else if (avgKnee > calibration.squat.knee_up && state.phase === 'down') {
-        state.phase = 'up'; state.spokenThisRep = false; repCounted = true;
+// Build a rep-counting analyzer with closure-scoped state. Returns { analyze, reset }.
+// Behavior is intentionally a one-to-one port of the hand-written analyze() pattern
+// used by every existing exercise — see docs/specs/exercise-framework-spec.md §3.
+function buildRepAnalyzer(config) {
+  const { trackingJoint, calibrationKeys, formChecks, invertedPolarity, goodFormMessage, downGate } = config.analysis;
+  // downGate(lm) is an optional additional predicate that must be true for the
+  // 'up' → 'down' phase transition. Used by pull-up, which requires chin above
+  // hands before a rep starts counting. If omitted, phase transition uses the
+  // angle threshold alone.
+  const JITTER = 3; // degrees — phase-local extremum threshold for direction detection
+
+  // Closure state — scoped per exercise, never contaminates other exercises.
+  let phase = 'up';
+  let phaseExtremum = null; // peak angle in 'up' phase, valley in 'down' phase
+  let prevAngle = null;     // retained for legacy form-check signatures if needed
+
+  function reset() {
+    phase = 'up';
+    phaseExtremum = null;
+    prevAngle = null;
+  }
+
+  function analyze(lm) {
+    const cal = (typeof calibration !== 'undefined' && calibration[config.id])
+      ? calibration[config.id]
+      : config.analysis.calibrationDefaults;
+    const bottomThreshold = cal[calibrationKeys.bottom];
+    const topThreshold    = cal[calibrationKeys.top];
+
+    const angleNow = trackingJoint(lm);
+
+    // Phase-local extremum direction detection (Option C — handles slow tempos).
+    let goingDown = false, goingUp = false;
+    if (phase === 'up') {
+      if (phaseExtremum === null || angleNow > phaseExtremum) phaseExtremum = angleNow;
+      if (angleNow < phaseExtremum - JITTER) goingDown = true;
+    } else {
+      if (phaseExtremum === null || angleNow < phaseExtremum) phaseExtremum = angleNow;
+      if (angleNow > phaseExtremum + JITTER) goingUp = true;
+    }
+
+    // Rep phase transitions — direct threshold compare, matches current behavior.
+    let repCounted = false;
+    if (invertedPolarity) {
+      // Glute-bridge style: phase 'up' = at rest, phase 'down' = active/raised.
+      // Threshold semantics: cal[bottom] = angle above which we're raised,
+      //                      cal[top]    = angle below which we've returned to rest.
+      if (angleNow > bottomThreshold && phase === 'up') {
+        phase = 'down';
+        phaseExtremum = angleNow;
+      } else if (angleNow < topThreshold && phase === 'down') {
+        phase = 'up';
+        phaseExtremum = angleNow;
+        state.spokenThisRep = false;
+        repCounted = true;
       }
-      let score = 100; let feedback = [];
-      if (state.phase === 'down' && goingDown && avgKnee > calibration.squat.knee_down + 12) {
-        score -= 20;
-        feedback.push(pastFirstSet() ? 'Try deeper — hold a support for balance' : 'Go deeper');
+    } else {
+      if (angleNow < bottomThreshold && phase === 'up' && (!downGate || downGate(lm))) {
+        phase = 'down';
+        phaseExtremum = angleNow;
+      } else if (angleNow > topThreshold && phase === 'down') {
+        phase = 'up';
+        phaseExtremum = angleNow;
+        state.spokenThisRep = false;
+        repCounted = true;
       }
-      const shoulderSpan = Math.abs(lm[11].x - lm[12].x);
-      const isFrontView = shoulderSpan > 0.15;
-      if (isFrontView && state.phase === 'down') {
-        const kneeSpan = Math.abs(lm[25].x - lm[26].x);
-        const ankleSpan = Math.abs(lm[27].x - lm[28].x);
-        if (kneeSpan < ankleSpan * 0.65) { score -= 25; if (feedback.length === 0) feedback.push('Push your knees out'); }
-      }
-      if (!isFrontView && state.phase === 'down') {
-        const torsoLean = angle(lm[11], lm[23], lm[25]);
-        if (torsoLean < 45) {
-          score -= 15;
-          if (feedback.length === 0) feedback.push(pastFirstSet() ? 'Leaning forward — try heels elevated' : 'Chest up');
+    }
+
+    // Form checks — first failing check wins feedback + voice cue, all failing checks deduct score.
+    // cue.message may be a string OR a function (for dynamic messages like pastFirstSet()).
+    let score = 100;
+    let feedback = null;
+    for (const check of formChecks || []) {
+      let failed = false;
+      try { failed = check.check(lm, angleNow, phase, goingDown); }
+      catch (e) { failed = false; }
+      if (failed) {
+        score -= check.scoreDeduction;
+        if (!feedback && check.cue && check.cue.message) {
+          feedback = (typeof check.cue.message === 'function')
+            ? check.cue.message(lm, angleNow, phase, goingDown)
+            : check.cue.message;
+          const cueKey = check.cue.key || `${config.id}-form`;
+          if (check.cue.cooldown && cueShouldFire(cueKey, check.cue.cooldown)) {
+            speak(feedback);
+          }
         }
       }
-      if (feedback.length === 0) { showFeedback('Good form', 'good'); }
-      else { showFeedback(feedback[0], score > 60 ? 'warn' : 'bad'); if (cueShouldFire('squat-form', 15000)) speak(feedback[0]); }
-      return { repCounted, score: Math.max(0, score) };
     }
-  },
-
-  pullup: {
-    name: 'Pull-ups',
-    hint: 'Front view — step back from bar',
-    guide: [
-      {x: 0.50, y: 0.15}, {x: 0.50, y: 0.28}, {x: 0.38, y: 0.30}, {x: 0.62, y: 0.30},
-      {x: 0.32, y: 0.15}, {x: 0.68, y: 0.15}, {x: 0.50, y: 0.50},
-      {x: 0.45, y: 0.75}, {x: 0.55, y: 0.75}, {x: 0.45, y: 0.90}, {x: 0.55, y: 0.90},
-    ],
-    guideLines: [[0,1],[1,2],[1,3],[2,4],[3,5],[2,6],[3,6],[6,7],[6,8],[7,9],[8,10]],
-    isFloor: false, isTimed: false, drawStyle: 'hanging',
-    isInPosition(lm) {
-      const avgWristY = (lm[15].y + lm[16].y) / 2;
-      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
-      return avgWristY < avgShoulderY + 0.2;
-    },
-    outOfPositionMsg: 'Grip the bar to continue',
-    analyze(lm) {
-      const leftElbow = angle(lm[11], lm[13], lm[15]);
-      const rightElbow = angle(lm[12], lm[14], lm[16]);
-      const avgElbow = (leftElbow + rightElbow) / 2;
-      const chinAboveHands = lm[0].y < (lm[15].y + lm[16].y) / 2;
-      let repCounted = false;
-      if (avgElbow < calibration.pullup.elbow_top && chinAboveHands && state.phase === 'up') {
-        state.phase = 'down';
-      } else if (avgElbow > calibration.pullup.elbow_bottom && state.phase === 'down') {
-        state.phase = 'up'; state.spokenThisRep = false; repCounted = true;
-      }
-      let score = 100; let feedback = [];
-      if (state.phase === 'down' && !chinAboveHands && avgElbow < 100) {
-        score -= 20; feedback.push('Get your chin over the bar');
-      }
-      const hipMovement = Math.abs(lm[23].x - lm[11].x);
-      if (hipMovement > 0.15) { score -= 25; if (feedback.length === 0) feedback.push('Control the swing'); }
-      if (feedback.length === 0) { showFeedback('Good form', 'good'); }
-      else { showFeedback(feedback[0], score > 60 ? 'warn' : 'bad'); if (cueShouldFire('pullup-form', 15000)) speak(feedback[0]); }
-      return { repCounted, score: Math.max(0, score) };
+    if (!feedback) {
+      showFeedback(goodFormMessage || 'Good form', 'good');
+    } else {
+      showFeedback(feedback, score > 60 ? 'warn' : 'bad');
     }
-  },
 
-  lunge: {
-    name: 'Lunges',
-    hint: 'Side view — full body in frame',
-    guide: [
-      {x: 0.50, y: 0.15}, {x: 0.50, y: 0.30}, {x: 0.50, y: 0.50},
-      {x: 0.42, y: 0.70}, {x: 0.40, y: 0.88}, {x: 0.60, y: 0.70}, {x: 0.65, y: 0.88},
-    ],
-    guideLines: [[0,1],[1,2],[2,3],[3,4],[2,5],[5,6]],
-    isFloor: false, isTimed: false, drawStyle: 'standing',
-    isInPosition(lm) {
-      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
-      const avgAnkleY = (lm[27].y + lm[28].y) / 2;
-      if (Math.abs(avgShoulderY - avgAnkleY) <= 0.25) return false;
-      const hipVis = Math.min(lm[23].visibility, lm[24].visibility);
-      if (hipVis < 0.5) return false;
-      const hipCenter = (lm[23].y + lm[24].y) / 2;
-      // Upper bound loosened 0.75 → 0.88: at full squat/lunge depth hips drop
-      // to Y ≈ 0.80-0.85 in normalized coords; 0.75 triggered "Stand up" on deep reps.
-      if (hipCenter < 0.25 || hipCenter > 0.88) return false;
-      return true;
-    },
-    outOfPositionMsg: 'Stand up to continue',
-    analyze(lm) {
-      const leftKnee = angle(lm[23], lm[25], lm[27]);
-      const rightKnee = angle(lm[24], lm[26], lm[28]);
-      const frontKnee = Math.min(leftKnee, rightKnee);
-      const backKnee = Math.max(leftKnee, rightKnee);
-      let repCounted = false;
-      if (frontKnee < calibration.lunge.knee_down && state.phase === 'up') {
-        state.phase = 'down';
-      } else if (frontKnee > calibration.lunge.knee_up && backKnee > calibration.lunge.knee_up && state.phase === 'down') {
-        state.phase = 'up'; state.spokenThisRep = false; repCounted = true;
+    prevAngle = angleNow;
+    return { repCounted, score: Math.max(0, score) };
+  }
+
+  return { analyze, reset };
+}
+
+// Build a timed-hold analyzer (plank, dead hang, etc.). Returns { analyze, reset }.
+function buildTimedAnalyzer(config) {
+  const { formChecks, goodHoldMessage } = config.analysis || {};
+
+  let plankStart = null;
+
+  function reset() {
+    plankStart = null;
+  }
+
+  function analyze(lm) {
+    if (!plankStart) plankStart = Date.now();
+    const secs = Math.floor((Date.now() - plankStart) / 1000);
+
+    let score = 100;
+    let feedback = null;
+    for (const check of formChecks || []) {
+      let failed = false;
+      try { failed = check.check(lm, null, null, false); }
+      catch (e) { failed = false; }
+      if (failed) {
+        score -= check.scoreDeduction;
+        if (!feedback && check.cue && check.cue.message) {
+          feedback = (typeof check.cue.message === 'function')
+            ? check.cue.message(lm, null, null, false)
+            : check.cue.message;
+          const cueKey = check.cue.key || `${config.id}-form`;
+          if (check.cue.cooldown && cueShouldFire(cueKey, check.cue.cooldown)) {
+            speakForce(feedback);
+          }
+        }
       }
-      let score = 100; let feedback = [];
-      const goingDown = state.prevAngle !== null && frontKnee < state.prevAngle - 1;
-      state.prevAngle = frontKnee;
-      if (state.phase === 'down' && goingDown && frontKnee > calibration.lunge.knee_down + 12) {
-        score -= 15; feedback.push('Go deeper');
-      }
-      const torsoAngle = angle(lm[11], lm[23], lm[25]);
-      if (torsoAngle < 140) {
-        score -= 20;
-        if (feedback.length === 0) feedback.push(pastFirstSet() ? 'Torso leaning — try a wall for balance' : 'Keep your torso upright');
-      }
-      if (feedback.length === 0) { showFeedback('Good form', 'good'); }
-      else { showFeedback(feedback[0], score > 60 ? 'warn' : 'bad'); if (cueShouldFire('lunge-form', 15000)) speak(feedback[0]); }
-      return { repCounted, score: Math.max(0, score) };
     }
-  },
 
-  plank: {
-    name: 'Plank',
-    hint: 'Side view — full body in frame',
-    guide: [
-      {x: 0.30, y: 0.40}, {x: 0.35, y: 0.43}, {x: 0.55, y: 0.43},
-      {x: 0.70, y: 0.43}, {x: 0.78, y: 0.43}, {x: 0.33, y: 0.55},
-    ],
-    guideLines: [[0,1],[1,2],[2,3],[3,4],[1,5]],
-    isFloor: true, isTimed: true, drawStyle: 'horizontal', drawVariant: 'plank',
-    isInPosition(lm) {
-      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
-      const avgAnkleY = (lm[27].y + lm[28].y) / 2;
-      return Math.abs(avgShoulderY - avgAnkleY) < 0.25;
-    },
-    outOfPositionMsg: 'Get into plank position',
-    analyze(lm) {
-      // Position validation (body must be horizontal) is handled upstream by isInPosition().
-      const leftBack = angle(lm[11], lm[23], lm[27]);
-      const rightBack = angle(lm[12], lm[24], lm[28]);
-      const avgBack = (leftBack + rightBack) / 2;
-      if (!state.plankStart) state.plankStart = Date.now();
-      const plankSecs = Math.floor((Date.now() - state.plankStart) / 1000);
-      let score = 100; let feedback = [];
-      if (avgBack < 145) {
-        score -= 30;
-        feedback.push(pastFirstSet() ? 'Hips dropping — try knees-down plank' : 'Tighten your core');
-      } else if (avgBack < 155) { score -= 10; }
-      else if (avgBack > 195) { score -= 20; feedback.push('Hips too high — flatten out'); }
-      repCounter.textContent = `${Math.floor(plankSecs / 60)}:${String(plankSecs % 60).padStart(2, '0')}`;
-      if (feedback.length === 0) {
-        showFeedback('Good form — hold it!', 'good');
-        if (plankSecs > 0 && plankSecs % 15 === 0) speakForce(`${plankSecs} seconds`);
-      } else {
-        showFeedback(feedback[0], score > 60 ? 'warn' : 'bad');
-        if (cueShouldFire('plank-form', 20000)) speakForce(feedback[0]);
-      }
-      return { repCounted: false, score: Math.max(0, score) };
-    }
-  },
-
-  // ===== PHASE 5 EXERCISES =====
-
-  pike: {
-    name: 'Pike Push-ups',
-    hint: 'Side view — hips high, hands and feet on floor',
-    guide: [], guideLines: [],
-    isFloor: false, isTimed: false, drawStyle: 'horizontal', drawVariant: 'pushup',
-    isInPosition(lm) {
-      // Hips must be raised: hip Y significantly less than wrist Y (Y=0 is top of screen)
-      const avgWristY = (lm[15].y + lm[16].y) / 2;
-      const avgHipY   = (lm[23].y + lm[24].y) / 2;
-      return avgWristY > 0.55 && avgHipY < avgWristY - 0.15;
-    },
-    outOfPositionMsg: 'Get into pike position (hips high)',
-    analyze(lm) {
-      const leftElbow = angle(lm[11], lm[13], lm[15]);
-      const rightElbow = angle(lm[12], lm[14], lm[16]);
-      const avgElbow = (leftElbow + rightElbow) / 2;
-      const goingDown = state.prevAngle !== null && avgElbow < state.prevAngle - 1;
-      state.prevAngle = avgElbow;
-      let repCounted = false;
-      if (avgElbow < calibration.pike.elbow_down && state.phase === 'up') {
-        state.phase = 'down';
-      } else if (avgElbow > calibration.pike.elbow_up && state.phase === 'down') {
-        state.phase = 'up'; state.spokenThisRep = false; repCounted = true;
-      }
-      let score = 100; let feedback = [];
-      // Hips must stay raised throughout (the defining form cue for pike)
-      const avgHipY   = (lm[23].y + lm[24].y) / 2;
-      const avgWristY = (lm[15].y + lm[16].y) / 2;
-      if (avgHipY > avgWristY - 0.08) { score -= 25; feedback.push('Keep hips high'); }
-      if (state.phase === 'down' && goingDown && avgElbow > calibration.pike.elbow_down + 12) {
-        score -= 15; if (feedback.length === 0) feedback.push('Go deeper');
-      }
-      if (feedback.length === 0) { showFeedback('Good form', 'good'); }
-      else { showFeedback(feedback[0], score > 60 ? 'warn' : 'bad'); if (cueShouldFire('pike-form', 15000)) speak(feedback[0]); }
-      return { repCounted, score: Math.max(0, score) };
-    }
-  },
-
-  dip: {
-    name: 'Dips',
-    hint: 'Front or side view — arms extended at top',
-    guide: [], guideLines: [],
-    isFloor: false, isTimed: false, drawStyle: 'standing',
-    isInPosition(lm) {
-      // Body must be upright (not horizontal)
-      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
-      const avgAnkleY = (lm[27].y + lm[28].y) / 2;
-      return Math.abs(avgShoulderY - avgAnkleY) > 0.3;
-    },
-    outOfPositionMsg: 'Get into dip position',
-    analyze(lm) {
-      const leftElbow = angle(lm[11], lm[13], lm[15]);
-      const rightElbow = angle(lm[12], lm[14], lm[16]);
-      const avgElbow = (leftElbow + rightElbow) / 2;
-      const goingDown = state.prevAngle !== null && avgElbow < state.prevAngle - 1;
-      state.prevAngle = avgElbow;
-      let repCounted = false;
-      if (avgElbow < calibration.dip.elbow_down && state.phase === 'up') {
-        state.phase = 'down';
-      } else if (avgElbow > calibration.dip.elbow_up && state.phase === 'down') {
-        state.phase = 'up'; state.spokenThisRep = false; repCounted = true;
-      }
-      let score = 100; let feedback = [];
-      if (state.phase === 'down' && goingDown && avgElbow > calibration.dip.elbow_down + 12) {
-        score -= 15; feedback.push('Go deeper');
-      }
-      // Elbow-flare check: only meaningful from a front view and only when bent.
-      // shoulderSpan > 0.15 ensures we're clearly front-facing (side view gives ~0.05).
-      // Only in 'down' phase — flare at the extended top position is meaningless.
-      const shoulderSpan = Math.abs(lm[11].x - lm[12].x);
-      const elbowSpan = Math.abs(lm[13].x - lm[14].x);
-      if (shoulderSpan > 0.15 && state.phase === 'down' && elbowSpan > shoulderSpan * 1.6) {
-        score -= 20; if (feedback.length === 0) feedback.push('Keep elbows closer in');
-      }
-      // If side-on (shoulderSpan small), nudge user to face camera
-      if (shoulderSpan < 0.10 && cueShouldFire('dip-orient', 20000)) {
-        angleHint.textContent = 'Face the camera for best tracking';
-      }
-      if (feedback.length === 0) { showFeedback('Good form', 'good'); }
-      else { showFeedback(feedback[0], score > 60 ? 'warn' : 'bad'); if (cueShouldFire('dip-form', 15000)) speak(feedback[0]); }
-      return { repCounted, score: Math.max(0, score) };
-    }
-  },
-
-  deadhang: {
-    name: 'Dead Hang',
-    hint: 'Front view — step back so full body is visible',
-    guide: [], guideLines: [],
-    isFloor: false, isTimed: true, drawStyle: 'hanging',
-    isInPosition(lm) {
-      const avgWristY   = (lm[15].y + lm[16].y) / 2;
-      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
-      return avgWristY < avgShoulderY + 0.2;
-    },
-    outOfPositionMsg: 'Grip the bar to continue',
-    analyze(lm) {
-      if (!state.plankStart) state.plankStart = Date.now();
-      const hangSecs = Math.floor((Date.now() - state.plankStart) / 1000);
-      let score = 100; let feedback = [];
-      const avgWristY   = (lm[15].y + lm[16].y) / 2;
-      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
-      if (avgWristY > avgShoulderY + 0.15) {
-        score -= 30; feedback.push('Grip the bar — keep arms extended');
-      }
-      repCounter.textContent = `${Math.floor(hangSecs / 60)}:${String(hangSecs % 60).padStart(2, '0')}`;
-      if (feedback.length === 0) {
-        showFeedback('Good hang — stay relaxed!', 'good');
-        if (hangSecs > 0 && hangSecs % 15 === 0) speakForce(`${hangSecs} seconds`);
-      } else {
-        showFeedback(feedback[0], score > 60 ? 'warn' : 'bad');
-        if (cueShouldFire('deadhang-form', 20000)) speakForce(feedback[0]);
-      }
-      return { repCounted: false, score: Math.max(0, score) };
-    }
-  },
-
-  row: {
-    name: 'Inverted Rows',
-    hint: 'Side view — body horizontal under bar, arms extended at start',
-    guide: [], guideLines: [],
-    isFloor: false, isTimed: false, drawStyle: 'horizontal', drawVariant: 'plank',
-    isInPosition(lm) {
-      // Body must be roughly horizontal (small vertical span shoulder→ankle)
-      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
-      const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
-      const vertSpan = Math.abs(avgAnkleY - avgShoulderY);
-      // Wrists above (lower Y value than) shoulders — hands gripping bar overhead
-      const avgWristY = (lm[15].y + lm[16].y) / 2;
-      return vertSpan < 0.25 && avgWristY < avgShoulderY + 0.15;
-    },
-    outOfPositionMsg: 'Get under the bar, body horizontal',
-    analyze(lm) {
-      const leftElbow  = angle(lm[11], lm[13], lm[15]);
-      const rightElbow = angle(lm[12], lm[14], lm[16]);
-      const avgElbow = (leftElbow + rightElbow) / 2;
-      state.prevAngle = avgElbow;
-      let repCounted = false;
-      // phase 'up' = arms extended (start); phase 'down' = pulled to bar (chest up)
-      if (avgElbow < calibration.row.elbow_down && state.phase === 'up') {
-        state.phase = 'down';
-      } else if (avgElbow > calibration.row.elbow_up && state.phase === 'down') {
-        state.phase = 'up'; state.spokenThisRep = false; repCounted = true;
-      }
-      let score = 100; let feedback = [];
-      // Body sag: hips should stay in line with shoulders and ankles
-      const avgHipY      = (lm[23].y + lm[24].y) / 2;
-      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
-      const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
-      const midlineY     = (avgShoulderY + avgAnkleY) / 2;
-      if (avgHipY > midlineY + 0.08) {
-        score -= 25; feedback.push('Keep hips up — straight body');
-      }
-      if (feedback.length === 0) { showFeedback('Good form', 'good'); }
-      else { showFeedback(feedback[0], score > 60 ? 'warn' : 'bad'); if (cueShouldFire('row-form', 15000)) speak(feedback[0]); }
-      return { repCounted, score: Math.max(0, score) };
-    }
-  },
-
-  lsit: {
-    name: 'L-Sit',
-    hint: 'Side view — arms pressing down, legs extended horizontal',
-    guide: [], guideLines: [],
-    isFloor: false, isTimed: true, drawStyle: 'standing',
-    isInPosition(lm) {
-      // Shoulders must be above hips — upright torso pressing down on supports
-      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
-      const avgHipY      = (lm[23].y + lm[24].y) / 2;
-      return avgShoulderY < avgHipY;
-    },
-    outOfPositionMsg: 'Get into L-sit position',
-    analyze(lm) {
-      if (!state.plankStart) state.plankStart = Date.now();
-      const elapsed = Math.floor((Date.now() - state.plankStart) / 1000);
-      showFeedback(`${elapsed}s`, 'good');
-      // Milestone cues every 15s
-      if (elapsed > 0 && elapsed % 15 === 0 && !state.spokenThisRep) {
-        speak(`${elapsed} seconds`);
-        state.spokenThisRep = true;
-      } else if (elapsed % 15 !== 0) {
-        state.spokenThisRep = false;
-      }
-      // Form: check legs stay horizontal (hip-to-knee angle should be ~90° = legs forward)
-      const leftHip  = angle(lm[11], lm[23], lm[25]);
-      const rightHip = angle(lm[12], lm[24], lm[26]);
-      const avgHip = (leftHip + rightHip) / 2;
-      if (avgHip > 120) {
-        showFeedback('Keep legs horizontal', 'warn');
-        if (cueShouldFire('lsit-form', 8000)) speak('Keep legs horizontal');
-      }
-      return { repCounted: false, score: 100 };
-    }
-  },
-
-  pistol: {
-    name: 'Pistol Squat',
-    hint: 'Side view — single leg squat, other leg extended forward',
-    guide: [], guideLines: [],
-    isFloor: false, isTimed: false, drawStyle: 'standing',
-    isInPosition(lm) {
-      // Body upright (large vertical span) and hips visible
-      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
-      const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
-      const vertSpan = Math.abs(avgAnkleY - avgShoulderY);
-      const avgHipY = (lm[23].y + lm[24].y) / 2;
-      return vertSpan > 0.35 && avgHipY > avgShoulderY + 0.05;
-    },
-    outOfPositionMsg: 'Stand upright in frame',
-    analyze(lm) {
-      // Use the smaller knee angle — the working leg (the one bending)
-      const leftKnee  = angle(lm[23], lm[25], lm[27]);
-      const rightKnee = angle(lm[24], lm[26], lm[28]);
-      const minKnee   = Math.min(leftKnee, rightKnee);
-      state.prevAngle = minKnee;
-      let repCounted = false;
-      // phase 'up' = standing; phase 'down' = squatting
-      if (minKnee < calibration.pistol.knee_down && state.phase === 'up') {
-        state.phase = 'down';
-      } else if (minKnee > calibration.pistol.knee_up && state.phase === 'down') {
-        state.phase = 'up'; state.spokenThisRep = false; repCounted = true;
-      }
-      let score = 100; let feedback = [];
-      // Check balance: shoulders should stay roughly centered (not lurching sideways)
-      const shoulderDiff = Math.abs(lm[11].y - lm[12].y);
-      if (shoulderDiff > 0.15 && state.phase === 'down') {
-        score -= 20; feedback.push('Stay balanced — shoulders level');
-      }
-      if (feedback.length === 0) { showFeedback('Good form', 'good'); }
-      else { showFeedback(feedback[0], score > 60 ? 'warn' : 'bad'); if (cueShouldFire('pistol-form', 15000)) speak(feedback[0]); }
-      return { repCounted, score: Math.max(0, score) };
-    }
-  },
-
-  glutebridge: {
-    name: 'Glute Bridge',
-    hint: 'Side view — lie on back, feet flat, drive hips up',
-    guide: [], guideLines: [],
-    isFloor: true, isTimed: false, drawStyle: 'horizontal', drawVariant: 'plank',
-    isInPosition(lm) {
-      // Body roughly horizontal (lying down) — small vertical span
-      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
-      const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
-      return Math.abs(avgAnkleY - avgShoulderY) < 0.30;
-    },
-    outOfPositionMsg: 'Lie on your back, knees bent',
-    analyze(lm) {
-      // Hip angle: shoulder → hip → knee. Flat on floor ~90°, bridged ~160°+
-      const leftHip  = angle(lm[11], lm[23], lm[25]);
-      const rightHip = angle(lm[12], lm[24], lm[26]);
-      const avgHip = (leftHip + rightHip) / 2;
-      state.prevAngle = avgHip;
-      let repCounted = false;
-      // phase 'up' = hips down (start); phase 'down' = hips raised
-      if (avgHip > calibration.glutebridge.hip_down && state.phase === 'up') {
-        state.phase = 'down';
-      } else if (avgHip < calibration.glutebridge.hip_up && state.phase === 'down') {
-        state.phase = 'up'; state.spokenThisRep = false; repCounted = true;
-      }
-      let score = 100; let feedback = [];
-      // At top, check full hip extension
-      if (state.phase === 'down' && avgHip < 145) {
-        score -= 20; feedback.push('Drive hips higher');
-      }
-      if (feedback.length === 0) { showFeedback('Good form', 'good'); }
-      else { showFeedback(feedback[0], score > 60 ? 'warn' : 'bad'); if (cueShouldFire('glutebridge-form', 12000)) speak(feedback[0]); }
-      return { repCounted, score: Math.max(0, score) };
-    }
-  },
-
-  legraise: {
-    name: 'Leg Raises',
-    hint: 'Front view — full body in frame while hanging',
-    guide: [], guideLines: [],
-    isFloor: false, isTimed: false, drawStyle: 'hanging',
-    isInPosition(lm) {
-      const avgWristY   = (lm[15].y + lm[16].y) / 2;
-      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
-      return avgWristY < avgShoulderY + 0.2;
-    },
-    outOfPositionMsg: 'Grip the bar to continue',
-    analyze(lm) {
-      // Hip angle: shoulder → hip → knee. Legs down = ~170°, legs raised = ~80°.
-      const leftHip  = angle(lm[11], lm[23], lm[25]);
-      const rightHip = angle(lm[12], lm[24], lm[26]);
-      const avgHip = (leftHip + rightHip) / 2;
-      state.prevAngle = avgHip;
-      let repCounted = false;
-      // phase 'up' = legs hanging down (start); phase 'down' = legs raised
-      if (avgHip < calibration.legraise.hip_down && state.phase === 'up') {
-        state.phase = 'down';
-      } else if (avgHip > calibration.legraise.hip_up && state.phase === 'down') {
-        state.phase = 'up'; state.spokenThisRep = false; repCounted = true;
-      }
-      let score = 100; let feedback = [];
-      // Check legs stay reasonably straight during the raise
-      const leftKnee  = angle(lm[23], lm[25], lm[27]);
-      const rightKnee = angle(lm[24], lm[26], lm[28]);
-      const avgKnee = (leftKnee + rightKnee) / 2;
-      if (state.phase === 'down' && avgKnee < 140) {
-        score -= 20; feedback.push('Keep legs straighter');
-      }
-      if (feedback.length === 0) { showFeedback('Good form', 'good'); }
-      else { showFeedback(feedback[0], score > 60 ? 'warn' : 'bad'); if (cueShouldFire('legraise-form', 15000)) speak(feedback[0]); }
-      return { repCounted, score: Math.max(0, score) };
-    }
-  },
-
-  archhang: {
-    name: 'Arch Hang',
-    hint: 'Front view — grip bar, arch back and pack shoulders down',
-    guide: [], guideLines: [],
-    isFloor: false, isTimed: true, drawStyle: 'hanging',
-    isInPosition(lm) {
-      const avgWristY    = (lm[15].y + lm[16].y) / 2;
-      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
-      return avgWristY < avgShoulderY + 0.2;
-    },
-    outOfPositionMsg: 'Grip the bar to continue',
-    analyze(lm) {
-      if (!state.plankStart) state.plankStart = Date.now();
-      const hangSecs = Math.floor((Date.now() - state.plankStart) / 1000);
-      let score = 100; let feedback = [];
-      // Check shoulder packing: shoulders should be DEPRESSED (dropped away from bar).
-      // In passive hang, shoulders shrug up → gap is small. In arch hang (packed) → larger gap.
-      // Gap < 0.08 means shoulders are essentially at bar level = shrugging, not packed.
-      const avgWristY    = (lm[15].y + lm[16].y) / 2;
-      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
-      const gap = avgShoulderY - avgWristY;
-      if (gap < 0.08) {
-        score -= 25; feedback.push('Pack shoulders down — away from the bar');
-      }
-      repCounter.textContent = `${Math.floor(hangSecs / 60)}:${String(hangSecs % 60).padStart(2, '0')}`;
-      if (feedback.length === 0) {
-        showFeedback('Good arch — hold it!', 'good');
-        if (hangSecs > 0 && hangSecs % 15 === 0) speakForce(`${hangSecs} seconds`);
-      } else {
-        showFeedback(feedback[0], score > 60 ? 'warn' : 'bad');
-        if (cueShouldFire('archhang-form', 8000)) speakForce(feedback[0]);
-      }
-      return { repCounted: false, score: Math.max(0, score) };
-    }
-  },
-
-  scapularpull: {
-    name: 'Scapular Pulls',
-    hint: 'Front view — arms straight, depress shoulder blades to rise slightly',
-    guide: [], guideLines: [],
-    isFloor: false, isTimed: true, drawStyle: 'hanging',
-    isInPosition(lm) {
-      const avgWristY    = (lm[15].y + lm[16].y) / 2;
-      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
-      return avgWristY < avgShoulderY + 0.2;
-    },
-    outOfPositionMsg: 'Grip the bar to continue',
-    analyze(lm) {
-      if (!state.plankStart) state.plankStart = Date.now();
-      const hangSecs = Math.floor((Date.now() - state.plankStart) / 1000);
-      let score = 100; let feedback = [];
-      // Key form requirement: arms must stay straight (no elbow bend).
-      // If elbows bend, it becomes a pull-up — not a scapular pull.
-      const leftElbow  = angle(lm[11], lm[13], lm[15]);
-      const rightElbow = angle(lm[12], lm[14], lm[16]);
-      const avgElbow = (leftElbow + rightElbow) / 2;
-      if (avgElbow < 150) {
-        score -= 25; feedback.push('Keep arms straight — no elbow bend');
-      }
-      repCounter.textContent = `${Math.floor(hangSecs / 60)}:${String(hangSecs % 60).padStart(2, '0')}`;
-      if (feedback.length === 0) {
-        showFeedback('Good — pack and hold!', 'good');
-        if (hangSecs > 0 && hangSecs % 15 === 0) speakForce(`${hangSecs} seconds`);
-      } else {
-        showFeedback(feedback[0], score > 60 ? 'warn' : 'bad');
-        if (cueShouldFire('scapularpull-form', 20000)) speakForce(feedback[0]);
-      }
-      return { repCounted: false, score: Math.max(0, score) };
-    }
-  },
-
-  // ===== MOBILITY / PT EXERCISES (Phase 5 batch 3) =====
-
-  shoulderdislocate: {
-    name: 'Shoulder Dislocates',
-    hint: 'Front view — hold a stick or band with a wide grip',
-    guide: [], guideLines: [],
-    isFloor: false, isTimed: true, drawStyle: 'standing',
-    isInPosition(lm) {
-      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
-      const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
-      return Math.abs(avgAnkleY - avgShoulderY) > 0.30;
-    },
-    outOfPositionMsg: 'Stand up straight to begin',
-    analyze(lm) {
-      if (!state.plankStart) state.plankStart = Date.now();
-      const secs = Math.floor((Date.now() - state.plankStart) / 1000);
-      let score = 100; let feedback = [];
-      // Arms must stay straight throughout the pass — bending = grip too narrow
-      const leftElbow  = angle(lm[11], lm[13], lm[15]);
-      const rightElbow = angle(lm[12], lm[14], lm[16]);
-      const avgElbow = (leftElbow + rightElbow) / 2;
-      if (avgElbow < 150) {
-        score -= 20; feedback.push('Keep arms straight — widen your grip');
-      }
-      repCounter.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
-      if (feedback.length === 0) {
-        showFeedback('Good — keep moving!', 'good');
-        if (secs > 0 && secs % 15 === 0) speakForce(`${secs} seconds`);
-      } else {
-        showFeedback(feedback[0], score > 60 ? 'warn' : 'bad');
-        if (cueShouldFire('shoulderdislocate-form', 10000)) speakForce(feedback[0]);
-      }
-      return { repCounted: false, score: Math.max(0, score) };
-    }
-  },
-
-  hipflexor: {
-    name: 'Hip Flexor Stretch',
-    hint: 'Side view — one knee down, opposite foot forward, torso tall',
-    guide: [], guideLines: [],
-    isFloor: false, isTimed: true, drawStyle: 'kneeling',
-    isInPosition(lm) {
-      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
-      const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
-      return Math.abs(avgAnkleY - avgShoulderY) > 0.30;
-    },
-    outOfPositionMsg: 'Get into a kneeling lunge position',
-    analyze(lm) {
-      if (!state.plankStart) state.plankStart = Date.now();
-      const secs = Math.floor((Date.now() - state.plankStart) / 1000);
-      let score = 100; let feedback = [];
-      // Torso upright: shoulder should be well above hip (gap > 0.10 in Y)
-      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
-      const avgHipY      = (lm[23].y + lm[24].y) / 2;
-      if (avgHipY - avgShoulderY < 0.10) {
-        score -= 20; feedback.push('Sit tall — lift your chest');
-      }
-      repCounter.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
-      if (feedback.length === 0) {
-        showFeedback('Good — feel the stretch!', 'good');
-        if (secs > 0 && secs % 15 === 0) speakForce(`${secs} seconds`);
-      } else {
-        showFeedback(feedback[0], score > 60 ? 'warn' : 'bad');
-        if (cueShouldFire('hipflexor-form', 10000)) speakForce(feedback[0]);
-      }
-      return { repCounted: false, score: Math.max(0, score) };
-    }
-  },
-
-  wristwarmup: {
-    name: 'Wrist Warm-up',
-    hint: 'Front view — extend arms forward at shoulder height',
-    guide: [], guideLines: [],
-    isFloor: false, isTimed: true, drawStyle: 'standing',
-    isInPosition(lm) {
-      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
-      const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
-      return Math.abs(avgAnkleY - avgShoulderY) > 0.30;
-    },
-    outOfPositionMsg: 'Stand facing the camera',
-    analyze(lm) {
-      if (!state.plankStart) state.plankStart = Date.now();
-      const secs = Math.floor((Date.now() - state.plankStart) / 1000);
-      let score = 100; let feedback = [];
-      // Arms should be raised to shoulder height for effective wrist circles
-      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
-      const avgWristY    = (lm[15].y + lm[16].y) / 2;
-      if (avgWristY > avgShoulderY + 0.12) {
-        score -= 15; feedback.push('Raise arms to shoulder height');
-      }
-      repCounter.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
-      if (feedback.length === 0) {
-        showFeedback('Good — rotate those wrists!', 'good');
-        if (secs > 0 && secs % 15 === 0) speakForce(`${secs} seconds`);
-      } else {
-        showFeedback(feedback[0], score > 60 ? 'warn' : 'bad');
-        if (cueShouldFire('wristwarmup-form', 12000)) speakForce(feedback[0]);
-      }
-      return { repCounted: false, score: Math.max(0, score) };
-    }
-  },
-
-  bandpullapart: {
-    name: 'Band Pull-Aparts',
-    hint: 'Front view — hold band at shoulder height, arms extended in front',
-    guide: [], guideLines: [],
-    isFloor: false, isTimed: false, drawStyle: 'standing',
-    isInPosition(lm) {
-      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
-      const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
-      return Math.abs(avgAnkleY - avgShoulderY) > 0.30;
-    },
-    outOfPositionMsg: 'Stand facing the camera, arms at shoulder height',
-    analyze(lm) {
-      const wristSpan    = Math.abs(lm[15].x - lm[16].x);
-      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
-      const avgWristY    = (lm[15].y + lm[16].y) / 2;
-      let repCounted = false;
-      // Rep: arms start close (center) → pull apart (spread) → return to center = 1 rep
-      if (wristSpan < calibration.bandpullapart.wrist_center && state.phase === 'spread') {
-        state.phase = 'center'; state.spokenThisRep = false; repCounted = true;
-      } else if (wristSpan > calibration.bandpullapart.wrist_spread && state.phase === 'center') {
-        state.phase = 'spread';
-      }
-      let score = 100; let feedback = [];
-      if (avgWristY > avgShoulderY + 0.15) {
-        score -= 20; feedback.push('Keep arms at shoulder height');
-      }
-      if (feedback.length === 0) { showFeedback('Good pull!', 'good'); }
-      else { showFeedback(feedback[0], score > 60 ? 'warn' : 'bad'); if (cueShouldFire('bandpullapart-form', 12000)) speak(feedback[0]); }
-      return { repCounted, score: Math.max(0, score) };
-    }
-  },
-
-  foamroller: {
-    name: 'Foam Roller',
-    hint: 'Side view — lie on roller, breathe and relax into it',
-    guide: [], guideLines: [],
-    isFloor: true, isTimed: true, drawStyle: 'horizontal', drawVariant: 'foamroller',
-    isInPosition(lm) {
-      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
-      const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
-      return Math.abs(avgAnkleY - avgShoulderY) < 0.30;
-    },
-    outOfPositionMsg: 'Lie down on the foam roller to continue',
-    analyze(lm) {
-      if (!state.plankStart) state.plankStart = Date.now();
-      const secs = Math.floor((Date.now() - state.plankStart) / 1000);
-      repCounter.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
-      showFeedback('Breathe and relax into the roller', 'good');
+    repCounter.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+    if (!feedback) {
+      showFeedback(goodHoldMessage || 'Good form — hold it!', 'good');
       if (secs > 0 && secs % 15 === 0) speakForce(`${secs} seconds`);
-      return { repCounted: false, score: 100 };
+    } else {
+      showFeedback(feedback, score > 60 ? 'warn' : 'bad');
     }
-  },
 
-  catcow: {
-    name: 'Cat-Cow',
-    hint: 'Side view — on all fours, hands under shoulders, knees under hips',
-    guide: [], guideLines: [],
-    isFloor: true, isTimed: true, drawStyle: 'quadruped',
-    isInPosition(lm) {
-      // Quadruped: body roughly horizontal, wrists near ground level
-      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
-      const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
-      const avgWristY    = (lm[15].y + lm[16].y) / 2;
-      return Math.abs(avgAnkleY - avgShoulderY) < 0.35 && avgWristY > 0.55;
-    },
-    outOfPositionMsg: 'Get onto all fours — hands under shoulders',
-    analyze(lm) {
-      if (!state.plankStart) state.plankStart = Date.now();
-      const secs = Math.floor((Date.now() - state.plankStart) / 1000);
-      let score = 100; let feedback = [];
-      // Hips should stay level (not collapse to one side)
-      const hipSpan = Math.abs(lm[23].y - lm[24].y);
-      if (hipSpan > 0.12) {
-        score -= 15; feedback.push('Keep hips level');
-      }
-      repCounter.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
-      if (feedback.length === 0) {
-        showFeedback('Breathe — arch and round!', 'good');
-        if (secs > 0 && secs % 15 === 0) speakForce(`${secs} seconds`);
-      } else {
-        showFeedback(feedback[0], score > 60 ? 'warn' : 'bad');
-        if (cueShouldFire('catcow-form', 10000)) speakForce(feedback[0]);
-      }
-      return { repCounted: false, score: Math.max(0, score) };
+    return { repCounted: false, score: Math.max(0, score) };
+  }
+
+  return { analyze, reset };
+}
+
+// Register an exercise config. Wires it into exerciseRegistry with the same
+// shape the rest of the app already reads (analyze, isInPosition, drawStyle, etc.).
+function addExercise(config) {
+  validateExerciseConfig(config);
+
+  const analyzer = config.isTimed ? buildTimedAnalyzer(config) : buildRepAnalyzer(config);
+  analyzerResets.push(analyzer.reset);
+
+  exerciseRegistry[config.id] = {
+    name: config.name,
+    hint: config.hint,
+    isFloor: config.isFloor,
+    isTimed: config.isTimed,
+    drawStyle: config.silhouette.drawStyle,
+    drawVariant: config.silhouette.drawVariant,
+    isInPosition: config.isInPosition,
+    outOfPositionMsg: config.outOfPositionMsg,
+    analyze: analyzer.analyze,
+  };
+
+  // Seed calibration defaults using the existing per-exercise key names.
+  // Only creates an entry if none already exists — never overwrites a saved calibration.
+  if (config.analysis && config.analysis.calibrationDefaults) {
+    if (typeof defaultCalibration !== 'undefined' && !defaultCalibration[config.id]) {
+      defaultCalibration[config.id] = { ...config.analysis.calibrationDefaults };
     }
-  },
-
-  birddog: {
-    name: 'Bird-Dog',
-    hint: 'Side view — on all fours, extend opposite arm and leg',
-    guide: [], guideLines: [],
-    isFloor: true, isTimed: true, drawStyle: 'quadruped', drawVariant: 'birddog',
-    isInPosition(lm) {
-      const avgShoulderY = (lm[11].y + lm[12].y) / 2;
-      const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
-      const avgWristY    = (lm[15].y + lm[16].y) / 2;
-      return Math.abs(avgAnkleY - avgShoulderY) < 0.35 && avgWristY > 0.55;
-    },
-    outOfPositionMsg: 'Get onto all fours to begin',
-    analyze(lm) {
-      if (!state.plankStart) state.plankStart = Date.now();
-      const secs = Math.floor((Date.now() - state.plankStart) / 1000);
-      let score = 100; let feedback = [];
-      // Key form cue: keep hips level — don't rotate when extending arm/leg
-      const hipSpan = Math.abs(lm[23].y - lm[24].y);
-      if (hipSpan > 0.12) {
-        score -= 20; feedback.push("Keep hips level — don't rotate");
-      }
-      repCounter.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
-      if (feedback.length === 0) {
-        showFeedback('Good — hold each extension!', 'good');
-        if (secs > 0 && secs % 15 === 0) speakForce(`${secs} seconds`);
-      } else {
-        showFeedback(feedback[0], score > 60 ? 'warn' : 'bad');
-        if (cueShouldFire('birddog-form', 10000)) speakForce(feedback[0]);
-      }
-      return { repCounted: false, score: Math.max(0, score) };
+    if (typeof calibration !== 'undefined' && !calibration[config.id]) {
+      calibration[config.id] = { ...config.analysis.calibrationDefaults };
     }
   }
 
-};
+  addPickerCard(config);
+}
+
+// Picker card wiring. The existing renderExercisePicker() loops over
+// exerciseRegistry entries and renders them, so addExercise()'s write into the
+// registry is already sufficient to make a new exercise show up in the picker.
+// This stub exists so future picker refactors (filter chips, search) have a
+// single place to hook into. Intentionally byte-equivalent to current behavior:
+// kneeling/quadruped exercises still render blank cards — fix deferred to the
+// picker-redesign sprint (see framework spec §6).
+function addPickerCard(config) {
+  // No-op in Step 0 — renderExercisePicker() handles rendering from exerciseRegistry.
+}
 
 // ===== CALIBRATION =====
 // Rep detection thresholds that vary by body proportions and flexibility.
@@ -1377,6 +813,1122 @@ function loadCalibrationFromFile(file) {
   };
   reader.readAsText(file);
 }
+
+// ===== FRAMEWORK-BASED EXERCISE CONFIGS =====
+// Exercises in this section are declared as config objects and registered via
+// addExercise(), which writes a compatible entry into exerciseRegistry. See
+// docs/specs/exercise-framework-spec.md for the schema contract.
+//
+// Migration status: push-up (1/22).
+//
+// IMPORTANT: this block must run AFTER `let calibration` and `defaultCalibration`
+// are defined, because addExercise() seeds those maps for new exercises.
+
+const pushupConfig = {
+  id: 'pushup',
+  name: 'Push-ups',
+  isFloor: true,
+  isTimed: false,
+  hint: 'Side view — full body in frame',
+
+  isInPosition(lm) {
+    const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+    const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
+    return Math.abs(avgShoulderY - avgAnkleY) < 0.25;
+  },
+  outOfPositionMsg: 'Get into pushup position',
+
+  silhouette: {
+    drawStyle: 'horizontal',
+    drawVariant: 'pushup',
+  },
+
+  analysis: {
+    // Average elbow angle — left + right shoulder→elbow→wrist.
+    trackingJoint(lm) {
+      return (angle(lm[11], lm[13], lm[15]) + angle(lm[12], lm[14], lm[16])) / 2;
+    },
+
+    // Map framework bottom/top to the existing per-exercise calibration keys.
+    calibrationKeys: { bottom: 'elbow_down', top: 'elbow_up' },
+    calibrationDefaults: { elbow_down: 100, elbow_up: 150 },
+
+    // Form checks in priority order. First failing check wins the shown feedback
+    // and the voice cue; all failing checks still deduct score. All three share
+    // the default cue key 'pushup-form' with a 15s cooldown — matches the old
+    // single-key behavior exactly.
+    formChecks: [
+      {
+        id: 'hipSag',
+        // avgBack < 145 — shoulder→hip→ankle angle. Hips dropping below the plank line.
+        check(lm) {
+          const leftBack  = angle(lm[11], lm[23], lm[27]);
+          const rightBack = angle(lm[12], lm[24], lm[28]);
+          return (leftBack + rightBack) / 2 < 145;
+        },
+        scoreDeduction: 30,
+        cue: {
+          // Dynamic: softer message on first set, scaling suggestion afterwards.
+          message: () => pastFirstSet() ? 'Hips dropping — try knees down or incline' : 'Tighten your core',
+          cooldown: 15000,
+        },
+      },
+      {
+        id: 'hipsTooHigh',
+        // avgBack > 195 — pike shape, hips in the air.
+        check(lm) {
+          const leftBack  = angle(lm[11], lm[23], lm[27]);
+          const rightBack = angle(lm[12], lm[24], lm[28]);
+          return (leftBack + rightBack) / 2 > 195;
+        },
+        scoreDeduction: 20,
+        cue: { message: 'Hips too high — straighten your body', cooldown: 15000 },
+      },
+      {
+        id: 'goDeeper',
+        // Only fires during descent in 'down' phase, when elbow is still >12° above depth threshold.
+        // Uses phase-local extremum direction detection (goingDown) rather than frame-to-frame delta.
+        check(lm, angleNow, phase, goingDown) {
+          return phase === 'down' && goingDown && angleNow > (calibration.pushup.elbow_down + 12);
+        },
+        scoreDeduction: 15,
+        cue: { message: 'Go deeper', cooldown: 15000 },
+      },
+    ],
+  },
+};
+
+addExercise(pushupConfig);
+
+// ---------- squat ----------
+const squatConfig = {
+  id: 'squat',
+  name: 'Squats',
+  isFloor: false,
+  isTimed: false,
+  hint: 'Side view — stand back so full body is visible',
+
+  isInPosition(lm) {
+    const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+    const avgAnkleY = (lm[27].y + lm[28].y) / 2;
+    if (Math.abs(avgShoulderY - avgAnkleY) <= 0.25) return false;
+    const hipVis = Math.min(lm[23].visibility, lm[24].visibility);
+    if (hipVis < 0.5) return false;
+    const hipCenter = (lm[23].y + lm[24].y) / 2;
+    // Upper bound loosened 0.75 → 0.88: at full squat/lunge depth hips drop
+    // to Y ≈ 0.80-0.85 in normalized coords; 0.75 triggered "Stand up" on deep reps.
+    if (hipCenter < 0.25 || hipCenter > 0.88) return false;
+    return true;
+  },
+  outOfPositionMsg: 'Stand up to continue',
+
+  silhouette: {
+    drawStyle: 'standing',
+  },
+
+  analysis: {
+    // Average knee angle — left + right hip→knee→ankle.
+    trackingJoint(lm) {
+      return (angle(lm[23], lm[25], lm[27]) + angle(lm[24], lm[26], lm[28])) / 2;
+    },
+
+    calibrationKeys: { bottom: 'knee_down', top: 'knee_up' },
+    calibrationDefaults: { knee_down: 100, knee_up: 160 },
+
+    // Form checks in priority order — preserves old single-cue behavior exactly.
+    formChecks: [
+      {
+        id: 'goDeeper',
+        // phase=='down' && goingDown && avgKnee > knee_down + 12
+        check(lm, angleNow, phase, goingDown) {
+          return phase === 'down' && goingDown && angleNow > (calibration.squat.knee_down + 12);
+        },
+        scoreDeduction: 20,
+        cue: {
+          message: () => pastFirstSet() ? 'Try deeper — hold a support for balance' : 'Go deeper',
+          cooldown: 15000,
+        },
+      },
+      {
+        id: 'kneeCave',
+        // Front-view only: when shoulders are wide (facing camera) and knees narrower than ankles.
+        check(lm, angleNow, phase) {
+          const shoulderSpan = Math.abs(lm[11].x - lm[12].x);
+          const isFrontView = shoulderSpan > 0.15;
+          if (!isFrontView || phase !== 'down') return false;
+          const kneeSpan = Math.abs(lm[25].x - lm[26].x);
+          const ankleSpan = Math.abs(lm[27].x - lm[28].x);
+          return kneeSpan < ankleSpan * 0.65;
+        },
+        scoreDeduction: 25,
+        cue: { message: 'Push your knees out', cooldown: 15000 },
+      },
+      {
+        id: 'torsoLean',
+        // Side-view only: torso leaning too far forward during down phase.
+        check(lm, angleNow, phase) {
+          const shoulderSpan = Math.abs(lm[11].x - lm[12].x);
+          const isFrontView = shoulderSpan > 0.15;
+          if (isFrontView || phase !== 'down') return false;
+          const torsoLean = angle(lm[11], lm[23], lm[25]);
+          return torsoLean < 45;
+        },
+        scoreDeduction: 15,
+        cue: {
+          message: () => pastFirstSet() ? 'Leaning forward — try heels elevated' : 'Chest up',
+          cooldown: 15000,
+        },
+      },
+    ],
+  },
+};
+
+addExercise(squatConfig);
+
+// ---------- lunge ----------
+const lungeConfig = {
+  id: 'lunge',
+  name: 'Lunges',
+  isFloor: false,
+  isTimed: false,
+  hint: 'Side view — full body in frame',
+
+  isInPosition(lm) {
+    const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+    const avgAnkleY = (lm[27].y + lm[28].y) / 2;
+    if (Math.abs(avgShoulderY - avgAnkleY) <= 0.25) return false;
+    const hipVis = Math.min(lm[23].visibility, lm[24].visibility);
+    if (hipVis < 0.5) return false;
+    const hipCenter = (lm[23].y + lm[24].y) / 2;
+    if (hipCenter < 0.25 || hipCenter > 0.88) return false;
+    return true;
+  },
+  outOfPositionMsg: 'Stand up to continue',
+
+  silhouette: {
+    drawStyle: 'standing',
+  },
+
+  analysis: {
+    // Track min(leftKnee, rightKnee) — the working (front) leg bends more.
+    // The old code required BOTH knees > knee_up for the up-transition;
+    // since min(a,b) > X iff both a > X and b > X, tracking the min preserves
+    // exact rep-count behavior with the framework's single-threshold model.
+    trackingJoint(lm) {
+      const leftKnee = angle(lm[23], lm[25], lm[27]);
+      const rightKnee = angle(lm[24], lm[26], lm[28]);
+      return Math.min(leftKnee, rightKnee);
+    },
+
+    calibrationKeys: { bottom: 'knee_down', top: 'knee_up' },
+    calibrationDefaults: { knee_down: 110, knee_up: 155 },
+
+    formChecks: [
+      {
+        id: 'goDeeper',
+        check(lm, angleNow, phase, goingDown) {
+          return phase === 'down' && goingDown && angleNow > (calibration.lunge.knee_down + 12);
+        },
+        scoreDeduction: 15,
+        cue: { message: 'Go deeper', cooldown: 15000 },
+      },
+      {
+        id: 'torsoLean',
+        // Old code used left-side torso angle (lm[11], lm[23], lm[25]) — preserved verbatim.
+        check(lm) {
+          const torsoAngle = angle(lm[11], lm[23], lm[25]);
+          return torsoAngle < 140;
+        },
+        scoreDeduction: 20,
+        cue: {
+          message: () => pastFirstSet() ? 'Torso leaning — try a wall for balance' : 'Keep your torso upright',
+          cooldown: 15000,
+        },
+      },
+    ],
+  },
+};
+
+addExercise(lungeConfig);
+
+// ---------- pistol squat ----------
+const pistolConfig = {
+  id: 'pistol',
+  name: 'Pistol Squat',
+  isFloor: false,
+  isTimed: false,
+  hint: 'Side view — single leg squat, other leg extended forward',
+
+  isInPosition(lm) {
+    // Body upright (large vertical span) and hips visible below shoulders.
+    const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+    const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
+    const vertSpan = Math.abs(avgAnkleY - avgShoulderY);
+    const avgHipY = (lm[23].y + lm[24].y) / 2;
+    return vertSpan > 0.35 && avgHipY > avgShoulderY + 0.05;
+  },
+  outOfPositionMsg: 'Stand upright in frame',
+
+  silhouette: {
+    drawStyle: 'standing',
+  },
+
+  analysis: {
+    // Track the working (bending) leg — the smaller knee angle.
+    trackingJoint(lm) {
+      const leftKnee  = angle(lm[23], lm[25], lm[27]);
+      const rightKnee = angle(lm[24], lm[26], lm[28]);
+      return Math.min(leftKnee, rightKnee);
+    },
+
+    calibrationKeys: { bottom: 'knee_down', top: 'knee_up' },
+    calibrationDefaults: { knee_down: 80, knee_up: 150 },
+
+    formChecks: [
+      {
+        id: 'shoulderBalance',
+        check(lm, angleNow, phase) {
+          // Shoulders should stay roughly level while squatting.
+          const shoulderDiff = Math.abs(lm[11].y - lm[12].y);
+          return phase === 'down' && shoulderDiff > 0.15;
+        },
+        scoreDeduction: 20,
+        cue: { message: 'Stay balanced — shoulders level', cooldown: 15000 },
+      },
+    ],
+  },
+};
+
+addExercise(pistolConfig);
+
+// ---------- pullup ----------
+const pullupConfig = {
+  id: 'pullup',
+  name: 'Pull-ups',
+  isFloor: false,
+  isTimed: false,
+  hint: 'Front view — step back from bar',
+
+  isInPosition(lm) {
+    const avgWristY = (lm[15].y + lm[16].y) / 2;
+    const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+    return avgWristY < avgShoulderY + 0.2;
+  },
+  outOfPositionMsg: 'Grip the bar to continue',
+
+  silhouette: {
+    drawStyle: 'hanging',
+  },
+
+  analysis: {
+    // Average elbow angle — left + right shoulder→elbow→wrist.
+    trackingJoint(lm) {
+      return (angle(lm[11], lm[13], lm[15]) + angle(lm[12], lm[14], lm[16])) / 2;
+    },
+
+    calibrationKeys: { bottom: 'elbow_top', top: 'elbow_bottom' },
+    calibrationDefaults: { elbow_top: 80, elbow_bottom: 150 },
+
+    // Extra gate: elbows alone can't trigger a rep — chin must also be above the
+    // hands. Preserves the load-bearing "partial rep doesn't count" behavior.
+    downGate(lm) {
+      return lm[0].y < (lm[15].y + lm[16].y) / 2;
+    },
+
+    formChecks: [
+      {
+        id: 'chinOverBar',
+        // At the top of a rep, chin should be above the hands.
+        check(lm, angleNow, phase) {
+          const chinAboveHands = lm[0].y < (lm[15].y + lm[16].y) / 2;
+          return phase === 'down' && !chinAboveHands && angleNow < 100;
+        },
+        scoreDeduction: 20,
+        cue: { message: 'Get your chin over the bar', cooldown: 15000 },
+      },
+      {
+        id: 'swing',
+        // Hips drifting horizontally relative to shoulders = kipping/swinging.
+        check(lm) {
+          return Math.abs(lm[23].x - lm[11].x) > 0.15;
+        },
+        scoreDeduction: 25,
+        cue: { message: 'Control the swing', cooldown: 15000 },
+      },
+    ],
+  },
+};
+
+addExercise(pullupConfig);
+
+// ---------- pike push-ups ----------
+const pikeConfig = {
+  id: 'pike',
+  name: 'Pike Push-ups',
+  isFloor: false,
+  isTimed: false,
+  hint: 'Side view — hips high, hands and feet on floor',
+
+  isInPosition(lm) {
+    // Hips must be raised: hip Y significantly less than wrist Y (Y=0 is top of screen).
+    const avgWristY = (lm[15].y + lm[16].y) / 2;
+    const avgHipY   = (lm[23].y + lm[24].y) / 2;
+    return avgWristY > 0.55 && avgHipY < avgWristY - 0.15;
+  },
+  outOfPositionMsg: 'Get into pike position (hips high)',
+
+  silhouette: {
+    drawStyle: 'horizontal',
+    drawVariant: 'pushup',
+  },
+
+  analysis: {
+    trackingJoint(lm) {
+      return (angle(lm[11], lm[13], lm[15]) + angle(lm[12], lm[14], lm[16])) / 2;
+    },
+
+    calibrationKeys: { bottom: 'elbow_down', top: 'elbow_up' },
+    calibrationDefaults: { elbow_down: 90, elbow_up: 150 },
+
+    formChecks: [
+      {
+        id: 'hipsHigh',
+        // Hips must stay raised throughout — the defining form cue for pike.
+        check(lm) {
+          const avgHipY   = (lm[23].y + lm[24].y) / 2;
+          const avgWristY = (lm[15].y + lm[16].y) / 2;
+          return avgHipY > avgWristY - 0.08;
+        },
+        scoreDeduction: 25,
+        cue: { message: 'Keep hips high', cooldown: 15000 },
+      },
+      {
+        id: 'goDeeper',
+        check(lm, angleNow, phase, goingDown) {
+          return phase === 'down' && goingDown && angleNow > (calibration.pike.elbow_down + 12);
+        },
+        scoreDeduction: 15,
+        cue: { message: 'Go deeper', cooldown: 15000 },
+      },
+    ],
+  },
+};
+
+addExercise(pikeConfig);
+
+// ---------- dips ----------
+const dipConfig = {
+  id: 'dip',
+  name: 'Dips',
+  isFloor: false,
+  isTimed: false,
+  hint: 'Front or side view — arms extended at top',
+
+  isInPosition(lm) {
+    // Body must be upright (not horizontal).
+    const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+    const avgAnkleY = (lm[27].y + lm[28].y) / 2;
+    return Math.abs(avgShoulderY - avgAnkleY) > 0.3;
+  },
+  outOfPositionMsg: 'Get into dip position',
+
+  silhouette: {
+    drawStyle: 'standing',
+  },
+
+  analysis: {
+    trackingJoint(lm) {
+      return (angle(lm[11], lm[13], lm[15]) + angle(lm[12], lm[14], lm[16])) / 2;
+    },
+
+    calibrationKeys: { bottom: 'elbow_down', top: 'elbow_up' },
+    calibrationDefaults: { elbow_down: 90, elbow_up: 150 },
+
+    formChecks: [
+      {
+        id: 'goDeeper',
+        check(lm, angleNow, phase, goingDown) {
+          return phase === 'down' && goingDown && angleNow > (calibration.dip.elbow_down + 12);
+        },
+        scoreDeduction: 15,
+        cue: { message: 'Go deeper', cooldown: 15000 },
+      },
+      {
+        id: 'elbowFlare',
+        // Front-view only: elbows wider than shoulders while bent.
+        check(lm, angleNow, phase) {
+          const shoulderSpan = Math.abs(lm[11].x - lm[12].x);
+          if (shoulderSpan <= 0.15 || phase !== 'down') return false;
+          const elbowSpan = Math.abs(lm[13].x - lm[14].x);
+          return elbowSpan > shoulderSpan * 1.6;
+        },
+        scoreDeduction: 20,
+        cue: { message: 'Keep elbows closer in', cooldown: 15000 },
+      },
+    ],
+  },
+};
+
+addExercise(dipConfig);
+
+// ---------- inverted rows ----------
+const rowConfig = {
+  id: 'row',
+  name: 'Inverted Rows',
+  isFloor: false,
+  isTimed: false,
+  hint: 'Side view — body horizontal under bar, arms extended at start',
+
+  isInPosition(lm) {
+    // Body must be roughly horizontal (small vertical span shoulder→ankle);
+    // wrists above (smaller Y than) shoulders — hands gripping bar overhead.
+    const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+    const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
+    const vertSpan = Math.abs(avgAnkleY - avgShoulderY);
+    const avgWristY = (lm[15].y + lm[16].y) / 2;
+    return vertSpan < 0.25 && avgWristY < avgShoulderY + 0.15;
+  },
+  outOfPositionMsg: 'Get under the bar, body horizontal',
+
+  silhouette: {
+    drawStyle: 'horizontal',
+    drawVariant: 'plank',
+  },
+
+  analysis: {
+    trackingJoint(lm) {
+      return (angle(lm[11], lm[13], lm[15]) + angle(lm[12], lm[14], lm[16])) / 2;
+    },
+
+    calibrationKeys: { bottom: 'elbow_down', top: 'elbow_up' },
+    calibrationDefaults: { elbow_down: 90, elbow_up: 150 },
+
+    formChecks: [
+      {
+        id: 'hipSag',
+        // Hips should stay in line with shoulders and ankles (body straight).
+        check(lm) {
+          const avgHipY      = (lm[23].y + lm[24].y) / 2;
+          const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+          const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
+          const midlineY     = (avgShoulderY + avgAnkleY) / 2;
+          return avgHipY > midlineY + 0.08;
+        },
+        scoreDeduction: 25,
+        cue: { message: 'Keep hips up — straight body', cooldown: 15000 },
+      },
+    ],
+  },
+};
+
+addExercise(rowConfig);
+
+// ---------- plank ----------
+const plankConfig = {
+  id: 'plank',
+  name: 'Plank',
+  isFloor: true,
+  isTimed: true,
+  hint: 'Side view — full body in frame',
+
+  isInPosition(lm) {
+    const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+    const avgAnkleY = (lm[27].y + lm[28].y) / 2;
+    return Math.abs(avgShoulderY - avgAnkleY) < 0.25;
+  },
+  outOfPositionMsg: 'Get into plank position',
+
+  silhouette: {
+    drawStyle: 'horizontal',
+    drawVariant: 'plank',
+  },
+
+  analysis: {
+    goodHoldMessage: 'Good form — hold it!',
+    formChecks: [
+      {
+        id: 'hipSagSevere',
+        // avgBack < 145 — severe hip sag.
+        check(lm) {
+          const leftBack  = angle(lm[11], lm[23], lm[27]);
+          const rightBack = angle(lm[12], lm[24], lm[28]);
+          return (leftBack + rightBack) / 2 < 145;
+        },
+        scoreDeduction: 30,
+        cue: {
+          message: () => pastFirstSet() ? 'Hips dropping — try knees-down plank' : 'Tighten your core',
+          cooldown: 20000,
+        },
+      },
+      {
+        id: 'hipSagMild',
+        // 145 ≤ avgBack < 155 — mild sag, silent score deduction (no cue).
+        check(lm) {
+          const leftBack  = angle(lm[11], lm[23], lm[27]);
+          const rightBack = angle(lm[12], lm[24], lm[28]);
+          const avg = (leftBack + rightBack) / 2;
+          return avg >= 145 && avg < 155;
+        },
+        scoreDeduction: 10,
+        // No cue — silent deduction.
+      },
+      {
+        id: 'hipsTooHigh',
+        // avgBack > 195 — piked up. Dead code today (see roadmap backlog item 2);
+        // preserved verbatim so behavior is byte-equivalent.
+        check(lm) {
+          const leftBack  = angle(lm[11], lm[23], lm[27]);
+          const rightBack = angle(lm[12], lm[24], lm[28]);
+          return (leftBack + rightBack) / 2 > 195;
+        },
+        scoreDeduction: 20,
+        cue: { message: 'Hips too high — flatten out', cooldown: 20000 },
+      },
+    ],
+  },
+};
+
+addExercise(plankConfig);
+
+// ---------- dead hang ----------
+const deadhangConfig = {
+  id: 'deadhang',
+  name: 'Dead Hang',
+  isFloor: false,
+  isTimed: true,
+  hint: 'Front view — step back so full body is visible',
+
+  isInPosition(lm) {
+    const avgWristY   = (lm[15].y + lm[16].y) / 2;
+    const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+    return avgWristY < avgShoulderY + 0.2;
+  },
+  outOfPositionMsg: 'Grip the bar to continue',
+
+  silhouette: {
+    drawStyle: 'hanging',
+  },
+
+  analysis: {
+    goodHoldMessage: 'Good hang — stay relaxed!',
+    formChecks: [
+      {
+        id: 'gripLost',
+        // Wrists dropped significantly below shoulders — lost grip/hang.
+        check(lm) {
+          const avgWristY    = (lm[15].y + lm[16].y) / 2;
+          const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+          return avgWristY > avgShoulderY + 0.15;
+        },
+        scoreDeduction: 30,
+        cue: { message: 'Grip the bar — keep arms extended', cooldown: 20000 },
+      },
+    ],
+  },
+};
+
+addExercise(deadhangConfig);
+
+// ---------- L-sit ----------
+// Note (2026-04-10): the old L-sit analyzer had two unique quirks that are
+// NOT preserved in this migration:
+//   1. It wrote the timer into the feedback area (`${elapsed}s`) instead of
+//      the rep counter. The framework always writes MM:SS to the rep counter,
+//      which is consistent with plank/deadhang.
+//   2. The form-cue cooldown was 8s (tight). Framework uses the declared
+//      cooldown — kept at 8000 here to match.
+// The display change is a minor behavior delta logged in the session notes.
+const lsitConfig = {
+  id: 'lsit',
+  name: 'L-Sit',
+  isFloor: false,
+  isTimed: true,
+  hint: 'Side view — arms pressing down, legs extended horizontal',
+
+  isInPosition(lm) {
+    // Shoulders must be above hips — upright torso pressing down on supports.
+    const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+    const avgHipY      = (lm[23].y + lm[24].y) / 2;
+    return avgShoulderY < avgHipY;
+  },
+  outOfPositionMsg: 'Get into L-sit position',
+
+  silhouette: {
+    drawStyle: 'standing',
+  },
+
+  analysis: {
+    formChecks: [
+      {
+        id: 'legsDropped',
+        // Hip angle > 120° means legs are no longer horizontal — they've dropped.
+        check(lm) {
+          const leftHip  = angle(lm[11], lm[23], lm[25]);
+          const rightHip = angle(lm[12], lm[24], lm[26]);
+          return (leftHip + rightHip) / 2 > 120;
+        },
+        scoreDeduction: 0, // Old code didn't deduct score — only showed warning.
+        cue: { message: 'Keep legs horizontal', cooldown: 8000 },
+      },
+    ],
+  },
+};
+
+addExercise(lsitConfig);
+
+// ---------- glute bridge ----------
+const glutebridgeConfig = {
+  id: 'glutebridge',
+  name: 'Glute Bridge',
+  isFloor: true,
+  isTimed: false,
+  hint: 'Side view — lie on back, feet flat, drive hips up',
+
+  isInPosition(lm) {
+    // Body roughly horizontal (lying down) — small vertical span.
+    const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+    const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
+    return Math.abs(avgAnkleY - avgShoulderY) < 0.30;
+  },
+  outOfPositionMsg: 'Lie on your back, knees bent',
+
+  silhouette: {
+    drawStyle: 'horizontal',
+    drawVariant: 'plank',
+  },
+
+  analysis: {
+    // Hip angle: shoulder → hip → knee. Flat on floor ~90°, bridged ~160°+.
+    trackingJoint(lm) {
+      return (angle(lm[11], lm[23], lm[25]) + angle(lm[12], lm[24], lm[26])) / 2;
+    },
+
+    // Inverted polarity: phase 'up' = resting on floor, phase 'down' = hips raised.
+    // calibration: hip_down (150) = angle above which we're raised (enters 'down');
+    //              hip_up   (110) = angle below which we've returned to floor (rep counted).
+    invertedPolarity: true,
+    calibrationKeys: { bottom: 'hip_down', top: 'hip_up' },
+    calibrationDefaults: { hip_down: 150, hip_up: 110 },
+
+    formChecks: [
+      {
+        id: 'driveHigher',
+        // At top (phase 'down' = raised), check for full hip extension.
+        check(lm, angleNow, phase) {
+          return phase === 'down' && angleNow < 145;
+        },
+        scoreDeduction: 20,
+        cue: { message: 'Drive hips higher', cooldown: 12000 },
+      },
+    ],
+  },
+};
+
+addExercise(glutebridgeConfig);
+
+// ---------- leg raises ----------
+const legraiseConfig = {
+  id: 'legraise',
+  name: 'Leg Raises',
+  isFloor: false,
+  isTimed: false,
+  hint: 'Front view — full body in frame while hanging',
+
+  isInPosition(lm) {
+    const avgWristY   = (lm[15].y + lm[16].y) / 2;
+    const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+    return avgWristY < avgShoulderY + 0.2;
+  },
+  outOfPositionMsg: 'Grip the bar to continue',
+
+  silhouette: {
+    drawStyle: 'hanging',
+  },
+
+  analysis: {
+    // Hip angle: shoulder → hip → knee. Legs down ~170°, legs raised ~80°.
+    trackingJoint(lm) {
+      return (angle(lm[11], lm[23], lm[25]) + angle(lm[12], lm[24], lm[26])) / 2;
+    },
+
+    // Standard polarity: legs down = top (150+), legs raised = bottom (110-).
+    // phase 'up' = hanging straight, phase 'down' = legs raised.
+    calibrationKeys: { bottom: 'hip_down', top: 'hip_up' },
+    calibrationDefaults: { hip_down: 110, hip_up: 150 },
+
+    formChecks: [
+      {
+        id: 'bentKnees',
+        // While legs are raised, knees should stay reasonably straight.
+        check(lm, angleNow, phase) {
+          if (phase !== 'down') return false;
+          const leftKnee  = angle(lm[23], lm[25], lm[27]);
+          const rightKnee = angle(lm[24], lm[26], lm[28]);
+          return (leftKnee + rightKnee) / 2 < 140;
+        },
+        scoreDeduction: 20,
+        cue: { message: 'Keep legs straighter', cooldown: 15000 },
+      },
+    ],
+  },
+};
+
+addExercise(legraiseConfig);
+
+// ---------- arch hang ----------
+const archhangConfig = {
+  id: 'archhang',
+  name: 'Arch Hang',
+  isFloor: false,
+  isTimed: true,
+  hint: 'Front view — grip bar, arch back and pack shoulders down',
+
+  isInPosition(lm) {
+    const avgWristY    = (lm[15].y + lm[16].y) / 2;
+    const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+    return avgWristY < avgShoulderY + 0.2;
+  },
+  outOfPositionMsg: 'Grip the bar to continue',
+
+  silhouette: {
+    drawStyle: 'hanging',
+  },
+
+  analysis: {
+    goodHoldMessage: 'Good arch — hold it!',
+    formChecks: [
+      {
+        id: 'shouldersShrugging',
+        // Shoulders should be DEPRESSED (dropped away from bar). In passive
+        // hang, shoulders shrug up → gap small. Arch hang (packed) → gap > 0.08.
+        check(lm) {
+          const avgWristY    = (lm[15].y + lm[16].y) / 2;
+          const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+          return (avgShoulderY - avgWristY) < 0.08;
+        },
+        scoreDeduction: 25,
+        cue: { message: 'Pack shoulders down — away from the bar', cooldown: 8000 },
+      },
+    ],
+  },
+};
+
+addExercise(archhangConfig);
+
+// ---------- scapular pulls ----------
+const scapularpullConfig = {
+  id: 'scapularpull',
+  name: 'Scapular Pulls',
+  isFloor: false,
+  isTimed: true,
+  hint: 'Front view — arms straight, depress shoulder blades to rise slightly',
+
+  isInPosition(lm) {
+    const avgWristY    = (lm[15].y + lm[16].y) / 2;
+    const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+    return avgWristY < avgShoulderY + 0.2;
+  },
+  outOfPositionMsg: 'Grip the bar to continue',
+
+  silhouette: {
+    drawStyle: 'hanging',
+  },
+
+  analysis: {
+    goodHoldMessage: 'Good — pack and hold!',
+    formChecks: [
+      {
+        id: 'elbowsBent',
+        // Key form requirement: arms must stay straight. Bending = pull-up,
+        // not scapular pull.
+        check(lm) {
+          const leftElbow  = angle(lm[11], lm[13], lm[15]);
+          const rightElbow = angle(lm[12], lm[14], lm[16]);
+          return (leftElbow + rightElbow) / 2 < 150;
+        },
+        scoreDeduction: 25,
+        cue: { message: 'Keep arms straight — no elbow bend', cooldown: 20000 },
+      },
+    ],
+  },
+};
+
+addExercise(scapularpullConfig);
+
+// ---------- shoulder dislocates ----------
+const shoulderdislocateConfig = {
+  id: 'shoulderdislocate',
+  name: 'Shoulder Dislocates',
+  isFloor: false,
+  isTimed: true,
+  hint: 'Front view — hold a stick or band with a wide grip',
+
+  isInPosition(lm) {
+    const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+    const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
+    return Math.abs(avgAnkleY - avgShoulderY) > 0.30;
+  },
+  outOfPositionMsg: 'Stand up straight to begin',
+
+  silhouette: {
+    drawStyle: 'standing',
+  },
+
+  analysis: {
+    goodHoldMessage: 'Good — keep moving!',
+    formChecks: [
+      {
+        id: 'elbowsBent',
+        // Arms must stay straight throughout the pass — bending = grip too narrow.
+        check(lm) {
+          const leftElbow  = angle(lm[11], lm[13], lm[15]);
+          const rightElbow = angle(lm[12], lm[14], lm[16]);
+          return (leftElbow + rightElbow) / 2 < 150;
+        },
+        scoreDeduction: 20,
+        cue: { message: 'Keep arms straight — widen your grip', cooldown: 10000 },
+      },
+    ],
+  },
+};
+
+addExercise(shoulderdislocateConfig);
+
+// ---------- hip flexor stretch ----------
+const hipflexorConfig = {
+  id: 'hipflexor',
+  name: 'Hip Flexor Stretch',
+  isFloor: false,
+  isTimed: true,
+  hint: 'Side view — one knee down, opposite foot forward, torso tall',
+
+  isInPosition(lm) {
+    const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+    const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
+    return Math.abs(avgAnkleY - avgShoulderY) > 0.30;
+  },
+  outOfPositionMsg: 'Get into a kneeling lunge position',
+
+  silhouette: {
+    drawStyle: 'kneeling',
+  },
+
+  analysis: {
+    goodHoldMessage: 'Good — feel the stretch!',
+    formChecks: [
+      {
+        id: 'torsoCollapsed',
+        // Torso upright: shoulder should be well above hip (gap > 0.10 in Y).
+        check(lm) {
+          const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+          const avgHipY      = (lm[23].y + lm[24].y) / 2;
+          return (avgHipY - avgShoulderY) < 0.10;
+        },
+        scoreDeduction: 20,
+        cue: { message: 'Sit tall — lift your chest', cooldown: 10000 },
+      },
+    ],
+  },
+};
+
+addExercise(hipflexorConfig);
+
+// ---------- wrist warm-up ----------
+const wristwarmupConfig = {
+  id: 'wristwarmup',
+  name: 'Wrist Warm-up',
+  isFloor: false,
+  isTimed: true,
+  hint: 'Front view — extend arms forward at shoulder height',
+
+  isInPosition(lm) {
+    const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+    const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
+    return Math.abs(avgAnkleY - avgShoulderY) > 0.30;
+  },
+  outOfPositionMsg: 'Stand facing the camera',
+
+  silhouette: {
+    drawStyle: 'standing',
+  },
+
+  analysis: {
+    goodHoldMessage: 'Good — rotate those wrists!',
+    formChecks: [
+      {
+        id: 'armsDropped',
+        // Arms should be raised to shoulder height for effective wrist circles.
+        check(lm) {
+          const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+          const avgWristY    = (lm[15].y + lm[16].y) / 2;
+          return avgWristY > avgShoulderY + 0.12;
+        },
+        scoreDeduction: 15,
+        cue: { message: 'Raise arms to shoulder height', cooldown: 12000 },
+      },
+    ],
+  },
+};
+
+addExercise(wristwarmupConfig);
+
+// ---------- foam roller ----------
+// Note (2026-04-10): the old foam roller analyzer had no form cues — it always
+// showed 'Breathe and relax into the roller' as the active message. The
+// framework writes the goodHoldMessage whenever no form check is failing, so
+// passing an empty formChecks array produces the same continuous message.
+const foamrollerConfig = {
+  id: 'foamroller',
+  name: 'Foam Roller',
+  isFloor: true,
+  isTimed: true,
+  hint: 'Side view — lie on roller, breathe and relax into it',
+
+  isInPosition(lm) {
+    const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+    const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
+    return Math.abs(avgAnkleY - avgShoulderY) < 0.30;
+  },
+  outOfPositionMsg: 'Lie down on the foam roller to continue',
+
+  silhouette: {
+    drawStyle: 'horizontal',
+    drawVariant: 'foamroller',
+  },
+
+  analysis: {
+    goodHoldMessage: 'Breathe and relax into the roller',
+    formChecks: [],
+  },
+};
+
+addExercise(foamrollerConfig);
+
+// ---------- band pull-aparts ----------
+// Rep-based, but with inverted polarity — rep counts when wristSpan returns
+// from wide (spread) back to narrow (center), not when it first crosses a
+// threshold. Maps cleanly onto the framework's invertedPolarity flag:
+//   bottom = wrist_spread (phase 'down' starts when span > 0.32)
+//   top    = wrist_center (rep counts when span drops < 0.18)
+const bandpullapartConfig = {
+  id: 'bandpullapart',
+  name: 'Band Pull-Aparts',
+  isFloor: false,
+  isTimed: false,
+  hint: 'Front view — hold band at shoulder height, arms extended in front',
+
+  isInPosition(lm) {
+    const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+    const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
+    return Math.abs(avgAnkleY - avgShoulderY) > 0.30;
+  },
+  outOfPositionMsg: 'Stand facing the camera, arms at shoulder height',
+
+  silhouette: {
+    drawStyle: 'standing',
+  },
+
+  analysis: {
+    trackingJoint(lm) { return Math.abs(lm[15].x - lm[16].x); },
+    invertedPolarity: true,
+    calibrationKeys: { bottom: 'wrist_spread', top: 'wrist_center' },
+    calibrationDefaults: { wrist_center: 0.18, wrist_spread: 0.32 },
+    goodFormMessage: 'Good pull!',
+    formChecks: [
+      {
+        id: 'armsDropped',
+        // Arms must stay at shoulder height — drifting below loses the cue.
+        check(lm) {
+          const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+          const avgWristY    = (lm[15].y + lm[16].y) / 2;
+          return avgWristY > avgShoulderY + 0.15;
+        },
+        scoreDeduction: 20,
+        cue: { message: 'Keep arms at shoulder height', cooldown: 12000 },
+      },
+    ],
+  },
+};
+
+addExercise(bandpullapartConfig);
+
+// ---------- cat-cow ----------
+const catcowConfig = {
+  id: 'catcow',
+  name: 'Cat-Cow',
+  isFloor: true,
+  isTimed: true,
+  hint: 'Side view — on all fours, hands under shoulders, knees under hips',
+
+  isInPosition(lm) {
+    // Quadruped: body roughly horizontal, wrists near ground level.
+    const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+    const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
+    const avgWristY    = (lm[15].y + lm[16].y) / 2;
+    return Math.abs(avgAnkleY - avgShoulderY) < 0.35 && avgWristY > 0.55;
+  },
+  outOfPositionMsg: 'Get onto all fours — hands under shoulders',
+
+  silhouette: {
+    drawStyle: 'quadruped',
+  },
+
+  analysis: {
+    goodHoldMessage: 'Breathe — arch and round!',
+    formChecks: [
+      {
+        id: 'hipsNotLevel',
+        // Hips should stay level (not collapse to one side).
+        check(lm) {
+          return Math.abs(lm[23].y - lm[24].y) > 0.12;
+        },
+        scoreDeduction: 15,
+        cue: { message: 'Keep hips level', cooldown: 10000 },
+      },
+    ],
+  },
+};
+
+addExercise(catcowConfig);
+
+// ---------- bird-dog ----------
+const birddogConfig = {
+  id: 'birddog',
+  name: 'Bird-Dog',
+  isFloor: true,
+  isTimed: true,
+  hint: 'Side view — on all fours, extend opposite arm and leg',
+
+  isInPosition(lm) {
+    const avgShoulderY = (lm[11].y + lm[12].y) / 2;
+    const avgAnkleY    = (lm[27].y + lm[28].y) / 2;
+    const avgWristY    = (lm[15].y + lm[16].y) / 2;
+    return Math.abs(avgAnkleY - avgShoulderY) < 0.35 && avgWristY > 0.55;
+  },
+  outOfPositionMsg: 'Get onto all fours to begin',
+
+  silhouette: {
+    drawStyle: 'quadruped',
+    drawVariant: 'birddog',
+  },
+
+  analysis: {
+    goodHoldMessage: 'Good — hold each extension!',
+    formChecks: [
+      {
+        id: 'hipsRotating',
+        // Key form cue: keep hips level — don't rotate when extending arm/leg.
+        check(lm) {
+          return Math.abs(lm[23].y - lm[24].y) > 0.12;
+        },
+        scoreDeduction: 20,
+        cue: { message: "Keep hips level — don't rotate", cooldown: 10000 },
+      },
+    ],
+  },
+};
+
+addExercise(birddogConfig);
 
 // ===== WARMUP CALIBRATION =====
 // Returns the primary joint angle for rep detection for each exercise.
@@ -3029,6 +3581,9 @@ function resetSetState() {
   state.prevAngle = null;
   state.spokenThisRep = false;
   state.plankStart = null;
+  // Clear per-exercise closure state for any analyzers registered via addExercise().
+  // Empty in Step 0 (framework is dormant); populated as exercises are migrated.
+  analyzerResets.forEach(r => r());
   state.formScores = [];
   state.cueCooldowns = {};
   state.repCountingPaused = false;

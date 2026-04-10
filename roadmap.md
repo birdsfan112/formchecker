@@ -2,11 +2,11 @@
 | Field | Value |
 |-------|-------|
 | Phase | Phase 5 — Exercise Library Expansion |
-| Updated | 2026-04-09 |
-| Summary | 22 exercises, 207 tests. Framework spec complete. Next: Scott reviews open questions + phone tests while framework refactor begins. |
-| Autonomous | Exercise framework refactor (after open questions resolved) |
-| Needs Scott | (1) Review framework spec open questions (listed below); (2) Phone test all 22 exercises (exercise-testing-protocol.md) |
-| Blockers | Open questions from framework spec block the refactor |
+| Updated | 2026-04-10 |
+| Summary | 22 exercises, 284 tests. Framework refactor complete — all 22 exercises migrated to single-config-object pattern. Ready for visual polish spec update + phone testing. |
+| Autonomous | Update visual polish spec (Step 4) |
+| Needs Scott | Phone test all 22 migrated exercises (docs/specs/phase5-phone-testing-checklist.md) |
+| Blockers | None |
 
 <!-- CHIEF OF STAFF NOTE: The Status block above is read by the daily review. Keep every field current.
      Format must stay as a table. Do not rename fields. "None" is a valid value for any field. -->
@@ -15,15 +15,11 @@
 
 ## Phase 5 — Remaining Work (in order)
 
-### Step 1 — Scott: Review framework spec open questions
-*Can run in parallel with or before phone testing. Decisions needed before refactor begins.*
-
-From `docs/specs/exercise-framework-spec.md` § Open Questions:
-
-1. **Scoped state:** `buildRepAnalyzer()` uses closure for `prevAngle`, `phase`, etc. Closure is cleaner; named object on config is easier to inspect in DevTools. Which do you prefer?
-2. **Test scaffold generation:** DEV_MODE generates a test stub per exercise. What's the minimum useful scaffold — a blank describe block, or a pre-filled set of rep-count assertions?
-3. **Picker redesign timing:** Is Step 4 (search + filter chips) in scope for the same sprint as the migration, or a follow-on sprint?
-4. **visual-polish-sprint.md update timing:** The spec covers 13 exercises; needs 9 more added before PNG work begins. Update before or after framework migration?
+### Step 1 — Framework spec open questions ✅ RESOLVED (2026-04-10)
+- Closure for scoped state (Safari phone testing makes DevTools impractical)
+- Auto-scaffold = schema validation only (fields, drawStyle, landmark indices, topAngle > bottomAngle)
+- Picker redesign → follow-on sprint
+- Visual polish spec update → after migration
 
 ### Step 2 — Scott: Phone test all 22 exercises
 *Use `docs/exercise-testing-protocol.md` — 9-step checklist per exercise.*
@@ -32,8 +28,8 @@ From `docs/specs/exercise-framework-spec.md` § Open Questions:
 - [x] Mobility/PT batch — shoulder dislocates, hip flexor stretch, wrist warm-up, band pull-aparts, foam roller, cat-cow, bird-dog (exercises 16-22)
 - [ ] Phone test all 22 exercises — use `docs/exercise-testing-protocol.md`
 
-### Step 3 — Exercise framework refactor
-*Per `docs/specs/exercise-framework-spec.md`. Single config object per exercise, shared analysis patterns, auto-wiring registration, quality gates. Migration is one exercise at a time with tests after each.*
+### Step 3 — Exercise framework refactor ✅ COMPLETE (2026-04-10)
+*Per `docs/specs/exercise-framework-spec.md`. All 22 exercises migrated to single config-object pattern via `addExercise(config)`. Framework extensions added: `invertedPolarity` (glute bridge, band pull-aparts), `downGate(lm)` (pull-up chin-over-bar gate). Tests: 284 passing, 0 failing — includes parallel framework implementations for rep + timed analyzers in `tests.js`. Two dead-code findings filed to backlog (see Backlog §2). One minor feature dropped: per-frame camera-orientation nudge for dips (see Backlog §3).*
 
 ### Step 4 — Update visual polish spec (13 → 22 exercises)
 *Add the 9 exercises missing from `docs/specs/visual-polish-sprint.md` before PNG work begins.*
@@ -44,6 +40,11 @@ From `docs/specs/exercise-framework-spec.md` § Open Questions:
 ## Backlog
 
 1. **Phase 6 — Monetization & Distribution** — PWA install prompt, landing page, freemium model, user accounts, social sharing, app store wrapper (Capacitor/Ionic)
+2. **Form-cue audit (post-framework)** — two known dormant cues surfaced during the push-up framework migration (2026-04-10):
+   - `goDeeper` (push-up, and likely pike/dip too): in the new framework `goingDown` is only tracked in the 'up' phase, so the existing check `phase === 'down' && goingDown && elbow > elbow_down + 12` is unreachable. It was also effectively dead in the old hand-coded version (only fired on bounce patterns). Redesign to fire when the 'down'-phase valley is shallower than the calibrated bottom by X°.
+   - `hipsTooHigh` (push-up): check `avgBack > 195` is unreachable because `angle()` clamps output to [0, 180]. Dead code in both old and new versions. Redesign using supplement angle, or remove entirely if pike push-ups covers this shape.
+   - Audit all other exercises for the same two patterns once the framework migration is complete.
+3. **Dip orientation nudge** — the old dip analyzer wrote `angleHint.textContent = 'Face the camera for best tracking'` every frame when `shoulderSpan < 0.10`. Dropped during framework migration (2026-04-10) to avoid adding a per-frame-side-effect hook to the framework. Restore via a small framework `onFrame(lm)` extension, or inline it into dip's trackingJoint as a side effect.
 
 ## Decisions
 
@@ -59,6 +60,19 @@ From `docs/specs/exercise-framework-spec.md` § Open Questions:
 | 2026-Q1 | Smart calibration covers multiple exercises | Squat ROM → squat + lunge; pushup ROM → pushup + pike + pullup. 6 reps calibrates all 4 rep-based exercises | Accepted |
 
 ## Session Log
+
+### 2026-04-10 — Exercise framework refactor complete (Step 3)
+
+- **All 22 exercises migrated** to the single-config-object pattern via `addExercise(config)`. Migration ran in 7 batches (push-up as reference + 6 additional batches), each with full regression tests after every change.
+- **Framework extensions added** (both minimal additive changes to `buildRepAnalyzer`):
+  - `invertedPolarity: true` — phase 'up' = rest, 'down' = active. Used by glute bridge (angle-based) and band pull-aparts (wrist span, non-angle tracking).
+  - `downGate(lm) => boolean` — optional extra predicate gating the 'up'→'down' transition. Used by pull-up to require chin above hands.
+- **Tests: 284 → 289 passing**, 0 failing. The testing agent added 48 parallel-implementation tests in `tests.js` covering batches 1-4; this session added 5 more for the bandpullapart framework path (`invertedPolarity` + non-angle tracking — previously uncovered).
+- **Test harness extensions** (in `tests.js`): `buildTestRepAnalyzerEx` now supports `invertedPolarity` and `downGate`; `buildTestTimedAnalyzer` mirrors the production timed path; helpers for hip-angle, knee-angle, legraise, pullup, and bandpull landmarks.
+- **File shrank** ~6KB (from 154K → 148K chars) after cleanup of the old hand-coded registry entries and the stale "DORMANT" framework header.
+- **Two dead-code findings filed to Backlog §2** during push-up migration: `goDeeper` (unreachable after phase semantics change) and `hipsTooHigh` (clamped by `angle()`). Both were also dead in the old code — not regressions.
+- **One feature dropped: Backlog §3** — the dip per-frame camera-orientation nudge (`angleHint.textContent = 'Face the camera for best tracking'`) was dropped to avoid adding a per-frame-side-effect hook. Can be restored via a small framework extension or inlined as a side effect in dip's trackingJoint.
+- **Next session:** Scott phone-tests all 22 migrated exercises (Step 2), OR Claude updates visual polish spec from 13 → 22 exercises (Step 4, autonomous).
 
 ### 2026-04-09 — Framework spec, research docs, roadmap sequencing
 

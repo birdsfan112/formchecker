@@ -1,7 +1,7 @@
 # Exercise Framework Spec
 
 *Version 1.0 — Drafted 2026-04-09*  
-*Status: DRAFT — not yet approved for implementation*
+*Status: APPROVED — 2026-04-10*
 
 ---
 
@@ -517,15 +517,28 @@ The config schema is a superset of the ExerciseDB/free-exercise-db standard sche
 
 ---
 
-## Open Questions (resolve before implementation)
+## Decisions (resolved 2026-04-10)
 
-1. **Scoped state:** `buildRepAnalyzer()` uses closure for `prevAngle`, `phase`, etc. Is a closure approach clear enough, or should state be a named object on the config? (Tradeoff: closure is cleaner, named object is easier to inspect in DevTools.)
+1. **Scoped state:** Use **closure**. Named object was considered for DevTools inspectability, but testing happens on Safari during live exercise — DevTools are not accessible during phone testing. Closure is cleaner with no practical downside.
 
-2. **Test scaffold generation:** DEV_MODE test scaffold is described but not specified. What's the minimum test scaffold that's actually useful vs noise?
+2. **Test scaffold generation:** Auto-generate a **schema validation test only**: required fields present, `drawStyle` is a known value, landmark indices in 0–32 range, `topAngle > bottomAngle`. Visual correctness (illustration, animation, joint biomechanics) remains on the manual phone test checklist.
 
-3. **Picker redesign timing:** Is Step 4 (picker redesign) in scope for the same sprint as the migration, or a follow-on sprint? The redesign is independent of the framework and could ship after.
+3. **Picker redesign timing:** **Follow-on sprint.** Steps 1–3 (framework migration) ship first. Picker redesign (search + filter chips) is a separate sprint after migration is stable.
 
-4. **visual-polish-sprint.md needs updating:** Currently covers 13 exercises. Before implementing PNG silhouettes, the spec needs the missing 9 exercises added. Worth doing before or after framework migration?
+4. **visual-polish-sprint.md update timing:** **After migration.** The framework config already reserves the `referenceImage` slot. Update the spec to cover all 22 exercises before the visual polish sprint begins.
+
+5. **Calibration key names — mapping, not rename (2026-04-10, Step 0):** The framework does **not** rename the existing per-exercise calibration keys (`elbow_down`, `knee_down`, `hip_down`, `wrist_center`, etc.) to generic `topAngle`/`bottomAngle`. Instead, each config declares `analysis.calibrationKeys: { bottom: 'elbow_down', top: 'elbow_up' }` as a mapping into the unchanged global `calibration` object.
+
+   **Reasons:**
+   - A rename would touch `defaultCalibration` (22 entries), `applyAllCalibrationResults`, `analyzeWarmup`, `finishWarmupCalibration`, persistence JSON format, and any saved `formcheck-calibration.json` files — out of scope for this sprint.
+   - **Glute bridge** has *inverted* polarity (`hip_down: 150` = hips raised, `hip_up: 110` = hips on floor). Forcing a generic `topAngle`/`bottomAngle` would mislabel it. The framework handles this via `invertedPolarity: true`.
+   - **Band pull-apart** tracks `wrist_center`/`wrist_spread` — a horizontal distance, not an angle. The generic names would be factually wrong.
+
+   **Deferred:** Revisit if warmup calibration ever gets refactored. A future sprint could do the rename globally — the `calibrationKeys` mapping can be collapsed away at that point without framework changes.
+
+6. **Direction detection — phase-local extremum (2026-04-10, Step 0):** Instead of the spec's `jitterFilter` + `consecutiveFrames` pattern (which fails on deliberately slow reps — e.g. 5s down / 5s up → 10°/sec → frame-to-frame delta never clears a 3° jitter threshold), the framework tracks the local peak (in `'up'` phase) or valley (in `'down'` phase) and flags direction reversal when the angle moves 3° past the extremum. Handles any tempo, including pausing at the bottom of a rep. Implemented in `buildRepAnalyzer` as `phaseExtremum`.
+
+7. **Rep transitions use direct threshold compare:** The spec's fractional-range formulas (`downTrigger: 0.85`, etc.) produce different numbers than the current `angle < elbow_down` / `angle > elbow_up` compare, which would change rep counts. Framework uses direct compare against `cal[calibrationKeys.bottom]` / `cal[calibrationKeys.top]` to preserve current behavior exactly.
 
 ---
 
