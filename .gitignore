@@ -13,9 +13,13 @@
 # Temp files
 *.tmp
 
-# Node / test caches (defensive — FormChecker has no deps but tests.js runs via node)
+# Node / test caches
 node_modules/
 .pytest_cache/
+
+# Playwright test output
+test-results/
+playwright-report/
 
 # Python bytecode
 __pycache__/
