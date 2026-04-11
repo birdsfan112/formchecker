@@ -3,9 +3,9 @@
 |-------|-------|
 | Phase | Phase 5 — Exercise Library Expansion |
 | Updated | 2026-04-10 |
-| Summary | 22 exercises, 289 tests. Framework refactor complete + behavioral-equivalence audit of 94c634d done (19 equivalent, 3 divergent: bandpullapart, lsit, dip). Ready for phone testing with a known risk order. |
+| Summary | 22 exercises, 289 unit tests + 31 Playwright smoke tests (all passing). Playwright harness scaffolded: 3 real specs (squat/deadhang/catcow) + 19 placeholder stubs. CDN mocked, fake webcam via Y4M, DOM-observable strategy for closure-scoped app state. |
 | Autonomous | Update visual polish spec (Step 4) |
-| Needs Scott | Phone test all 22 exercises — use focus order in `docs/refactor-audit-2026-04-10.md` (Session 1 first: bandpullapart, lsit, dip, pullup, glutebridge, lunge) |
+| Needs Scott | Phone test all 22 exercises — use focus order in `docs/refactor-audit-2026-04-10.md` (Session 1 first: bandpullapart, lsit, dip, pullup, glutebridge, lunge). Record Y4M files to expand placeholder Playwright tests. |
 | Blockers | None |
 
 <!-- CHIEF OF STAFF NOTE: The Status block above is read by the daily review. Keep every field current.
