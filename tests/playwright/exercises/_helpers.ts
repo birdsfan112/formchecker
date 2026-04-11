@@ -35,9 +35,11 @@ import { Page, expect } from '@playwright/test';
 
 // ---------- MediaPipe stub strings ----------
 
+// Expose each Pose instance on window.__poseInstance so tests can call
+// __poseInstance._cb({poseLandmarks: [...]}) to inject fake landmark frames.
 const POSE_STUB = `
 window.Pose = class Pose {
-  constructor(config) { this._cb = null; }
+  constructor(config) { this._cb = null; window.__poseInstance = this; }
   setOptions(opts) {}
   onResults(cb) { this._cb = cb; }
   async send(input) {}
@@ -60,8 +62,16 @@ window.drawLandmarks    = function() {};
 window.POSE_CONNECTIONS = [];
 `;
 
+// Stub HTMLVideoElement.play() so it resolves immediately.
+// Without this, startCamera() hangs at `await video.play()` in headless Chrome
+// and never reaches `loading.classList.add('hidden')` or setWorkoutState('idle').
+// The Camera stub already skips real frame processing — this just unblocks startup.
+const VIDEO_STUB = `
+HTMLVideoElement.prototype.play = async function() { return; };
+`;
+
 // Combined stub injected before any page script runs.
-const MEDIAPIPE_INIT_SCRIPT = POSE_STUB + CAMERA_STUB + DRAWING_STUB;
+const MEDIAPIPE_INIT_SCRIPT = POSE_STUB + CAMERA_STUB + DRAWING_STUB + VIDEO_STUB;
 
 // ---------- Public helpers ----------
 
@@ -184,4 +194,60 @@ export async function getRepCounterText(page: Page): Promise<string> {
   return page.evaluate(
     () => (document.getElementById('rep-counter') as HTMLElement).textContent ?? ''
   );
+}
+
+/**
+ * Fire the "Ready" click and wait for the 3-second countdown to complete.
+ *
+ * WHY page.evaluate + dispatchEvent (not page.locator.click or { force: true }):
+ *   After jumpToWorkout(), #loading is covering the viewport (getUserMedia hangs in
+ *   headless Chrome). Playwright's { force: true } bypasses actionability checks but
+ *   still fires a real mouse event — which #loading intercepts at the OS level.
+ *   dispatchEvent goes directly to #btn-start's event listeners without routing
+ *   through the compositor, so #loading doesn't block it.
+ *
+ * state.workoutState starts as 'idle', so the click handler calls startCountdown().
+ * #btn-pause is visible only in 'active' state — use it as the active-state signal.
+ * Takes ~3.5 s total (3 s countdown + 0.5 s setTimeout before setWorkoutState).
+ */
+export async function startWorkout(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    (document.getElementById('btn-start') as HTMLElement)
+      .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  });
+  await expect(page.locator('#btn-pause')).toBeVisible({ timeout: 8_000 });
+}
+
+/**
+ * Build a full array of 33 MediaPipe pose landmarks, all defaulting to
+ * { x: 0.5, y: 0.5, z: 0, visibility: 1 }, with selective overrides.
+ *
+ * Usage: makeLandmarks({ 15: { x: 0.1, y: 0.3 }, 16: { x: 0.9, y: 0.3 } })
+ */
+export function makeLandmarks(
+  overrides: Record<number, Partial<{ x: number; y: number; z: number; visibility: number }>> = {}
+): Array<{ x: number; y: number; z: number; visibility: number }> {
+  return Array.from({ length: 33 }, (_, i) => ({
+    x: 0.5, y: 0.5, z: 0, visibility: 1,
+    ...overrides[i],
+  }));
+}
+
+/**
+ * Inject a fake MediaPipe pose result frame directly into the app's onResults
+ * callback. Works because the Pose stub stores the callback in __poseInstance._cb.
+ *
+ * The app only calls analyze() when workoutState === 'active' and isInPosition
+ * returns true — callers must ensure both conditions hold.
+ */
+export async function injectPoseFrame(
+  page: Page,
+  landmarks: Array<{ x: number; y: number; z: number; visibility: number }>
+): Promise<void> {
+  await page.evaluate((lm) => {
+    const pose = (window as any).__poseInstance;
+    if (pose && typeof pose._cb === 'function') {
+      pose._cb({ poseLandmarks: lm, poseWorldLandmarks: lm });
+    }
+  }, landmarks);
 }

@@ -20,7 +20,7 @@ npx playwright test squat-rep-counter
 npx playwright test --headed
 ```
 
-Tests run in ~25 seconds and require no real webcam.
+Tests run in ~35 seconds and require no real webcam.
 
 ---
 
@@ -84,6 +84,9 @@ The stub file is a single black frame at 320×240 / 1fps. Chrome loops it indefi
 | `switchExercise(page, id)` | Set `<select>` value + dispatch change event |
 | `getExerciseName(page)` | Read `#exercise-name` text |
 | `getRepCounterText(page)` | Read `#rep-counter` text |
+| `startWorkout(page)` | Fire the "Ready" button and wait for the 3-second countdown to complete; app enters active state |
+| `makeLandmarks(overrides)` | Build a 33-landmark array (all `{x:0.5, y:0.5, z:0, visibility:1}`) with selective per-index overrides |
+| `injectPoseFrame(page, lm)` | Call `window.__poseInstance._cb({poseLandmarks: lm, ...})` to drive the app's `onResults` path with fake landmarks |
 
 ---
 
@@ -92,12 +95,15 @@ The stub file is a single black frame at 320×240 / 1fps. Chrome loops it indefi
 ```
 tests/playwright/
 ├── exercises/
-│   ├── _helpers.ts              ← shared helpers (read before modifying)
-│   ├── squat-rep-counter.spec.ts   ← real test: rep-counter category
-│   ├── deadhang-pose-hold.spec.ts  ← real test: pose-hold category
-│   ├── catcow-mobility.spec.ts     ← real test: mobility category
+│   ├── _helpers.ts                  ← shared helpers (read before modifying)
+│   ├── squat-rep-counter.spec.ts    ← real test: rep-counter category (Y4M-based)
+│   ├── deadhang-pose-hold.spec.ts   ← real test: pose-hold category (Y4M-based)
+│   ├── catcow-mobility.spec.ts      ← real test: mobility category (Y4M-based)
+│   ├── bandpullapart.spec.ts        ← real test: audit D3 — invertedPolarity fix (landmark injection)
+│   ├── lsit.spec.ts                 ← real test: audit D2 — MM:SS timer location (landmark injection)
+│   ├── dip.spec.ts                  ← real test: audit D1 — orientation hint dropped (landmark injection)
 │   ├── pushup.spec.ts           ┐
-│   ├── lunge.spec.ts            │  placeholder tests (19 files)
+│   ├── lunge.spec.ts            │  placeholder tests (16 files)
 │   ├── ...                      ┘  each needs a Y4M recording to expand
 └── fixtures/
     ├── black-frame-320x240.y4m  ← stub webcam input (no human = reps stay at 0)
@@ -105,6 +111,41 @@ tests/playwright/
     ├── write-placeholders.js    ← script that generated placeholder spec files
     └── README.md                ← Y4M format reference + ffmpeg commands
 ```
+
+---
+
+## Audit-derived specs (landmark injection approach)
+
+Three specs — `bandpullapart`, `lsit`, `dip` — were added as part of the refactor behavioral-equivalence audit (`docs/refactor-audit-2026-04-10.md`). They don't use Y4M recordings. Instead, they inject fake MediaPipe landmark frames directly into the app's `onResults` callback.
+
+**How it works:**
+
+The Pose stub in `_helpers.ts` exposes each `Pose` instance on `window.__poseInstance`. The `_cb` property holds the `onResults` callback registered by the app. Calling `__poseInstance._cb({poseLandmarks: [...], poseWorldLandmarks: [...]})` drives the same code path that real MediaPipe would — including the `isInPosition` gate and `exerciseDef.analyze(lm)`.
+
+**Correct ordering matters:**
+
+`switchExercise()` dispatches a `change` event that resets `state.workoutState` to `'idle'`. If you switch exercise *after* `startWorkout()`, `analyze()` will be skipped when you inject frames (the `onResults` handler returns early when not `'active'`).
+
+Always do: `jumpToWorkout` → `switchExercise` → `startWorkout` → `injectPoseFrame`.
+
+**Template:**
+
+```typescript
+await loadPage(page);
+await waitForApp(page);
+await jumpToWorkout(page);
+await switchExercise(page, 'myexercise');   // ← before startWorkout
+await startWorkout(page);                   // ← 3s countdown → active state
+
+const lm = makeLandmarks({ 11: { x: 0.4, y: 0.2 }, /* ... */ });
+await injectPoseFrame(page, lm);
+
+await expect(page.locator('#rep-counter')).toHaveText('1');
+```
+
+**Why dispatchEvent instead of locator.click:**
+
+After `jumpToWorkout()`, the `#loading` overlay is still visible (getUserMedia hangs in headless Chrome). `page.locator('#btn-start').click({force: true})` bypasses Playwright's actionability checks but still sends a real mouse event that `#loading` (z-index: 100) intercepts at the compositor level. `page.evaluate(() => element.dispatchEvent(new MouseEvent('click', {bubbles: true})))` routes directly to the element's event listeners, bypassing the compositor. `startWorkout()` uses this internally.
 
 ---
 
