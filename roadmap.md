@@ -3,9 +3,9 @@
 |-------|-------|
 | Phase | Implement |
 | Updated | 2026-04-11 |
-| Summary | 22 exercises, 289 unit tests + 34 Playwright smoke tests (all passing). Harness now includes 6 real specs: squat/deadhang/catcow (Y4M) + bandpullapart/lsit/dip (landmark injection, audit D1-D3). Landmark injection pattern shipped in _helpers.ts. |
+| Summary | 22 exercises, 289 unit tests + 38 Playwright smoke tests (all passing). Landmark injection now covers 6 code paths: invertedPolarity (bandpullapart, glutebridge), downGate (pullup), MM:SS timer (lsit), orientation-hint dropped (dip), hanging hip angle (legraise). 13 placeholder specs remain. |
 | Next Session | Scott: phone-test Session 1 exercises (bandpullapart, lsit, dip, pullup, glutebridge, lunge) per `docs/refactor-audit-2026-04-10.md` focus order — or Claude starts Step 4 (visual polish spec update, autonomous) |
-| Needs Scott | Phone test all 22 exercises — use focus order in `docs/refactor-audit-2026-04-10.md` (Session 1 first: bandpullapart, lsit, dip, pullup, glutebridge, lunge). Record Y4M files to expand remaining 16 placeholder Playwright tests. |
+| Needs Scott | Phone test all 22 exercises — use focus order in `docs/refactor-audit-2026-04-10.md` (Session 1 first: bandpullapart, lsit, dip, pullup, glutebridge, lunge). Record Y4M files to expand remaining 13 placeholder Playwright tests. |
 | Autonomous | Update visual polish spec (Step 4) |
 | External Blockers | None |
 
@@ -74,6 +74,14 @@
 <!-- Reverse-chronological. Most recent entry first. Cap at ~15 entries.
      Archive older entries to docs/roadmap-archive.md (see Archive Pointer below).
      Multiple sessions on the same date can be consolidated into one entry. -->
+
+### 2026-04-11 — Playwright landmark injection expanded: glutebridge, pullup, legraise (38 tests)
+
+- **glutebridge.spec.ts** — floor + rep-based + `invertedPolarity`: only exercise combining all three. Hip angle geometry verified (collinear = 180° bridged, knee-up = 90° flat). 2 tests.
+- **pullup.spec.ts** — `downGate` (chin-over-bar gate): only exercise with this constraint. Two paths tested: gate blocks phase when chin below hands; gate allows rep when chin clears. 3 tests.
+- **legraise.spec.ts** — hanging + rep-based + hip angle: simplest hanging rep path, no downGate. 2 tests.
+- **Net: +4 tests** (7 written, 3 replaced existing placeholder registry checks). No regressions. 38/38 passing.
+- **Remaining:** 13 placeholder specs still need Y4M recordings to expand.
 
 ### 2026-04-11 — Roadmap migration to template v2
 
