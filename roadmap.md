@@ -61,6 +61,16 @@
 
 ## Session Log
 
+### 2026-04-10 — Playwright smoke-test harness scaffolded (31 tests, all passing)
+
+- **Why:** The framework refactor (94c634d) was a 2185-line diff with no automated browser test safety net. Phone testing alone can't catch regressions quickly. The harness gives a CI-ready signal that the app loads, all 22 exercises are registered, and key UI transitions (welcome screen → workout) work.
+- **Architecture constraint discovered:** All app JS is inside `window.addEventListener('load', fn)` — `exerciseRegistry`, `addExercise`, etc. are closure-scoped, not on `window`. `page.evaluate()` cannot reach them. Workaround: DOM-observable strategy — `#exercise-select` options mirror the registry exactly; option text contains `(timed)` for timed exercises.
+- **CDN mocking:** MediaPipe loads via three blocking `<script crossorigin="anonymous">` CDN tags. Without interception every test would wait 15s for the network. `loadPage()` uses `addInitScript` (pre-defines `Pose`/`Camera`/drawing stubs before page scripts run) + `page.route(/cdn\.jsdelivr\.net/)` (returns empty JS with `Access-Control-Allow-Origin: *` for CORS).
+- **Fake webcam:** Chromium's `--use-file-for-fake-video-capture` streams `black-frame-320x240.y4m`. MediaPipe returns `poseLandmarks=null` every frame → rep counter stays at 0 deterministically.
+- **Files added:** `playwright.config.ts`, `package.json` (devDep: `@playwright/test`), `tests/playwright/exercises/_helpers.ts`, 3 real specs (squat/deadhang/catcow, 4 tests each), 19 placeholder stubs (1 test each), `tests/playwright/fixtures/black-frame-320x240.y4m`, `docs/playwright-harness-guide.md`
+- **Tests: 289 unit + 31 Playwright = 320 total, 0 failing.**
+- **Next session:** Scott phone-tests exercises (Step 2) — or, to expand Playwright coverage, record a Y4M file of any exercise and fill in the matching placeholder spec.
+
 ### 2026-04-10 — Behavioral-equivalence audit of framework refactor (94c634d)
 
 - **Why:** the refactor was a 2185-line index.html diff touching all 22 exercise analyzers. Zero phone-test safety net. Built a read-only audit as the safety net.
