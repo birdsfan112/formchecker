@@ -3,9 +3,9 @@
 |-------|-------|
 | Phase | Phase 5 — Exercise Library Expansion |
 | Updated | 2026-04-10 |
-| Summary | 22 exercises, 289 unit tests + 31 Playwright smoke tests (all passing). Playwright harness scaffolded: 3 real specs (squat/deadhang/catcow) + 19 placeholder stubs. CDN mocked, fake webcam via Y4M, DOM-observable strategy for closure-scoped app state. |
+| Summary | 22 exercises, 289 unit tests + 34 Playwright smoke tests (all passing). Harness now includes 6 real specs: squat/deadhang/catcow (Y4M) + bandpullapart/lsit/dip (landmark injection, audit D1-D3). Landmark injection pattern shipped in _helpers.ts. |
 | Autonomous | Update visual polish spec (Step 4) |
-| Needs Scott | Phone test all 22 exercises — use focus order in `docs/refactor-audit-2026-04-10.md` (Session 1 first: bandpullapart, lsit, dip, pullup, glutebridge, lunge). Record Y4M files to expand placeholder Playwright tests. |
+| Needs Scott | Phone test all 22 exercises — use focus order in `docs/refactor-audit-2026-04-10.md` (Session 1 first: bandpullapart, lsit, dip, pullup, glutebridge, lunge). Record Y4M files to expand remaining 16 placeholder Playwright tests. |
 | Blockers | None |
 
 <!-- CHIEF OF STAFF NOTE: The Status block above is read by the daily review. Keep every field current.
@@ -60,6 +60,20 @@
 | 2026-Q1 | Smart calibration covers multiple exercises | Squat ROM → squat + lunge; pushup ROM → pushup + pike + pullup. 6 reps calibrates all 4 rep-based exercises | Accepted |
 
 ## Session Log
+
+### 2026-04-10 — Audit-derived Playwright specs: bandpullapart, lsit, dip (34 tests, all passing)
+
+- **Why:** Three behavioral divergences from the framework audit (D1–D3) had no automated regression guard. Y4M recordings can't cover these — landmark injection lets us assert exact per-frame output without real camera or video.
+- **New harness capabilities shipped in `_helpers.ts`:**
+  - `window.__poseInstance` exposure in the Pose stub (constructor stores `this` on window so tests reach the closure-scoped callback)
+  - `VIDEO_STUB` stubs `HTMLVideoElement.prototype.play` so `startCamera()` completes without a real webcam
+  - `startWorkout(page)` — fires `#btn-start` via `dispatchEvent` (bypasses `#loading` overlay at z-index 100 that intercepts real mouse events in headless), waits for `#btn-pause` to become visible
+  - `makeLandmarks(overrides)` — builds a full 33-element landmark array with selective overrides
+  - `injectPoseFrame(page, lm)` — calls `window.__poseInstance._cb(...)` to drive the real `onResults` path
+- **Key ordering constraint:** `switchExercise()` dispatches a 'change' event that resets `state.workoutState` to 'idle'. Must call it BEFORE `startWorkout()` — not after.
+- **Specs added:** `bandpullapart.spec.ts` (invertedPolarity rep count), `lsit.spec.ts` (MM:SS in #rep-counter), `dip.spec.ts` (orientation hint NOT present). 6 new tests + 3 updated placeholder → real specs.
+- **Tests: 289 unit + 34 Playwright = 323 total, 0 failing.**
+- **Next session:** Scott phone-tests exercises (Step 2). Record Y4M files to expand remaining 16 placeholder Playwright specs.
 
 ### 2026-04-10 — Playwright smoke-test harness scaffolded (31 tests, all passing)
 
