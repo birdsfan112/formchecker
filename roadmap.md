@@ -3,9 +3,9 @@
 |-------|-------|
 | Phase | Phase 5 — Exercise Library Expansion |
 | Updated | 2026-04-10 |
-| Summary | 22 exercises, 284 tests. Framework refactor complete — all 22 exercises migrated to single-config-object pattern. Ready for visual polish spec update + phone testing. |
+| Summary | 22 exercises, 289 tests. Framework refactor complete + behavioral-equivalence audit of 94c634d done (19 equivalent, 3 divergent: bandpullapart, lsit, dip). Ready for phone testing with a known risk order. |
 | Autonomous | Update visual polish spec (Step 4) |
-| Needs Scott | Phone test all 22 migrated exercises (docs/specs/phase5-phone-testing-checklist.md) |
+| Needs Scott | Phone test all 22 exercises — use focus order in `docs/refactor-audit-2026-04-10.md` (Session 1 first: bandpullapart, lsit, dip, pullup, glutebridge, lunge) |
 | Blockers | None |
 
 <!-- CHIEF OF STAFF NOTE: The Status block above is read by the daily review. Keep every field current.
@@ -60,6 +60,19 @@
 | 2026-Q1 | Smart calibration covers multiple exercises | Squat ROM → squat + lunge; pushup ROM → pushup + pike + pullup. 6 reps calibrates all 4 rep-based exercises | Accepted |
 
 ## Session Log
+
+### 2026-04-10 — Behavioral-equivalence audit of framework refactor (94c634d)
+
+- **Why:** the refactor was a 2185-line index.html diff touching all 22 exercise analyzers. Zero phone-test safety net. Built a read-only audit as the safety net.
+- **Method:** dumped `94c634d^:index.html` and walked every old `analyze()` body against the new config + `buildRepAnalyzer`/`buildTimedAnalyzer`. Compared thresholds, form-check logic, cue messages, cooldowns, voice functions, feedback priority, and rep-phase transitions.
+- **Finding: 19 EQUIVALENT, 3 DIVERGENT, 0 UNCERTAIN.**
+  - **bandpullapart** (the big one): old code used phases `'spread'`/`'center'` but `resetSetState()` seeds `state.phase='up'` — neither branch could ever fire, so **the old rep counter was silently broken**. New `invertedPolarity` path actually works. This is a bug fix, not a regression, but it means phone-test memory of this exercise is unreliable.
+  - **lsit**: timer now displays as `MM:SS` in the rep counter instead of `${elapsed}s` in the feedback text area; voice escalated from `speak` → `speakForce`; custom 15s dedupe removed. Intentional, noted in the new config comment.
+  - **dip**: per-frame "Face the camera for best tracking" side-effect hint (`angleHint.textContent` when `shoulderSpan<0.10`) was dropped. Already tracked in Backlog §3.
+- **Non-regressions confirmed and noted:** `goDeeper` (pushup, squat, lunge, pike, dip) is dead in the new framework because `goingDown` is never true in `'down'` phase — but it was already effectively dead in the old code (only fired on bounce patterns). Backlog §2. `hipsTooHigh` (pushup, plank) unreachable because `angle()` clamps to `[0,180]`. Dead in both versions.
+- **Clean outcomes:** no form-check threshold silently changed, no cue message reworded, no cooldown altered, every `isInPosition` body is a verbatim copy. The lunge two-knee up-gate (old: `frontKnee > knee_up && backKnee > knee_up`) is mathematically preserved via `trackingJoint = min(L,R)` plus a single `> knee_up` compare (since `min(a,b)>X ⟺ a>X ∧ b>X`).
+- **Deliverable:** `docs/refactor-audit-2026-04-10.md` — per-exercise table with file:line refs, divergence details, top 3 regression risks, and a 3-session phone-test focus order.
+- **Next session:** Scott runs Session 1 of the phone-test plan (20 min, 6 exercises covering every real divergence and every special framework path). If any Session 1 test surfaces a bug, stop and investigate before continuing.
 
 ### 2026-04-10 — Exercise framework refactor complete (Step 3)
 

@@ -10,6 +10,13 @@
 # Claude Code session data
 .claude/
 
+# Temp files
+*.tmp
+
+# Node / test caches (defensive — FormChecker has no deps but tests.js runs via node)
+node_modules/
+.pytest_cache/
+
 # Python bytecode
 __pycache__/
 *.pyc
