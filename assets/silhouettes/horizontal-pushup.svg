@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 110" width="200" height="110">
+  <!-- Side-view pushup / pike push-up. Person faces LEFT (appears facing right on
+       mirrored camera). Body nearly horizontal, one arm extended to floor. -->
+  <g stroke="rgba(255,255,255,0.85)" stroke-linecap="round" stroke-linejoin="round" fill="none">
+
+    <!-- Ground line -->
+    <line x1="8" y1="88" x2="192" y2="88"
+          stroke="rgba(255,255,255,0.45)" stroke-width="2"/>
+
+    <!-- Head — left of shoulders, angled slightly down, nose pointing LEFT -->
+    <circle cx="40" cy="43" r="11" fill="rgba(255,255,255,0.18)" stroke-width="2.5"/>
+    <path d="M 30 40 L 23 43 L 30 46 Z"
+          fill="rgba(255,255,255,0.85)" stroke="none"/>
+
+    <!-- Body — filled near-horizontal shape from shoulders to toes -->
+    <!-- Shoulder ~(55,54), hip ~(110,60), knee ~(145,65), toes at ground -->
+    <path d="
+      M 55 47
+      L 110 53
+      L 145 58
+      L 165 82
+      L 168 88
+      L 162 88
+      L 142 72
+      L 110 67
+      L 55 61
+      Z"
+      fill="rgba(255,255,255,0.18)" stroke-width="2.5"/>
+
+    <!-- Arm — extended from shoulder down to hand on ground (pushup top position) -->
+    <path d="M 55 54 Q 42 70 28 88" stroke-width="2.2"/>
+    <!-- Flat hand on ground -->
+    <line x1="20" y1="88" x2="36" y2="88" stroke-width="2.2"/>
+
+  </g>
+</svg>
