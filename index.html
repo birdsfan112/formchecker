@@ -4601,6 +4601,20 @@ async function startCamera() {
   document.getElementById('camera-permission').classList.add('hidden');
   loading.classList.remove('hidden');
 
+  // getUserMedia requires a secure context (HTTPS or localhost).
+  // file:// URLs are NOT secure contexts — Chrome blocks camera access even with --disable-web-security.
+  if (!window.isSecureContext) {
+    loading.innerHTML = `<h2>Setup Required</h2>
+      <p>Camera access requires HTTPS or localhost. Opening the file directly won\u2019t work.</p>
+      <p style="margin-top:14px;">Use the local server instead:</p>
+      <p style="font-family:monospace;background:#0f3460;padding:10px;border-radius:6px;margin-top:6px;line-height:1.6;">
+        1. Double-click <strong>start.bat</strong> in the FormChecker folder<br>
+        2. Choose option 1 (HTTP)<br>
+        3. Open <a href="http://localhost:8080" style="color:#4ade80;">http://localhost:8080</a> in Chrome
+      </p>`;
+    return;
+  }
+
   try {
     // Camera display at full resolution so the video looks sharp on screen.
     // Pose inference runs at 640×480 (Camera width/height below) — ~4× fewer pixels to process.
@@ -4654,7 +4668,17 @@ async function startCamera() {
       speakForce('FormCheck ready. Line up with the guide, then raise your hand to start.');
     }
   } catch (err) {
-    loading.innerHTML = `<h2>Camera Error</h2><p>${err.message}</p><p style="margin-top:12px;">Please allow camera access and reload.</p>`;
+    let hint;
+    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+      hint = 'Camera permission was denied. Allow camera access in your browser settings and reload.';
+    } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+      hint = 'No camera found. Connect a camera and reload.';
+    } else if (err.name === 'NotReadableError') {
+      hint = 'Camera is already in use by another app. Close it and reload.';
+    } else {
+      hint = 'Please allow camera access and reload.';
+    }
+    loading.innerHTML = `<h2>Camera Error</h2><p>${err.message}</p><p style="margin-top:12px;">${hint}</p>`;
   }
 }
 
