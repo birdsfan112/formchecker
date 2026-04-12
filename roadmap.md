@@ -2,11 +2,11 @@
 | Field | Value |
 |-------|-------|
 | Phase | Implement |
-| Updated | 2026-04-11 |
-| Summary | 22 exercises, 289 unit tests + 38 Playwright smoke tests (all passing). Landmark injection now covers 6 code paths: invertedPolarity (bandpullapart, glutebridge), downGate (pullup), MM:SS timer (lsit), orientation-hint dropped (dip), hanging hip angle (legraise). 13 placeholder specs remain. |
-| Next Session | Scott: phone-test Session 1 exercises (bandpullapart, lsit, dip, pullup, glutebridge, lunge) per `docs/refactor-audit-2026-04-10.md` focus order — or Claude starts Step 4 (visual polish spec update, autonomous) |
-| Needs Scott | Phone test all 22 exercises — use focus order in `docs/refactor-audit-2026-04-10.md` (Session 1 first: bandpullapart, lsit, dip, pullup, glutebridge, lunge). Record Y4M files to expand remaining 13 placeholder Playwright tests. |
-| Autonomous | Update visual polish spec (Step 4) |
+| Updated | 2026-04-12 |
+| Summary | 22 exercises, 289 unit tests + 38 Playwright smoke tests (all passing). Step 4 complete: visual polish spec updated to 22 exercises, blank picker cards fixed (kneeling + quadruped mini silhouettes). Step 5 (PNG/how-to animations) awaiting Scott's PNG-vs-canvas decision. |
+| Next Session | Scott: decide PNG vs. canvas approach for Step 5 (see decision table in docs/specs/visual-polish-sprint.md), then phone-test exercises per refactor-audit priority order |
+| Needs Scott | (1) PNG vs. canvas decision for Step 5. (2) Phone test all 22 exercises — use focus order in `docs/refactor-audit-2026-04-10.md`. Record Y4M files to expand remaining 13 placeholder Playwright tests. |
+| Autonomous | None — Step 4 complete, Step 5 needs Scott's approach decision |
 | External Blockers | None |
 
 <!-- CHIEF OF STAFF NOTE: The Status block above is read by the daily review. Keep every field current.
@@ -35,8 +35,8 @@
 ### Step 3 — Exercise framework refactor ✅ COMPLETE (2026-04-10)
 *Per `docs/specs/exercise-framework-spec.md`. All 22 exercises migrated to single config-object pattern via `addExercise(config)`. Framework extensions added: `invertedPolarity` (glute bridge, band pull-aparts), `downGate(lm)` (pull-up chin-over-bar gate). Tests: 284 passing, 0 failing — includes parallel framework implementations for rep + timed analyzers in `tests.js`. Two dead-code findings filed to backlog (see Backlog §2). One minor feature dropped: per-frame camera-orientation nudge for dips (see Backlog §3).*
 
-### Step 4 — Update visual polish spec (13 → 22 exercises)
-*Add the 9 exercises missing from `docs/specs/visual-polish-sprint.md` before PNG work begins.*
+### Step 4 — Update visual polish spec (13 → 22 exercises) ✅ COMPLETE (2026-04-12)
+*Spec updated; bonus fix: 3 blank exercise picker cards patched (kneeling + quadruped mini silhouettes added to `drawMiniSilhouette()`). See `docs/specs/visual-polish-sprint.md` for PNG-vs-canvas decision table.*
 
 ### Step 5 — Visual polish sprint
 *PNG silhouettes + CSS-animated how-to keyframes. Framework provides clean structure for this.*
