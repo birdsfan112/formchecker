@@ -4132,6 +4132,53 @@ function drawMiniSilhouette(ctx, w, h, drawStyle) {
     ctx.moveTo(cx, h * 0.68); ctx.lineTo(cx - w * 0.10, h * 0.92);
     ctx.moveTo(cx, h * 0.68); ctx.lineTo(cx + w * 0.10, h * 0.92);
     ctx.stroke();
+
+  } else if (drawStyle === 'kneeling') {
+    // Side-view kneeling lunge — facing right, one knee down, torso upright
+    const headR  = w * 0.11;
+    const headX  = cx + w * 0.06;
+    const headY  = h * 0.19;
+    ctx.beginPath(); ctx.arc(headX, headY, headR, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+    // Spine (torso)
+    const neckY  = headY + headR;
+    const hipY   = h * 0.60;
+    ctx.beginPath(); ctx.moveTo(headX, neckY); ctx.lineTo(headX, hipY); ctx.stroke();
+    // Front leg — foot planted forward (right)
+    const groundY = h * 0.92;
+    ctx.beginPath();
+    ctx.moveTo(headX, hipY);
+    ctx.lineTo(headX + w * 0.22, groundY);
+    ctx.stroke();
+    // Rear leg — knee on ground (left/back)
+    ctx.beginPath();
+    ctx.moveTo(headX, hipY);
+    ctx.lineTo(headX - w * 0.20, groundY);
+    ctx.stroke();
+    // Knee dot
+    ctx.beginPath(); ctx.arc(headX - w * 0.20, groundY, w * 0.04, 0, Math.PI * 2); ctx.fill();
+
+  } else if (drawStyle === 'quadruped') {
+    // Side-view all-fours — facing right, horizontal body low in frame
+    const headR  = w * 0.10;
+    const headX  = w * 0.23;
+    const bodyY  = h * 0.52;
+    const headY  = bodyY - h * 0.04;
+    ctx.beginPath(); ctx.arc(headX, headY, headR, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+    // Horizontal body
+    const rearX  = w * 0.77;
+    ctx.beginPath(); ctx.moveTo(headX + headR, bodyY); ctx.lineTo(rearX, bodyY); ctx.stroke();
+    // Front arms down to ground
+    const groundY = h * 0.88;
+    const frontX  = w * 0.35;
+    ctx.beginPath(); ctx.moveTo(frontX, bodyY); ctx.lineTo(frontX, groundY); ctx.stroke();
+    // Rear legs down to ground
+    const rearLegX = w * 0.65;
+    ctx.beginPath(); ctx.moveTo(rearLegX, bodyY); ctx.lineTo(rearLegX, groundY); ctx.stroke();
+    // Hand + knee dots on ground
+    ctx.beginPath(); ctx.arc(frontX, groundY, w * 0.04, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(rearLegX, groundY, w * 0.04, 0, Math.PI * 2); ctx.fill();
   }
 }
 

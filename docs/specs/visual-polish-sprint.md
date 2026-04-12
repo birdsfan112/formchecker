@@ -2,9 +2,9 @@
 | Field | Value |
 |-------|-------|
 | Phase | Phase 5 — Visual Polish |
-| Updated | 2026-04-07 |
-| Summary | Spec written; no implementation started. Parked until core exercise library is complete. |
-| Next Session | Decide between PNG silhouettes vs. canvas-drawn approach before starting |
+| Updated | 2026-04-12 |
+| Summary | Spec updated to cover all 22 exercises (was 13). Mini silhouette bug fixed: kneeling + quadruped cases added to drawMiniSilhouette(). No PNG implementation started — awaiting Scott's call on PNG vs. canvas approach. |
+| Next Session | Decide on PNG silhouettes vs. improved canvas-drawn approach, then begin Step 5 implementation |
 
 # Visual Polish Sprint — Silhouettes & How-To Animations
 
@@ -31,8 +31,14 @@ For each exercise, define a small keyframe sequence (2–4 poses as arrays of [x
 ## Tasks
 
 ### Silhouettes
-- [ ] Generate PNG silhouettes for all 13 exercises (transparent background, side or front profile matching current camera angle per exercise)
-  - Exercises: push-ups, squats, pull-ups, lunges, plank, pike push-ups, dips, dead hang, leg raises, inverted rows, L-sit, pistol squat, glute bridge
+- [ ] Generate PNG silhouettes for all 22 exercises (transparent background, side or front profile matching current camera angle per exercise)
+  - **Standing side-view** (6): Squats, Lunges, Shoulder Dislocates, Wrist Warm-up, Band Pull-Aparts, Pistol Squat
+  - **Horizontal side-view** (5): Push-ups, Plank, Pike Push-ups, Glute Bridge, Foam Roller
+  - **Hanging front-view** (4): Pull-ups, Dead Hang, Arch Hang, Scapular Pulls
+  - **Floor rep-based / other horizontal** (3): Inverted Rows, L-Sit, Leg Raises
+  - **Kneeling side-view** (1): Hip Flexor Stretch
+  - **Quadruped side-view** (2): Cat-Cow, Bird-Dog
+  - **Dips** (1): Dips (front-view, arms on bars at sides)
 - [ ] Convert each PNG to base64 data URI
 - [ ] Add an `img` element (or CSS background) for the silhouette in the canvas container, positioned to align with the guide overlay
 - [ ] Show/hide the correct silhouette when exercise changes (mirrors existing drawGuide logic)
@@ -40,11 +46,34 @@ For each exercise, define a small keyframe sequence (2–4 poses as arrays of [x
 
 ### How-to animations
 - [ ] For each exercise, define 2–4 keyframe landmark arrays (normalized 0–1 coordinates) representing the movement arc (e.g., pushup: arms extended → arms bent at bottom)
+  - Rep-based exercises (pushup, squat, pullup, lunge, dip, pike, row, pistolsquat, glutebridge, bandpullapart, legraise, pullup): top position ↔ bottom position
+  - Timed exercises (plank, deadhang, archhang, scapularpull, lsit, shoulderdislocate, wristwarmup, foamroller, hipflexor, catcow, birddog): hold position + slight sway or cycle
 - [ ] Build a `playHowToAnimation(exercise)` function: cycles through keyframes at ~1s per step using `setInterval` or `requestAnimationFrame`, draws skeleton on guide canvas
 - [ ] Trigger animation when app enters idle state on an exercise; cancel when workout starts or exercise changes
 - [ ] Confirm animation doesn't interfere with `checkPositioning` (green tint) or `drawGuide` floor line — layering order matters
 - [ ] Phone test: does animation loop smoothly at 6+ feet? Is the movement arc clear?
 
+### Mini silhouettes (exercise picker cards)
+- [x] Fix `drawMiniSilhouette()`: add `kneeling` and `quadruped` cases — 3 exercises (Hip Flexor Stretch, Cat-Cow, Bird-Dog) showed blank cards in the picker (2026-04-12)
+- [ ] If PNG approach chosen: replace mini silhouettes in picker cards with thumbnail PNGs (scaled-down versions of full silhouettes)
+- [ ] If canvas approach kept: consider upgrading mini silhouettes from stick figures to scaled-down filled shapes
+
 ### Integration
 - [ ] Write regression tests confirming: exercise change shows correct silhouette, animation starts on idle and stops on workout start
 - [ ] Update `docs/architecture-map.md` to document new silhouette layer and animation function
+
+---
+
+## Decision Needed Before Step 5
+
+**PNG vs. improved canvas approach:**
+
+| | PNG (original plan) | Canvas-drawn (current) |
+|--|--|--|
+| Visual quality | Photo-realistic, instantly readable at 6+ feet | Geometric, but already filled + shaped |
+| File size | +~5KB per exercise base64 encoded (~110KB total) | Zero — already in-code |
+| Maintainability | Requires image generation tooling to update | Code — editable in-session |
+| Effort | High — generate 22 images, convert, embed, wire | Medium — improve existing draw functions |
+| Status | Not started | 5 draw functions exist, already solid quality |
+
+The large guide silhouettes (`drawStandingSide`, `drawHorizontalSide`, `drawHangingFront`, `drawKneelingStretch`, `drawQuadruped`) are already filled shapes and high quality. The main remaining gap is the how-to animation layer (Step 5, second half).
