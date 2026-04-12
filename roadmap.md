@@ -79,13 +79,15 @@
      Archive older entries to docs/roadmap-archive.md (see Archive Pointer below).
      Multiple sessions on the same date can be consolidated into one entry. -->
 
-### 2026-04-12 — SVG silhouettes for exercise picker (Step 5 started)
+### 2026-04-12 — Step 4 complete + Step 5 SVG silhouettes (visual polish sprint)
 
-- Recovered uncommitted work from `funny-hamilton` worktree: 7 SVG silhouette shapes covering all 22 exercises
-- `EXERCISE_SVGS` JS map + `getSvgKey(drawStyle, drawVariant)` embedded in index.html
-- `renderExercisePicker()` now uses `<img src="data:image/svg+xml,...">` instead of `<canvas>` + `drawMiniSilhouette()`
-- Source files: `assets/silhouettes/*.svg` (7 files)
-- **Next session:** Phone-test SVG picker on iOS Safari, then continue Step 5 CSS animations
+- **Step 4 (spec update):** `docs/specs/visual-polish-sprint.md` expanded from 13 → 22 exercises, grouped by drawStyle, added PNG-vs-canvas decision table
+- **Blank picker card bug fixed:** `drawMiniSilhouette()` was missing `kneeling` + `quadruped` cases — Hip Flexor Stretch, Cat-Cow, Bird-Dog showed blank tiles
+- **Library research:** Searched GitHub + web for open-source fitness silhouette sets. Finding: nothing covers all 22 exercises with a clean (non-ShareAlike) license. Niche exercises (arch hang, scapular pulls, L-sit, band pull-aparts, mobility work) missing from all free sets.
+- **Step 5 decision path:** PNG with no API keys → SVG fallback (imagegen skill). Generated 7 unique SVGs in `assets/silhouettes/` covering all 22 exercises via drawStyle+drawVariant.
+- **SVG integration:** `EXERCISE_SVGS` JS constant + `getSvgKey()` embedded in index.html. `renderExercisePicker()` now uses `<img src="data:image/svg+xml,...">` instead of `<canvas>` + `drawMiniSilhouette()`. All 22 picker cards now show pose-specific illustrations.
+- **Tests:** 289 unit + 38 Playwright = 327 total, 0 failing.
+- **Next session:** Phone-test SVG picker cards on iOS Safari. Then continue Step 5: CSS-animated how-to keyframes (movement arc animation while idle).
 
 ### 2026-04-11 — Playwright landmark injection expanded: glutebridge, pullup, legraise (38 tests)
 
