@@ -3,7 +3,7 @@
 |-------|-------|
 | Phase | Implement |
 | Updated | 2026-04-12 |
-| Summary | 22 exercises. Step 5 complete: SVG picker silhouettes + how-to skeleton animation both shipped. Blue animated stick skeleton overlays guide canvas during idle, showing movement range for all 22 exercises via HOW_TO_KEYFRAMES + drawHowToSkeleton(). 289 unit + 38 Playwright = 327 passing. |
+| Summary | 22 exercises. Step 5 complete: SVG picker silhouettes + how-to skeleton animation both shipped. Camera error handling improved: insecure context (file://) now shows actionable setup instructions instead of cryptic NotAllowedError. 289 unit + 38 Playwright = 327 passing. |
 | Next Session | Phone-test both: (1) SVG picker cards on iOS Safari, (2) how-to animation during idle on iOS Safari. If both look good, Step 5 is done — move to Step 2 phone testing. |
 | Needs Scott | (1) Phone test SVG picker cards on iOS Safari. (2) Phone test how-to animation (blue skeleton, idle state). (3) Phone test all 22 exercises per `docs/exercise-testing-protocol.md`. Record Y4M files for remaining Playwright specs. |
 | Autonomous | None — waiting on phone test results before deciding if Step 5 needs any tweaks. |
@@ -79,6 +79,14 @@
 <!-- Reverse-chronological. Most recent entry first. Cap at ~15 entries.
      Archive older entries to docs/roadmap-archive.md (see Archive Pointer below).
      Multiple sessions on the same date can be consolidated into one entry. -->
+
+### 2026-04-12 — Fix: insecure context camera error + improved error messages
+
+- **Root cause:** `getUserMedia` requires HTTPS or localhost. Opening `index.html` directly as `file://` is not a secure context in Chrome; `--disable-web-security` bypasses CORS but does NOT grant secure-context status. No check existed — the app tried `getUserMedia` and received a cryptic `NotAllowedError`.
+- **Fix 1 (prevention):** Added `window.isSecureContext` check at the top of `startCamera()`, before any `getUserMedia` call. If false, shows a friendly `<h2>Setup Required</h2>` message with step-by-step instructions: double-click `start.bat` → choose option 1 → open `http://localhost:8080`.
+- **Fix 2 (diagnosis):** Improved `catch` block to branch on `err.name`: `NotAllowedError` → permission denied guidance; `NotFoundError` → no camera found; `NotReadableError` → camera in use by another app; fallback → generic message. Previously all errors showed the same generic text.
+- **Tests:** 289/289 unit passing. No behavioral changes to camera flow or pose pipeline.
+- **Next session:** Phone-test SVG picker cards + how-to animation on iOS Safari.
 
 ### 2026-04-12 — Step 5 how-to animation (visual polish sprint)
 
