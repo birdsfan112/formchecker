@@ -3,10 +3,10 @@
 |-------|-------|
 | Phase | Implement |
 | Updated | 2026-04-12 |
-| Summary | 22 exercises. Step 5 in progress: SVG silhouettes committed — exercise picker cards now use 7 inline SVGs covering all 22 exercises via drawStyle+drawVariant (replaces canvas drawMiniSilhouette). Next: CSS animation + how-to overlays. |
-| Next Session | Start with phone-test of SVG picker cards to confirm they render correctly on iOS Safari. Then continue Step 5: CSS-animated how-to keyframes per visual-polish-sprint.md. |
-| Needs Scott | (1) Phone test SVG picker cards on iOS Safari. (2) Phone test all 22 exercises — use focus order in `docs/refactor-audit-2026-04-10.md`. Record Y4M files for remaining Playwright tests. |
-| Autonomous | Continue Step 5 CSS animation work once picker card render is confirmed. |
+| Summary | 22 exercises. Step 5 complete: SVG picker silhouettes + how-to skeleton animation both shipped. Blue animated stick skeleton overlays guide canvas during idle, showing movement range for all 22 exercises via HOW_TO_KEYFRAMES + drawHowToSkeleton(). 289 unit + 38 Playwright = 327 passing. |
+| Next Session | Phone-test both: (1) SVG picker cards on iOS Safari, (2) how-to animation during idle on iOS Safari. If both look good, Step 5 is done — move to Step 2 phone testing. |
+| Needs Scott | (1) Phone test SVG picker cards on iOS Safari. (2) Phone test how-to animation (blue skeleton, idle state). (3) Phone test all 22 exercises per `docs/exercise-testing-protocol.md`. Record Y4M files for remaining Playwright specs. |
+| Autonomous | None — waiting on phone test results before deciding if Step 5 needs any tweaks. |
 | External Blockers | None |
 
 <!-- CHIEF OF STAFF NOTE: The Status block above is read by the daily review. Keep every field current.
@@ -43,7 +43,8 @@
 
 - [x] SVG silhouettes added to picker cards — 7 shapes cover all 22 exercises via `drawStyle+drawVariant`. `EXERCISE_SVGS` map + `getSvgKey()` helper. `<canvas>` replaced with `<img src="data:image/svg+xml,...">`. Source SVGs in `assets/silhouettes/`.
 - [ ] Phone-test picker card SVG rendering on iOS Safari
-- [ ] CSS-animated how-to keyframes (see visual-polish-sprint.md)
+- [x] How-to animation — `HOW_TO_KEYFRAMES` (all 22 exercises, 2 keyframes each) + `drawHowToSkeleton()` draws blue animated stick skeleton on guide canvas during idle. Interpolates with `Date.now()` sine wave, driven by existing 7.5fps idle throttle in `drawGuide()`.
+- [ ] Phone-test how-to animation on iOS Safari (check: blue skeleton visible, animation smooth, doesn't interfere with alignment tinting)
 
 ## Backlog
 
@@ -78,6 +79,15 @@
 <!-- Reverse-chronological. Most recent entry first. Cap at ~15 entries.
      Archive older entries to docs/roadmap-archive.md (see Archive Pointer below).
      Multiple sessions on the same date can be consolidated into one entry. -->
+
+### 2026-04-12 — Step 5 how-to animation (visual polish sprint)
+
+- **How-to animation shipped:** `HOW_TO_KEYFRAMES` constant — 22 exercises × 2 keyframes each, all in normalized [0..1] canvas coords. `drawHowToSkeleton(w, h, ex)` lerps between frames using `(1 - cos(t·2π)) / 2` oscillation driven by `Date.now()`, draws blue (`rgba(96,165,250,0.88)`) stick skeleton + joint dots on `guideCtx`.
+- **Integration:** Single call at end of `drawGuide()` gated on `state.workoutState === 'idle'`. Runs on existing 7.5fps idle throttle — no separate RAF loop needed. Blue color visually distinct from white static silhouette.
+- **Exercise coverage:** Standing (squat, lunge, pistol, dip, lsit, shoulderdislocate, wristwarmup, bandpullapart), horizontal pushup (pushup, pike), horizontal plank (plank, row, glutebridge, foamroller), hanging front-view (pullup, deadhang, legraise, archhang, scapularpull), kneeling (hipflexor), quadruped (catcow, birddog).
+- **Tests:** 289 unit + 38 Playwright = 327 total, 0 failing. Two Playwright flakes (port collision) confirmed pre-existing.
+- **Flakiness note:** Full Playwright suite occasionally shows 2 failures on first run due to port collision when running sequentially after another run. Second run always passes clean. Not caused by code changes.
+- **Next session:** Phone-test on iOS Safari: (1) SVG picker cards, (2) blue animation during idle. If both look good, Step 5 is done — move to Step 2 phone testing of all 22 exercises.
 
 ### 2026-04-12 — Step 4 complete + Step 5 SVG silhouettes (visual polish sprint)
 
