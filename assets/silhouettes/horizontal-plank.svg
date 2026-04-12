@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 110" width="200" height="110">
+  <!-- Side-view plank / inverted row / glute bridge / foam roller.
+       Person faces LEFT. Body nearly horizontal, forearm flat on ground. -->
+  <g stroke="rgba(255,255,255,0.85)" stroke-linecap="round" stroke-linejoin="round" fill="none">
+
+    <!-- Ground line -->
+    <line x1="8" y1="88" x2="192" y2="88"
+          stroke="rgba(255,255,255,0.45)" stroke-width="2"/>
+
+    <!-- Head — nose pointing LEFT -->
+    <circle cx="38" cy="46" r="11" fill="rgba(255,255,255,0.18)" stroke-width="2.5"/>
+    <path d="M 28 43 L 21 46 L 28 49 Z"
+          fill="rgba(255,255,255,0.85)" stroke="none"/>
+
+    <!-- Body — filled near-horizontal plank shape (body slightly lower than pushup) -->
+    <path d="
+      M 52 50
+      L 110 56
+      L 148 62
+      L 168 84
+      L 171 88
+      L 165 88
+      L 145 72
+      L 110 66
+      L 52 60
+      Z"
+      fill="rgba(255,255,255,0.18)" stroke-width="2.5"/>
+
+    <!-- Arm: upper arm nearly vertical from shoulder to elbow on ground,
+         forearm flat forward (plank / forearm position) -->
+    <!-- Upper arm: shoulder → elbow -->
+    <line x1="52" y1="55" x2="36" y2="88" stroke-width="2.2"/>
+    <!-- Forearm: elbow → wrist (pointing forward/left) -->
+    <line x1="36" y1="88" x2="18" y2="88" stroke-width="2.2"/>
+    <!-- Small wrist dot -->
+    <circle cx="18" cy="86" r="3" fill="rgba(255,255,255,0.85)" stroke="none"/>
+
+  </g>
+</svg>

@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 170" width="140" height="170">
+  <!-- Front-view hanging from bar. Used for: pull-ups, dead hang, arch hang,
+       scapular pulls, leg raises. Symmetric front view. -->
+  <g stroke="rgba(255,255,255,0.85)" stroke-linecap="round" stroke-linejoin="round" fill="none">
+
+    <!-- Pull-up bar -->
+    <line x1="15" y1="10" x2="125" y2="10"
+          stroke="rgba(255,255,255,0.35)" stroke-width="7" stroke-linecap="square"/>
+
+    <!-- Head -->
+    <circle cx="70" cy="42" r="12" fill="rgba(255,255,255,0.18)" stroke-width="2.5"/>
+
+    <!-- LEFT arm — from hand on bar down to shoulder (filled tube) -->
+    <path d="
+      M 36 10
+      Q 44 28 56 38
+      L 58 43
+      L 52 43
+      Q 40 33 32 10
+      Z"
+      fill="rgba(255,255,255,0.18)" stroke-width="2"/>
+
+    <!-- RIGHT arm -->
+    <path d="
+      M 104 10
+      Q 96 28 84 38
+      L 82 43
+      L 88 43
+      Q 100 33 108 10
+      Z"
+      fill="rgba(255,255,255,0.18)" stroke-width="2"/>
+
+    <!-- Torso — tapers from shoulders down to hips -->
+    <path d="
+      M 52 43
+      Q 51 80 54 98
+      L 86 98
+      Q 89 80 88 43
+      Z"
+      fill="rgba(255,255,255,0.18)" stroke-width="2.5"/>
+
+    <!-- LEFT leg -->
+    <path d="
+      M 54 98
+      Q 50 120 48 148
+      L 56 148
+      Q 58 120 62 98
+      Z"
+      fill="rgba(255,255,255,0.18)" stroke-width="2"/>
+
+    <!-- RIGHT leg -->
+    <path d="
+      M 78 98
+      Q 82 120 84 148
+      L 92 148
+      Q 90 120 86 98
+      Z"
+      fill="rgba(255,255,255,0.18)" stroke-width="2"/>
+
+    <!-- Feet -->
+    <rect x="44" y="148" width="16" height="8" rx="2"
+          fill="rgba(255,255,255,0.18)" stroke-width="2"/>
+    <rect x="80" y="148" width="16" height="8" rx="2"
+          fill="rgba(255,255,255,0.18)" stroke-width="2"/>
+
+  </g>
+</svg>

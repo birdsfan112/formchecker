@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 110" width="200" height="110">
+  <!-- Side-view quadruped (all-fours). Person faces LEFT. Used for: cat-cow.
+       Horizontal torso, four limbs reaching ground, head low and forward. -->
+  <g stroke="rgba(255,255,255,0.85)" stroke-linecap="round" stroke-linejoin="round" fill="none">
+
+    <!-- Ground line -->
+    <line x1="8" y1="92" x2="192" y2="92"
+          stroke="rgba(255,255,255,0.45)" stroke-width="2"/>
+
+    <!-- Head — forward (left), angled slightly down, nose pointing LEFT -->
+    <circle cx="38" cy="50" r="10" fill="rgba(255,255,255,0.18)" stroke-width="2.5"/>
+    <path d="M 29 47 L 22 50 L 29 53 Z"
+          fill="rgba(255,255,255,0.85)" stroke="none"/>
+
+    <!-- Torso — horizontal body block from front (shoulder) to rear (hip) -->
+    <path d="
+      M 58 38
+      L 138 42
+      L 138 58
+      L 58 54
+      Z"
+      fill="rgba(255,255,255,0.18)" stroke-width="2.5"/>
+
+    <!-- Front arm — straight down from shoulder to hand on ground -->
+    <path d="
+      M 58 46
+      Q 56 68 54 92
+      L 64 92
+      Q 65 68 66 46
+      Z"
+      fill="rgba(255,255,255,0.18)" stroke-width="2"/>
+
+    <!-- Rear leg — straight down from hip to knee on ground -->
+    <path d="
+      M 138 50
+      Q 140 68 142 92
+      L 152 92
+      Q 151 68 148 50
+      Z"
+      fill="rgba(255,255,255,0.18)" stroke-width="2"/>
+
+    <!-- Hand dot on ground (front) -->
+    <circle cx="59" cy="92" r="4" fill="rgba(255,255,255,0.60)" stroke="none"/>
+    <!-- Knee dot on ground (rear) -->
+    <circle cx="147" cy="92" r="4" fill="rgba(255,255,255,0.60)" stroke="none"/>
+
+  </g>
+</svg>

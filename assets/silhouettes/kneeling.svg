@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 160" width="120" height="160">
+  <!-- Side-view kneeling lunge. Person faces RIGHT. Used for: hip flexor stretch.
+       One knee on floor (rear/left), opposite foot planted forward (right), torso upright. -->
+  <g stroke="rgba(255,255,255,0.85)" stroke-linecap="round" stroke-linejoin="round" fill="none">
+
+    <!-- Ground line -->
+    <line x1="15" y1="143" x2="105" y2="143"
+          stroke="rgba(255,255,255,0.45)" stroke-width="2"/>
+
+    <!-- Head — facing right, nose bump -->
+    <circle cx="67" cy="16" r="11" fill="rgba(255,255,255,0.18)" stroke-width="2.5"/>
+    <path d="M 77 13 L 84 16 L 77 19 Z"
+          fill="rgba(255,255,255,0.85)" stroke="none"/>
+
+    <!-- Torso — upright body block from neck to hip -->
+    <path d="
+      M 71 27
+      Q 78 36 75 50
+      Q 72 60 71 68
+      L 63 68
+      Q 61 60 61 50
+      Q 59 36 63 27
+      Z"
+      fill="rgba(255,255,255,0.18)" stroke-width="2.5"/>
+
+    <!-- Front leg — thigh forward-down to planted foot (right side) -->
+    <path d="
+      M 71 68
+      Q 78 90 82 115
+      L 94 115
+      L 94 143
+      L 82 143
+      Q 76 118 68 90
+      Q 66 78 63 68
+      Z"
+      fill="rgba(255,255,255,0.18)" stroke-width="2.2"/>
+
+    <!-- Rear leg — thigh angled back-down, knee on ground (left side) -->
+    <path d="
+      M 63 68
+      Q 55 88 46 115
+      L 38 115
+      L 38 143
+      L 50 143
+      Q 55 118 61 95
+      Q 63 82 71 68
+      Z"
+      fill="rgba(255,255,255,0.18)" stroke-width="2.2"/>
+
+    <!-- Arm — hanging naturally at side of torso -->
+    <path d="M 73 38 Q 77 54 75 68" stroke-width="2"/>
+
+  </g>
+</svg>
