@@ -3,10 +3,10 @@
 |-------|-------|
 | Phase | Implement |
 | Updated | 2026-04-12 |
-| Summary | 22 exercises, 289 unit tests + 38 Playwright smoke tests (all passing). Step 4 complete: visual polish spec updated to 22 exercises, blank picker cards fixed (kneeling + quadruped mini silhouettes). Step 5 (PNG/how-to animations) awaiting Scott's PNG-vs-canvas decision. |
-| Next Session | Scott: decide PNG vs. canvas approach for Step 5 (see decision table in docs/specs/visual-polish-sprint.md), then phone-test exercises per refactor-audit priority order |
-| Needs Scott | (1) PNG vs. canvas decision for Step 5. (2) Phone test all 22 exercises — use focus order in `docs/refactor-audit-2026-04-10.md`. Record Y4M files to expand remaining 13 placeholder Playwright tests. |
-| Autonomous | None — Step 4 complete, Step 5 needs Scott's approach decision |
+| Summary | 22 exercises. Step 5 in progress: SVG silhouettes committed — exercise picker cards now use 7 inline SVGs covering all 22 exercises via drawStyle+drawVariant (replaces canvas drawMiniSilhouette). Next: CSS animation + how-to overlays. |
+| Next Session | Start with phone-test of SVG picker cards to confirm they render correctly on iOS Safari. Then continue Step 5: CSS-animated how-to keyframes per visual-polish-sprint.md. |
+| Needs Scott | (1) Phone test SVG picker cards on iOS Safari. (2) Phone test all 22 exercises — use focus order in `docs/refactor-audit-2026-04-10.md`. Record Y4M files for remaining Playwright tests. |
+| Autonomous | Continue Step 5 CSS animation work once picker card render is confirmed. |
 | External Blockers | None |
 
 <!-- CHIEF OF STAFF NOTE: The Status block above is read by the daily review. Keep every field current.
@@ -39,7 +39,11 @@
 *Spec updated; bonus fix: 3 blank exercise picker cards patched (kneeling + quadruped mini silhouettes added to `drawMiniSilhouette()`). See `docs/specs/visual-polish-sprint.md` for PNG-vs-canvas decision table.*
 
 ### Step 5 — Visual polish sprint
-*PNG silhouettes + CSS-animated how-to keyframes. Framework provides clean structure for this.*
+*SVG silhouettes embedded as JS strings + CSS-animated how-to keyframes.*
+
+- [x] SVG silhouettes added to picker cards — 7 shapes cover all 22 exercises via `drawStyle+drawVariant`. `EXERCISE_SVGS` map + `getSvgKey()` helper. `<canvas>` replaced with `<img src="data:image/svg+xml,...">`. Source SVGs in `assets/silhouettes/`.
+- [ ] Phone-test picker card SVG rendering on iOS Safari
+- [ ] CSS-animated how-to keyframes (see visual-polish-sprint.md)
 
 ## Backlog
 
@@ -74,6 +78,14 @@
 <!-- Reverse-chronological. Most recent entry first. Cap at ~15 entries.
      Archive older entries to docs/roadmap-archive.md (see Archive Pointer below).
      Multiple sessions on the same date can be consolidated into one entry. -->
+
+### 2026-04-12 — SVG silhouettes for exercise picker (Step 5 started)
+
+- Recovered uncommitted work from `funny-hamilton` worktree: 7 SVG silhouette shapes covering all 22 exercises
+- `EXERCISE_SVGS` JS map + `getSvgKey(drawStyle, drawVariant)` embedded in index.html
+- `renderExercisePicker()` now uses `<img src="data:image/svg+xml,...">` instead of `<canvas>` + `drawMiniSilhouette()`
+- Source files: `assets/silhouettes/*.svg` (7 files)
+- **Next session:** Phone-test SVG picker on iOS Safari, then continue Step 5 CSS animations
 
 ### 2026-04-11 — Playwright landmark injection expanded: glutebridge, pullup, legraise (38 tests)
 
