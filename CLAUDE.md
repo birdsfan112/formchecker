@@ -42,7 +42,7 @@ FormCheck — a real-time AI fitness form coach that uses phone camera + MediaPi
 Before making changes, know where things live. Full map: `docs/architecture-map.md`. Read it before touching any section you haven't worked in recently.
 
 ### 3. MEDIAPIPE POSE LANDMARK REFERENCE
-Full reference: `C:\Users\scott\Documents\FormChecker\docs\mediapipe-reference.md`
+Full reference: `C:\Hub\FormChecker\docs\mediapipe-reference.md`
 The 33 landmarks are normalized 0–1. `visibility` (0–1) = confidence the landmark is visible. Most-used: 11/12 shoulders, 13/14 elbows, 15/16 wrists, 17–22 hand points, 23/24 hips, 25/26 knees, 27/28 ankles.
 
 ### 4. PRE-FLIGHT CHECKLIST (run before every sprint)
@@ -159,4 +159,4 @@ Project-specific supporting docs live in `./docs/`. At session start, check if t
 | `docs/mediapipe-reference.md` | Full MediaPipe Pose landmark reference (all 33 landmarks) |
 
 ## End of Session
-Follow the centralized protocol: `C:\Users\scott\Documents\ChiefOfStaff\templates\end-of-session-protocol.md`
+Follow the `session-closure` skill.
