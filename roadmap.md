@@ -1,13 +1,13 @@
 ## Status
 | Field | Value |
 |-------|-------|
+| Priority | active |
 | Phase | Implement |
 | Updated | 2026-04-12 |
 | Summary | 22 exercises. Step 5 complete: SVG picker silhouettes + how-to skeleton animation both shipped. Camera error handling improved: insecure context (file://) now shows actionable setup instructions instead of cryptic NotAllowedError. 289 unit + 38 Playwright = 327 passing. |
-| Next Session | Phone-test both: (1) SVG picker cards on iOS Safari, (2) how-to animation during idle on iOS Safari. If both look good, Step 5 is done — move to Step 2 phone testing. |
 | Needs Scott | (1) Phone test SVG picker cards on iOS Safari. (2) Phone test how-to animation (blue skeleton, idle state). (3) Phone test all 22 exercises per `docs/exercise-testing-protocol.md`. Record Y4M files for remaining Playwright specs. |
 | Autonomous | None — waiting on phone test results before deciding if Step 5 needs any tweaks. |
-| External Blockers | None |
+| Blockers | None |
 
 <!-- CHIEF OF STAFF NOTE: The Status block above is read by the daily review. Keep every field current.
      Format must stay as a table. Do not rename fields. "None" is a valid value for any field. -->
