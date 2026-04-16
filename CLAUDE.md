@@ -39,7 +39,7 @@ FormCheck — a real-time AI fitness form coach that uses phone camera + MediaPi
 - The file is organized in this order: CSS → HTML → Script tags (MediaPipe CDNs) → JavaScript (state → helpers → silhouettes → gesture → state machine → exercises → events → MediaPipe init → camera).
 
 ### 2. UNDERSTAND THE ARCHITECTURE BEFORE CHANGING CODE
-Before making changes, know where things live. Full map: `docs/architecture-map.md`. Read it before touching any section you haven't worked in recently.
+Before making changes, know where things live. Full map: `docs/specs/architecture-map.md`. Read it before touching any section you haven't worked in recently.
 
 ### 3. MEDIAPIPE POSE LANDMARK REFERENCE
 Full reference: `C:\Hub\FormChecker\docs\mediapipe-reference.md`
@@ -151,7 +151,7 @@ Project-specific supporting docs live in `./docs/`. At session start, check if t
 | Doc | Purpose |
 |-----|---------|
 | `roadmap.md` | 6-phase roadmap, current phase, completed items |
-| `docs/architecture-map.md` | Where everything lives in index.html (section map + function table) |
+| `docs/specs/architecture-map.md` | Where everything lives in index.html (section map + function table) |
 | `docs/voice-architecture.md` | Voice gating layers, cue-adding guide, cooldown values |
 | `docs/session-management.md` | Keeping long sessions on track, drift prevention |
 | `docs/debug-video-workflow.md` | How to capture and extract debug data from phone screen recordings |

@@ -60,7 +60,7 @@ For each exercise, define a small keyframe sequence (2–4 poses as arrays of [x
 
 ### Integration
 - [ ] Write regression tests confirming: exercise change shows correct silhouette, animation starts on idle and stops on workout start
-- [ ] Update `docs/architecture-map.md` to document new silhouette layer and animation function
+- [ ] Update `docs/specs/architecture-map.md` to document new silhouette layer and animation function
 
 ---
 

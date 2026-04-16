@@ -80,6 +80,14 @@
      Archive older entries to docs/roadmap-archive.md (see Archive Pointer below).
      Multiple sessions on the same date can be consolidated into one entry. -->
 
+### 2026-04-16 — architecture-map.md moved to docs/specs/ (audit fix)
+
+- `docs/architecture-map.md` → `docs/specs/architecture-map.md` via `git mv`
+- Updated references in `CLAUDE.md` (2 places) and `docs/specs/visual-polish-sprint.md` (1 place)
+- Historical mentions in `docs/roadmap-archive.md` left unchanged (session log history)
+
+---
+
 ### 2026-04-12 — Fix: insecure context camera error + improved error messages
 
 - **Root cause:** `getUserMedia` requires HTTPS or localhost. Opening `index.html` directly as `file://` is not a secure context in Chrome; `--disable-web-security` bypasses CORS but does NOT grant secure-context status. No check existed — the app tried `getUserMedia` and received a cryptic `NotAllowedError`.
