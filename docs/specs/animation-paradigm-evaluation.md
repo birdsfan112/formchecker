@@ -1,134 +1,133 @@
-# Animation Paradigm Evaluation — How-To Movement Demos
+# Animation + Picker Image Paradigm Evaluation
 
 **Status:** DRAFT for Scott's review — not a decision.
 **Author:** Claude (investigation; no code changes).
 **Date:** 2026-04-17.
 
+**Scope note:** An earlier version of this doc evaluated four "show-the-user-a-human-doing-the-exercise" paradigms. Scott's clarification: the goal is **an automated asset pipeline** — sources are private inputs, outputs are derived assets (skeleton animations + picker images). This version reflects that.
+
 ---
 
 ## Problem
 
-The "how-to" animation layer (drawn on the guide canvas during idle state) is the visual that shows a new user *what the movement looks like* before they start. Today, pull-ups read as a human doing a pull-up. The other 21 exercises do not — the figures look broken, physics-less, anatomically wrong, or simply unreadable.
+Two asset layers in FormChecker are hand-authored and low-quality:
 
-Scott wants a new paradigm, not incremental tweaks to the current one. The purpose of this doc is to evaluate four candidate paradigms and recommend one (or a hybrid), without making the call for him.
+1. **How-to animations** (`HOW_TO_KEYFRAMES` in `index.html:2642`): 22 exercises × 2 keyframes each, linearly interpolated on the guide canvas during idle. Only pull-ups look acceptable; the other 21 read as broken geometry. (See "Why only pull-ups" below.)
+2. **Picker card silhouettes** (`assets/silhouettes/*.svg`): 7 hand-drawn SVGs covering 22 exercises via `drawStyle+drawVariant` mapping. Functional but generic — one SVG serves 3–5 exercises.
 
-The scope is **how-to animation only** — the looping demo while the user is positioning. It does NOT cover:
-- The static picker-card SVG silhouettes (`assets/silhouettes/*.svg` — already shipped, acceptable).
-- The alignment-tint guide silhouette in `drawStandingSide` / `drawHorizontalSide` / etc.
-- The MediaPipe skeleton overlay drawn on the user during the workout.
+Scott's goals:
+- **Automate as much as possible.** Minimize hand-authored frames, hand-drawn shapes, hand-tuned thresholds.
+- **Both layers should be driven by the same pipeline** — pick a source per exercise, run it through an automated extraction pipeline, and emit picker image + animation + (optionally) calibration baseline as outputs of the same pass.
+- **Sources are interchangeable** — online imagery, Mixamo rigged motion, self-filmed clips, stock video — whichever is cheapest per exercise.
+- **User-facing output is still the app's own visual language** (MediaPipe-style skeleton for animations; clean stylized silhouette for picker) — raw source imagery is not shown.
 
 ---
 
 ## Current State
 
-**Paradigm:** Hand-authored 2-keyframe stick figures, interpolated on a 2D canvas.
+**How-to animations.** `HOW_TO_KEYFRAMES` is a JS object keyed by exercise: `{ period, frames: [frameA, frameB] }`, each frame a list of line segments in normalized 0–1 canvas coords. `drawHowToSkeleton(w, h, ex)` (index.html:2935) cosine-lerps between the two frames and strokes blue lines. Called from `drawGuide()` at line 3029 on the 7.5fps idle throttle.
 
-**Implementation (`index.html`):**
-- `HOW_TO_KEYFRAMES` (line 2642, ~290 lines): a JS object keyed by exercise. Each entry is `{ period: <ms>, frames: [frameA, frameB] }`. Each frame is `{ head: [x, y, r], segs: [ [[x,y],[x,y]], ... ] }` — all coordinates normalized 0–1 against the guide-canvas viewport.
-- `drawHowToSkeleton(w, h, ex)` (line 2935): computes `t = (1 - cos((now % period) / period * 2π)) / 2` (cosine ease 0→1→0), linearly interpolates each segment endpoint and head position between frameA and frameB, and strokes lines + filled joint dots in blue `rgba(96,165,250,0.88)` onto `guideCtx`.
-- Called from `drawGuide()` (line 3029), gated on `state.workoutState === 'idle'`. Runs on the existing 7.5fps idle throttle.
+*Why only pull-ups work:* Pull-ups are a front-view hanging exercise — the dominant motion is near-vertical translation of a rigid-ish torso between "arms extended" and "chin over bar." A 2-keyframe linear lerp approximates that trajectory well. Every other exercise has multi-joint rotational motion (squat: ankle+knee+hip arc; pushup: elbow+shoulder arc; lunge: asymmetric legs; catcow: spine curvature). Linearly interpolating segment endpoints does not trace those arcs — it slides line segments across each other, breaks limb-length preservation, and reads as broken geometry.
 
-**Why pull-ups are acceptable — and why only pull-ups:**
-- Pull-ups are a **front-view hanging exercise**. The dominant motion is a nearly-vertical translation of the head and shoulders between arms-extended and chin-over-bar. The 2-point linear lerp between keyframes happens to be a reasonable approximation of that trajectory, because the real-world motion *is* close to a linear translation of a rigid-ish torso along one axis.
-- Every other exercise has multi-joint rotational motion (squat: ankle + knee + hip all arc; pushup: elbow + shoulder arc; lunge: asymmetric knee/hip; catcow: spine curvature). Linearly interpolating endpoint-to-endpoint between two hand-placed keyframes does not trace those arcs — it slides line segments across each other. The result reads as broken geometry rather than human movement.
+**Picker images.** `EXERCISE_SVGS` map + `getSvgKey(drawStyle, drawVariant)` (index.html:4528, 4545) — 7 SVGs in `assets/silhouettes/` assigned to one of: `standing`, `horizontal-plank`, `horizontal-pushup`, `hanging`, `kneeling`, `quadruped`, `quadruped-birddog`. This means multiple exercises share the same silhouette — e.g., every standing exercise (squat, lunge, pistol, dip, band pull-apart, shoulder dislocate, wrist warm-up) uses the same `standing.svg`. Acceptable today; weak identification at a glance.
 
-**Secondary problems (independent of the keyframe count):**
-- No limb-length preservation. Because segments are interpolated endpoint-by-endpoint, a "thigh" can change length mid-frame.
-- No depth, no mass, no rigging. A stick skeleton at 6+ feet on a phone is already low-signal even when it moves correctly.
-- Keyframes are hand-placed in pixel-normalized coordinates — tuning one exercise is a 20–30 minute fiddle.
-- Two keyframes cannot express asymmetric motion (e.g., lunge: which leg is forward?). The current lunge lerp collapses both legs into a confused middle pose.
+**Constraints any replacement must respect.**
+- Single-file `index.html` app — no build step for the app itself. A one-time asset-generation pipeline *outside* the app (Node/Python script) is fine.
+- iOS Safari on a phone, 6+ feet away, MediaPipe Pose already running at `modelComplexity: 0`.
+- GitHub Pages deploy on push to `main`.
+- Existing layers that must NOT change: MediaPipe skeleton overlay on the live user during workouts, alignment-tint guide silhouette (`drawStandingSide`, etc.) — that's a separate layer.
 
-**Files in play:**
-- `index.html` — all animation code + keyframes inline (single-file app constraint).
-- `assets/silhouettes/*.svg` — 7 static SVGs, **picker cards only**, not involved in how-to animation.
-- No external animation libraries. No build step. GitHub Pages deploy.
+---
 
-**Constraints that any new paradigm must respect:**
-- Single-file `index.html` app (GitHub Pages auto-deploy on push to `main`).
-- Runs on iOS Safari on a phone. Thermal budget is tight — MediaPipe Pose is already running at `modelComplexity: 0` to reduce GPU load.
-- The user is **6+ feet from the phone** during positioning. Whatever renders needs to be legible at that distance.
-- Must render during idle without fighting `checkPositioning()`'s alignment tinting or the static guide silhouette.
-- No backend. No account system. Fully client-side.
+## Paradigm: Automated Asset Pipeline
+
+The common structure across every candidate below is:
+
+```
+┌────────┐   ┌────────────┐   ┌─────────────┐   ┌──────────────────┐
+│ source │ → │  extractor │ → │ canonical   │ → │ three outputs:   │
+│  per   │   │ (MediaPipe │   │ per-exercise│   │  • anim JSON     │
+│exercise│   │ Pose, etc.)│   │ trajectory  │   │  • picker PNG/SVG│
+└────────┘   └────────────┘   └─────────────┘   │  • ROM baseline  │
+                                                 └──────────────────┘
+```
+
+The **canonical trajectory** is a JSON file per exercise: `N` frames × 33 landmarks × `[x, y, visibility]`, in normalized 0–1 coords. This is the same landmark format MediaPipe emits, so the on-device replay is a trivial extension of existing draw code. The picker image is one stylized frame from the same trajectory (or a separately generated silhouette). The ROM baseline is the min/max of the relevant joint angle across the trajectory.
+
+Candidates differ only in **where the source comes from**. Extractor, canonical format, and outputs are shared.
 
 ---
 
 ## Candidate Comparison
 
-Each candidate is evaluated on: **quality ceiling** (how good can it get?) · **iOS Safari integration complexity** · **licensing + cost** · **maintenance burden per exercise** · **22-exercise coverage** · **mobile performance**.
-
-| Dimension | A. Mixamo rigged 3D | B. Stock video clips | C. Scott self-filmed clips | D. Abstracted Rive-style |
+| Dimension | A. Pose-extract from self-filmed | B. Pose-extract from Mixamo | C. Pose-extract from online video | D. AI image gen for picker + keep current anim |
 |---|---|---|---|---|
-| **Quality ceiling** | High. Anatomically correct, physically plausible motion. Can look generic/game-engine. | Very high for common exercises; mixed for niche ones. Real humans = instantly readable. | Highest for authenticity — it's the actual movement Scott is coaching. Production quality depends on Scott's setup. | Medium. Abstract-by-design; reads as "a diagram," not "a person." Apple Fitness+ uses this effectively. |
-| **iOS Safari integration** | Heavy. Needs a 3D runtime — three.js + GLTF + skeletal animation loader. Adds ~600KB–1MB JS. WebGL context on phone competes with MediaPipe's GPU work. | Light. `<video muted autoplay loop playsinline>` is a native tag. Inline playback works on iOS Safari with `playsinline`. One tag per exercise or one swapped `src`. | Same as B — it's a video file, just a different source. | Medium. Rive web runtime is ~200KB; alternative is custom SVG morph (no deps, but hand-build). Both composite cleanly over/under canvas. |
-| **Licensing + cost** | Free. Adobe owns Mixamo; free for commercial + personal use (per current Mixamo ToS). No per-clip fees. Risk: Adobe has signaled Mixamo may not be maintained forever. | **Trap zone.** Pexels/Pixabay licenses are permissive but fitness-specific clips are thin; many "free" fitness clips are actually influencer-branded. Envato is paid (~$16/mo for subscription, or ~$3–10/clip). Per-clip license check needed for any public distribution. | Free, and Scott owns the license outright. One-time filming cost = Scott's time. | Free if self-authored in SVG. Rive's free tier is permissive for app use; paid tier if Scott wants the editor long-term. |
-| **Maintenance per exercise** | Medium. Apply Mixamo animation to a rigged character once, export GLB. Adding exercise 23 = find a Mixamo clip that matches, export, wire up. ~30–60 min per exercise. | Low if a matching clip exists (just drop the file). High if it doesn't — you cannot edit stock video. | Medium. One filming session for 22 exercises is 1–2 hours of setup + 2–3 hours of filming + editing. Adding exercise 23 = re-film. | Medium–high. Hand-authored keyframes in Rive editor or SVG. Easier than current because the editor gives visual feedback; harder than video because you're still authoring motion. |
-| **22-exercise coverage** | Strong for common exercises (squat, lunge, pushup, pullup, plank). Weak for niche: **band pull-aparts, wrist warm-ups, foam roller, scapular pulls, arch hang** unlikely to exist as Mixamo clips — you'd fall back to custom mocap or hand-author. | Strong for common lifts. Very weak for niche: foam roller, scapular pulls, arch hangs, wrist warm-ups are rare. Probably 12–15/22 covered; the rest fall back to another paradigm. | Complete by definition — Scott films all 22. No coverage gap. | Complete by definition — you author what you need. Coverage = time budget. |
-| **Mobile performance** | Risk. Three.js skeletal animation on top of MediaPipe Pose on iOS Safari at `modelComplexity:0` is a known thermal pain point. Loop-playing one GLB is manageable; switching contexts between exercises isn't. | Best. `<video>` is hardware-accelerated on iOS. A 5-second loop at 480p is ~150–400KB, barely registers. | Same as B — hardware-accelerated `<video>`. Scott's files can be compressed to small sizes. | Good. Rive runtime is optimized; SVG morph is near-free. Both comfortably under MediaPipe's budget. |
-| **Single-file constraint** | Breaks it. GLB files are binary; base64 in HTML would bloat `index.html` past readability. | Breaks it. Video files must be external. Acceptable if served from `assets/` alongside `index.html` (GitHub Pages serves them fine). | Same as B — files in `assets/videos/`. | Preserved if SVG. Rive runtime is external JS. |
-| **Time to first working demo** | 2–3 days (rigging pipeline + runtime). | Hours (for exercises with available clips). | 1 filming session + 1 editing session (~half-day). | 1–2 days for SVG morph; similar for Rive. |
+| **Automation level** | Medium. Scott films once (~2–3 hrs), pipeline does the rest. Re-filming required for any exercise change. | High. Pipeline downloads FBX, renders via headless three.js/Blender, extracts landmarks. Zero filming. | Highest. Pipeline queries a URL or YouTube ID, downloads clip, runs MediaPipe, emits JSON. Fully hands-off. | Very high for picker (one imagegen call per exercise). Zero improvement for animations. |
+| **22-exercise coverage** | 22/22 by construction. | ~5–8/22. Common lifts only. Band pull-aparts, scapular pulls, foam roller, wrist warm-ups, arch hang, shoulder dislocates unlikely to exist. | 22/22 in principle — YouTube has everything. Quality varies; some "scapular pull tutorial" clips are low-light, cluttered, or partial-body and break MediaPipe extraction. | Picker: 22/22 via DALL-E/Replicate. Animations: still broken (21/22 still hand-authored). |
+| **Output quality ceiling** | Highest. Real human motion, real limb lengths, matches Scott's own ROM. | High. Mocap-quality, anatomically correct, clean. May look "generic rig." | Medium–high. Depends on clip quality. Best clips rival self-film; worst are unusable. | Picker quality high (imagegen is mature). Animation quality unchanged. |
+| **Licensing + cost** | Free, Scott owns it. No review needed. | Free (Mixamo TOS permits commercial). Adobe may sunset Mixamo someday but existing exports remain usable. | **Gray zone.** Shipping landmark trajectories derived from copyrighted video is legally ambiguous. We ship no pixels — only coordinates — but the derivation is from a copyrighted work. Low practical risk for a hobby app, real risk if it grows. | AI image gen: per-image API cost (~$0.04/image × 22 = ~$1). License clean. |
+| **Pipeline complexity** | Medium. Video → MediaPipe Pose Python API → trajectory JSON. ~100 lines of Python. | High. FBX loader + headless 3D rendering + 2D projection to match the app's camera angles per exercise. ~300 lines + Blender dependency. | Medium. `yt-dlp` or `ffmpeg` to grab a clip + MediaPipe Pose. ~150 lines of Python. | Low. `imagegen` skill is already wired. Animation side = no pipeline work, just accepts current state. |
+| **Failure modes** | Scott's form in one take becomes "the reference." If the take is imperfect, it's baked in until he re-films. | Mixamo clips framed inconsistently across exercises; projecting to MediaPipe coords requires per-exercise camera setup. | Source clip quality is heterogeneous. Need to hand-pick a good clip per exercise (partial automation). Pose extraction fails on dim lighting, baggy clothing, partial body. | Animations stay broken. Only addresses half the problem. |
+| **Maintenance** | Re-film if Scott wants to tweak. Batch-re-process is free. | Swap FBX, re-run pipeline. Zero-touch if pipeline is stable. | Swap clip URL, re-run pipeline. Zero-touch. | Per-image re-gen is one imagegen call. |
+| **Fits single-file constraint** | Yes — JSON files in `assets/animations/` (~5–20KB each, ~200–400KB total). | Same. | Same. | Same. |
+| **Time to first demo** | 1 filming session + 2 days pipeline = ~3 days. | 4–5 days (Blender/three.js integration). | 2–3 days. | Hours for picker; animations unchanged. |
 
 ---
 
 ## Recommendation
 
-**Primary recommendation: Candidate C — Scott self-films the 22 exercises — with Candidate D (abstracted stick/Rive) as fallback for the 2–3 exercises that are awkward to self-film (e.g., if filming a hanging exercise requires a pull-up bar setup Scott doesn't want to build right now).**
+**Primary: Hybrid C+A with D for the picker layer.**
 
-### Why C over the others
+Concretely:
 
-1. **Authenticity matches the coaching.** FormCheck's coaching layer fires cues like "go deeper," "keep your hips level," "pause at the bottom." The demo animation should show the exact pose the cues describe. Only Scott's own filming guarantees that alignment, because *Scott is the one authoring the thresholds*. A Mixamo rig or a stock clip may show an acceptable rep that still triggers cues in the app.
-2. **Coverage is complete by construction.** Every other paradigm has an "and then what about scapular pulls and foam roller?" hole. Scott already demonstrated all 22 exercises to himself when tuning the form-analysis thresholds — filming them is a one-time re-run of work he has already done.
-3. **Mobile performance is the best of the four.** `<video muted autoplay loop playsinline>` is hardware-accelerated, free of WebGL contention with MediaPipe, and robust on iOS Safari.
-4. **Cost and licensing are zero and uncomplicated.** No stock-clip license audit, no Mixamo TOS drift, no Rive subscription question.
-5. **Quality ceiling is highest.** A real human doing the exact movement the app is watching for is the gold-standard reference. Even a phone-filmed clip beats a rigged abstraction for "can I tell what this exercise is from 6 feet away."
+1. **Picker images → AI generation (D).** Use the existing `imagegen` skill to generate 22 pose-specific silhouette PNGs, one per exercise, in a consistent art style. One pass, ~$1, ~1 hour of prompt iteration. Replaces the 7-to-22 SVG mapping with true per-exercise imagery.
+2. **Animations → online video extraction first, self-film fallback (C primary, A fallback).**
+   - For each of the 22 exercises, hand-pick one well-framed YouTube or Pexels clip (~5 min of curation per exercise = ~2 hours).
+   - Run a shared extraction pipeline: clip → MediaPipe Pose → landmark trajectory JSON → loop-clean → commit to `assets/animations/<exercise>.json`.
+   - For any exercise where online sources produce broken trajectories (bad lighting, partial body, occlusion), Scott films that one exercise himself. Expect this to be 3–8 exercises out of 22, not all 22.
+3. **Replay code.** Rewrite `drawHowToSkeleton(w, h, ex)` to read from the per-exercise JSON and interpolate across N real frames (30–60) instead of 2 hand-placed ones. The app-side change is additive; the old `HOW_TO_KEYFRAMES` gets deleted when all 22 JSON files are committed.
 
-### Why not A (Mixamo)
+### Why this hybrid over pure candidates
 
-The technical pipeline (three.js + GLB + rigged character) is a significant dependency for a single-file HTML app. It adds WebGL GPU contention with MediaPipe on a thermally-limited device. Coverage of niche mobility exercises (wrist warm-ups, scapular pulls, band pull-aparts, foam roller) is poor — you'd end up mixing paradigms anyway. The quality ceiling is game-engine-mannequin, not human.
+- **C alone** has a licensing gray zone and quality heterogeneity that can't be resolved without some manual fallback. Gray zone is fine for private prototype data; A catches anything C can't.
+- **A alone** requires Scott to film all 22 exercises. Good output, but 2–3 hours of filming + setup is expensive if C can do 80% of the work for free.
+- **B (Mixamo)** is tempting but its coverage gap (8/22) means we'd still need C or A as the primary — so B is strictly dominated by C for this job.
+- **D for picker only** is clearly the right move for that layer: low cost, high quality, mature tooling already wired up via `imagegen`.
 
-### Why not B (stock video)
+### What this buys Scott beyond what the old paradigm did
 
-Two fatal gaps: (1) niche exercises (the back half of the 22) do not exist as quality stock clips, and (2) licensing requires per-clip verification that becomes an ongoing tax whenever Scott adds an exercise. Stock video is the "seems cheapest" option that gets expensive in edge cases.
-
-### Why not D (abstracted Rive/stick-figure) as the primary
-
-D is the closest kin to what's there today. It is a real upgrade (proper rigging, limb-length preservation, multi-keyframe editing in a visual tool) but still abstract — same fundamental readability ceiling as stick figures. Apple Fitness+ uses abstracted stick figures **alongside** real human trainers, not as a replacement. Going abstract-only forfeits the legibility advantage at 6 feet on a phone.
-
-D is valuable as a **fallback** for specific exercises where self-filming is logistically painful — e.g., if Scott doesn't have a pull-up bar at home, the hanging-exercise subset can stay as abstract animations until the filming setup exists.
-
-### Hybrid option (discuss)
-
-If Scott wants to stage this:
-- **Phase 1:** Film the 10–12 easy-to-film exercises (all standing, floor, kneeling, quadruped). Ship those.
-- **Phase 2:** Film the hanging exercises once a filming setup exists. Until then, keep the current stick-figure animation (or upgrade to Rive) for just those 5 hanging exercises.
-
-This is lower-commitment than "film all 22 in one session" and de-risks the filming bottleneck.
+- **Real motion, not hand-placed endpoints.** The skeleton actually moves through the correct joint arcs — squats sit back, lunges step through, cat-cows curve the spine.
+- **Limb lengths preserved.** Because trajectories come from real pose landmarks, the skeleton doesn't stretch mid-rep.
+- **Calibration baseline for free.** The same trajectory files yield min/max joint angles — a starter ROM for calibration per exercise. Reduces the "warmup calibration" burden and is a bonus Phase 5 cleanup.
+- **Consistent picker art.** 22 distinct images instead of 7 shared silhouettes — users can tell exercises apart at a glance.
+- **Future-proof.** New exercise = add a source URL + run pipeline. No hand-authored 2-keyframe lerp.
 
 ---
 
 ## Migration Outline
 
-High-level only. Not an implementation spec — Scott decides first, then we write the implementation spec.
+High-level only. Follow-on implementation spec required before code.
 
-1. **Filming prep.** Scott picks a setup: camera angle per `drawStyle` (side-view for standing/horizontal/kneeling/quadruped, front-view for hanging). Plain background, consistent lighting, same framing as the app's guide silhouette. 8–12 seconds per exercise is enough for a smooth loop.
-2. **Clip processing.** Trim to a clean loop. Encode as MP4 H.264 (iOS Safari's best-supported codec) at 480p or 540p. Target ~300–600KB per clip. Optionally also encode WebM for Android/Chrome with MP4 fallback — MP4 alone is fine if Scott wants simplicity.
-3. **Asset layout.** `assets/videos/<exercise>.mp4`. Stays in the repo, deployed by GitHub Pages alongside `index.html`.
-4. **DOM integration.** Add one `<video>` element layered beneath the guide canvas (or positioned absolutely over the camera preview during idle). Set `muted autoplay loop playsinline` on it. On exercise change, swap `video.src` to the current exercise's clip. On workout start, hide the video element.
-5. **Retire the old keyframes.** Delete `HOW_TO_KEYFRAMES` and `drawHowToSkeleton`; remove the call from `drawGuide()`. The static guide silhouette (`drawStandingSide`, etc.) stays — that's the alignment reference, a different layer.
-6. **Acceptance test.** Phone test all 22 exercises per `docs/exercise-testing-protocol.md`: does the video play inline on iOS Safari? Does it loop smoothly? Is it legible at 6 feet? Does it interfere with alignment tinting?
-7. **Regression tests.** Playwright specs already verify the exercise picker. Add one spec that asserts a `<video>` element with a valid `src` appears on idle and disappears on workout start.
+1. **Define canonical trajectory format.** JSON schema: `{ period_ms, frames: [ [ [x,y,vis], ...33 ], ...N ] }`. One file per exercise.
+2. **Build the extraction pipeline.** Python script (MediaPipe Pose Python bindings). Input: path to video file or URL. Output: canonical JSON. Bonus outputs: a still frame for picker input, ROM min/max summary.
+3. **Source acquisition.** Per-exercise table — for each of 22 exercises, pick an online clip URL. Start with Pexels / Pixabay (license-clean); fall back to YouTube; fall back to self-film.
+4. **Run pipeline.** Commit one JSON per exercise to `assets/animations/`. Commit one PNG per exercise to `assets/picker/`.
+5. **App-side replay.** Rewrite `drawHowToSkeleton` to load the JSON and interpolate across N frames. Read once per exercise change, cache in memory.
+6. **Replace picker image map.** Swap `EXERCISE_SVGS` for a per-exercise PNG map. Keep `getSvgKey` as a fallback for exercises that haven't been regenerated yet.
+7. **Retire hand-authored assets.** Delete `HOW_TO_KEYFRAMES`, the 7 SVGs in `assets/silhouettes/`, and the `drawMiniSilhouette` function if unused.
+8. **Acceptance test.** Phone test all 22 per `docs/exercise-testing-protocol.md` + Playwright spec for "idle shows skeleton animation."
 
-### Open questions for Scott before implementation
+### Scott's decisions (2026-04-17)
 
-- Film in landscape or portrait? (Matches the app's orientation; portrait is the default on phones.)
-- Wear neutral clothing, or the same clothing Scott wears when form-testing?
-- Show face, or frame from neck down? (Face adds warmth; frame-from-neck is easier for re-filming if the clip needs redo.)
-- One take per exercise, or intentionally film 2–3 reps per clip so the loop has variation?
-- Budget: half-day filming session, or spread across multiple sessions?
+1. **YouTube is an allowed source.** Shipping landmark coordinates (not pixels) is acceptable for a hobby-scale app. Pipeline tries Pexels/Pixabay first (clean license), falls back to YouTube when stock coverage is thin.
+2. **Picker art style: minimalist silhouette** — solid-color silhouette on transparent background, matching the current visual language. Cheapest imagegen prompt to keep consistent across 22 images.
+3. **Trajectory length: 60 frames (~2s loop).** ~20KB per exercise, ~350KB total for 22. Thermally equivalent to the current 2-keyframe version — frame rate at render time is unchanged (still on the 7.5fps idle throttle); "60 frames" is just how many poses are *stored* in the JSON, not drawn per second.
+4. **Self-film budget: decide per-exercise.** Run the pipeline on all 22 online sources first. Review the failures together. Decide case-by-case whether each failure is worth filming, rigging, or dropping.
+5. **ROM baseline: yes, as a bonus output of the same pipeline pass.** Trajectory JSON already has every joint angle per frame — computing min/max per exercise is free. Feeds the existing smart-calibration logic; may reduce or eliminate warmup calibration for affected exercises.
 
 ---
 
 ## What's NOT in this doc
 
-- Implementation detail (file sizes, video codecs, exact DOM structure beyond the migration sketch above). That goes in the follow-on implementation spec once Scott decides.
-- A rebuild of the static guide silhouette or picker SVGs. Those are a separate layer and are working.
-- Any recommendation about the alignment-tint guide — unchanged.
+- Implementation detail (exact Python deps, frame rate, file sizes beyond ballparks). Follow-on spec.
+- Changes to MediaPipe skeleton overlay on the live user, or to the alignment-tint guide silhouette. Separate layers; unchanged.
