@@ -2932,7 +2932,66 @@ const HOW_TO_KEYFRAMES = {
   ]},
 };
 
+// Trajectory cache for the canonical-JSON animation path (Step 5.5).
+// Key states: undefined = not yet attempted, null = loading or missing, object = loaded.
+const trajectoryCache = {};
+function loadTrajectory(ex) {
+  if (ex in trajectoryCache) return;
+  trajectoryCache[ex] = null; // mark in-flight so we don't refetch
+  fetch(`assets/animations/${ex}.json`, { cache: 'force-cache' })
+    .then(r => (r.ok ? r.json() : null))
+    .then(data => { trajectoryCache[ex] = data; })
+    .catch(() => { trajectoryCache[ex] = null; });
+}
+
 function drawHowToSkeleton(w, h, ex) {
+  if (!(ex in trajectoryCache)) loadTrajectory(ex);
+  const traj = trajectoryCache[ex];
+  if (traj) {
+    drawHowToSkeletonFromTrajectory(w, h, traj);
+  } else {
+    drawHowToSkeletonFromKeyframes(w, h, ex);
+  }
+}
+
+function drawHowToSkeletonFromTrajectory(w, h, traj) {
+  const t = (Date.now() % traj.period_ms) / traj.period_ms;
+  const fi = t * traj.frame_count;
+  const i = Math.floor(fi) % traj.frame_count;
+  const j = (i + 1) % traj.frame_count;
+  const f = fi - Math.floor(fi);
+  const lmA = traj.landmarks[i], lmB = traj.landmarks[j];
+  const visA = traj.visibility[i], visB = traj.visibility[j];
+  const pts = lmA.map((p, k) => [p[0] + (lmB[k][0] - p[0]) * f, p[1] + (lmB[k][1] - p[1]) * f]);
+  const vis = visA.map((v, k) => (v + visB[k]) * 0.5);
+
+  const g = guideCtx;
+  g.save();
+  g.strokeStyle = 'rgba(96, 165, 250, 0.88)';
+  g.fillStyle   = 'rgba(96, 165, 250, 0.88)';
+  g.lineWidth = 5;
+  g.lineJoin = 'round';
+  g.lineCap  = 'round';
+
+  const connections = (typeof POSE_CONNECTIONS !== 'undefined') ? POSE_CONNECTIONS : [];
+  for (const [a, b] of connections) {
+    if (vis[a] < 0.3 || vis[b] < 0.3) continue;
+    const p1 = pts[a], p2 = pts[b];
+    g.beginPath();
+    g.moveTo(p1[0] * w, p1[1] * h);
+    g.lineTo(p2[0] * w, p2[1] * h);
+    g.stroke();
+  }
+  for (let k = 0; k < pts.length; k++) {
+    if (vis[k] < 0.3) continue;
+    g.beginPath();
+    g.arc(pts[k][0] * w, pts[k][1] * h, 3, 0, Math.PI * 2);
+    g.fill();
+  }
+  g.restore();
+}
+
+function drawHowToSkeletonFromKeyframes(w, h, ex) {
   const kf = HOW_TO_KEYFRAMES[ex];
   if (!kf) return;
   const t = (1 - Math.cos(((Date.now() % kf.period) / kf.period) * Math.PI * 2)) / 2;
