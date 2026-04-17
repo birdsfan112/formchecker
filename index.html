@@ -2938,7 +2938,7 @@ const trajectoryCache = {};
 function loadTrajectory(ex) {
   if (ex in trajectoryCache) return;
   trajectoryCache[ex] = null; // mark in-flight so we don't refetch
-  fetch(`assets/animations/${ex}.json`, { cache: 'force-cache' })
+  fetch(`assets/animations/${ex}.json`)
     .then(r => (r.ok ? r.json() : null))
     .then(data => { trajectoryCache[ex] = data; })
     .catch(() => { trajectoryCache[ex] = null; });
