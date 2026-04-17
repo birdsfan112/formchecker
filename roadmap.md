@@ -4,9 +4,9 @@
 | Priority | active |
 | Phase | Implement |
 | Updated | 2026-04-17 |
-| Summary | Step 5.5 pipeline kicked off. `pipeline/` scaffolded + `extract_trajectory.py` validated end-to-end on Pexels squat clip (395/395 frames, mean vis 0.809). Two spec adjustments in flight: MediaPipe Tasks API (`pose_landmarker_heavy.task`) instead of removed `mp.solutions.pose`; `yt-dlp[curl-cffi]` for Cloudflare bypass. Next: `normalize_loop.py` then `emit_rom.py`, then Scott curates sources.yaml. |
-| Needs Scott | (1) Curate `pipeline/sources.yaml` — one clip URL per exercise (~2 hrs, Pexels first then YouTube). (2) Review each extracted trajectory before commit. (3) Phone test all 22 with new animations + picker (per `docs/exercise-testing-protocol.md`) once pipeline ships. |
-| Autonomous | Write `normalize_loop.py`, `emit_rom.py`, `generate_picker.py`. Smoke-test normalize/rom against existing squat.npz before moving to curation. Eventually app-side trajectory loader + `drawHowToSkeleton` rewrite + Playwright spec. |
+| Summary | Step 5.5 pipeline core complete. `extract_trajectory.py` → `normalize_loop.py` → `emit_rom.py` all validated on the Pexels squat clip: auto-detected a 49-frame rep cycle, produced a 35.7 KB 60-frame loop JSON (hip 0.47→0.72, loop seam 0.0000 after blend) + ROM baseline (knee 38°→173.5°, hip 29.7°→175.5°, 60/60 samples). Knee min below spec's [70°, 180°] guess because the Pexels clip is an ATG depth squat — pipeline math is correct; just a flag that source-clip depth drives the ROM baseline, so Scott's curation should favor "normal" reps where calibration realism matters. |
+| Needs Scott | (1) Curate `pipeline/sources.yaml` — one clip URL per exercise (~2 hrs, Pexels first then YouTube). Favor "normal" depth/ROM clips, not extremes — ROM baselines drive smart-calibration thresholds. (2) Review each extracted trajectory before commit. (3) Phone test all 22 with new animations + picker once pipeline ships. |
+| Autonomous | Write `generate_picker.py` (imagegen skill). App-side trajectory loader + `drawHowToSkeleton` rewrite. Playwright `animation-loading.spec.ts`. No further pipeline work possible until Scott curates sources.yaml. |
 | Blockers | None |
 
 <!-- CHIEF OF STAFF NOTE: The Status block above is read by the daily review. Keep every field current.
@@ -51,8 +51,8 @@
 
 - [x] Scaffold `pipeline/` dir: `requirements.txt`, `sources.yaml`, `picker_prompts.yaml`, `exercise_angles.yaml` (2026-04-17)
 - [x] Write `extract_trajectory.py` — MediaPipe Tasks API (`pose_landmarker_heavy.task`, Py 3.13 dropped `mp.solutions`); yt-dlp[curl-cffi] for Pexels; smoke-tested on squat clip → 395/395 frames detected, mean vis 0.809 (2026-04-17)
-- [ ] Write `normalize_loop.py` (trim + resample to 60 frames + smooth + loop-seam blend)
-- [ ] Write `emit_rom.py` (per-exercise joint angle min/max from trajectory)
+- [x] Write `normalize_loop.py` — auto cycle-detect via pelvis-y autocorrelation + 60-frame resample + 3-frame MA + seam blend; squat test: 395→49→60 frames, seam closed to 0.0000, 35.7 KB JSON (2026-04-17)
+- [x] Write `emit_rom.py` — per-joint angle min/max with vis<0.6 skip; squat: knee 38°→173.5°, hip 29.7°→175.5° (60/60 samples — source clip is ATG depth, pipeline correct) (2026-04-17)
 - [ ] Scott: curate `sources.yaml` — 22 clip URLs (Pexels → YouTube → flag self-film)
 - [ ] Batch-run pipeline; commit `assets/animations/*.json` + `assets/rom/*.json`
 - [ ] Scott: review each trajectory via `pipeline/preview.py`
@@ -120,6 +120,15 @@
 - **Deviation noted:** implementation spec references `complexity=2` — reality uses Tasks API `heavy` model. Functionally equivalent; no spec rewrite needed, but worth the heads-up for future MediaPipe work.
 - **Next session:** Step 3 (`normalize_loop.py`) → Step 4 (`emit_rom.py`), both testable against existing `pipeline/raw/squat.npz` without further curation. Then Scott curates `sources.yaml`.
 
+**Sprint execution — Steps 3–4 complete**
+
+- **Roadmap compaction:** moved 9 oldest session log entries (2026-04-04 through 2026-04-11 roadmap-migration) to `docs/roadmap-archive.md`. Roadmap 242 → 178 lines.
+- **`normalize_loop.py`:** Pelvis-y autocorrelation picks one rep cycle (min_lag 8 frames, max_lag ~4s). Linear resample to 60 frames with per-coord NaN interpolation. 3-frame centered MA smoothing (edge replication). Seam-blend last 5 frames toward frame 0 if max xy diff > 0.02. Smoke test: squat.npz 395 frames → auto-trimmed [96:145] (49-frame cycle) → 60-frame loop, seam closed from 0.0488 → 0.0000 after blend, hip_y oscillates 0.47→0.72. Output **35.7 KB** — 40% over the 25 KB spec target (drift, not blocker; acceptable for v1).
+- **`emit_rom.py`:** Reads canonical JSON + `exercise_angles.yaml` triplets. Computes angle-at-vertex B per frame, skips frames where any landmark vis < 0.6. Squat output: knee 38°→173.5°, hip 29.7°→175.5°, 60/60 samples. Knee-min below spec's [70°, 180°] assumption because the smoke-test clip is an ATG squat (hips_y = 0.718 ≥ knees_y = 0.716 at bottom — classic full-depth form, not a bug).
+- **Bug fix along the way:** `np.round(float32).tolist()` re-inflates to float64 and serialises ~15 digits per number (e.g. `0.382999986410141`). Fix: `[float(f"{x:.3f}") for x in row]` via string-round → clean Python floats with short repr. Dropped JSON size from 101.6 KB → 35.7 KB.
+- **Drift noted:** spec's <25KB target missed; spec's [70°, 180°] squat knee sanity range doesn't tolerate ATG clips. Both are source-clip dependent, so worth noting in Scott's source-curation guidance: choose "normal" reps (shoulder-width stance, thighs-parallel depth), not extremes.
+- **Next session:** Step 5 is blocked on Scott curating `sources.yaml`. Autonomous options: `generate_picker.py` (imagegen skill), app-side trajectory loader + `drawHowToSkeleton` rewrite, Playwright `animation-loading.spec.ts`.
+
 ### 2026-04-16 — architecture-map.md moved to docs/specs/ (audit fix)
 
 - `docs/architecture-map.md` → `docs/specs/architecture-map.md` via `git mv`
@@ -162,69 +171,6 @@
 - **legraise.spec.ts** — hanging + rep-based + hip angle: simplest hanging rep path, no downGate. 2 tests.
 - **Net: +4 tests** (7 written, 3 replaced existing placeholder registry checks). No regressions. 38/38 passing.
 - **Remaining:** 13 placeholder specs still need Y4M recordings to expand.
-
-### 2026-04-11 — Roadmap migration to template v2
-
-- Added Next Session field, renamed Blockers → External Blockers, fixed field order; renamed Phase 5 section → Current Sprint; added section comments and Reference Docs section; no content changes
-- Phase value mapped: "Phase 5 — Exercise Library Expansion" → Implement
-- Next: Scott phone-test Session 1 exercises per `docs/refactor-audit-2026-04-10.md` focus order
-
-### 2026-04-10 — Audit-derived Playwright specs: bandpullapart, lsit, dip (34 tests, all passing)
-
-- **Why:** Three behavioral divergences from the framework audit (D1–D3) had no automated regression guard. Y4M recordings can't cover these — landmark injection lets us assert exact per-frame output without real camera or video.
-- **New harness capabilities shipped in `_helpers.ts`:** `window.__poseInstance` exposure; `VIDEO_STUB` stubs `play`; `startWorkout(page)` fires `#btn-start` via `dispatchEvent`; `makeLandmarks(overrides)` builds full 33-element array; `injectPoseFrame(page, lm)` drives the real `onResults` path.
-- **Key ordering constraint:** `switchExercise()` resets `state.workoutState` to 'idle'. Must call it BEFORE `startWorkout()`.
-- **Specs added:** `bandpullapart.spec.ts` (invertedPolarity rep count), `lsit.spec.ts` (MM:SS in #rep-counter), `dip.spec.ts` (orientation hint NOT present). 6 new tests + 3 updated placeholder → real specs.
-- **Tests: 289 unit + 34 Playwright = 323 total, 0 failing.**
-- **Next session:** Scott phone-tests exercises (Step 2). Record Y4M files to expand remaining 16 placeholder Playwright specs.
-
-### 2026-04-10 — Playwright smoke-test harness scaffolded (31 tests, all passing)
-
-- **Why:** The framework refactor (94c634d) was a 2185-line diff with no automated browser test safety net.
-- **Architecture constraint:** All app JS is closure-scoped inside `window.addEventListener('load', fn)` — `page.evaluate()` cannot reach it. Workaround: DOM-observable strategy (`#exercise-select` options mirror the registry).
-- **CDN mocking:** `addInitScript` pre-defines stubs + `page.route` returns empty JS. Fake webcam: `black-frame-320x240.y4m` → `poseLandmarks=null` → rep counter stays 0 deterministically.
-- **Files added:** `playwright.config.ts`, `package.json`, `tests/playwright/exercises/_helpers.ts`, 3 real specs, 19 placeholder stubs, `fixtures/black-frame-320x240.y4m`, `docs/playwright-harness-guide.md`
-- **Tests: 289 unit + 31 Playwright = 320 total, 0 failing.**
-
-### 2026-04-10 — Behavioral-equivalence audit of framework refactor (94c634d)
-
-- **Finding: 19 EQUIVALENT, 3 DIVERGENT, 0 UNCERTAIN.** bandpullapart old rep counter was silently broken (phases never fired); lsit timer display changed MM:SS; dip orientation hint dropped.
-- **Deliverable:** `docs/refactor-audit-2026-04-10.md` — per-exercise table, divergence details, 3-session phone-test focus order.
-
-### 2026-04-10 — Exercise framework refactor complete (Step 3)
-
-- All 22 exercises migrated to `addExercise(config)`. Extensions: `invertedPolarity`, `downGate(lm)`. Tests: 284 → 289 passing.
-- Two dead-code findings → Backlog §2; dip orientation nudge dropped → Backlog §3
-
-### 2026-04-09 — Framework spec, research docs, roadmap sequencing
-
-- Research docs persisted: `docs/ux-research.md`, `docs/system-audit.md`, `docs/specs/exercise-framework-spec.md`
-- `dispatch-protocol` skill created and installed
-- Roadmap updated with full sequenced plan; Step 1 open questions surfaced for Scott's review
-- Stale worktrees pruned: loving-gauss, nifty-feistel, nostalgic-fermat, wonderful-mcclintock
-
-### 2026-04-09 — Mobility/PT Batch (exercises 16-22)
-
-- Added: Shoulder Dislocates, Hip Flexor Stretch, Wrist Warm-up, Band Pull-Aparts, Foam Roller, Cat-Cow, Bird-Dog
-- Two new silhouette functions: `drawKneelingStretch()`, `drawQuadruped()` (with bird-dog variant)
-- 31 new tests; 207 total, 0 failing. `docs/exercise-testing-protocol.md` updated for all 22 exercises.
-
-### 2026-04-09 — Arch Hang + Scapular Pulls (exercises 14-15)
-
-- Arch Hang + Scapular Pulls added; `buildSetSummary` refactored to use `exerciseRegistry[exercise]?.isTimed`
-- 11 new tests; 176 total, 0 failing
-
-### 2026-04-07 — Thermal fix, welcome screen, exercise picker, testing protocol
-
-- Lowered MediaPipe `modelComplexity` 1→0 (~50% less GPU); rest period throttles to 4fps via `isResting` flag
-- Welcome screen: "Calibrate & Start", "Load Calibration", "Jump to Workout"
-- Exercise dropdown replaced with visual picker modal (2-column card grid)
-- `docs/exercise-testing-protocol.md` — new 9-step per-exercise phone testing checklist; 165 tests passing
-
-### 2026-04-04 — Batch 2 exercises + Phase 5 engine refactor
-
-- Batch 2: Inverted Rows, L-Sit, Pistol Squat, Glute Bridge. All 13 exercises in registry; 165 tests passing
-- Data-driven `exerciseRegistry`; `invertedPolarity` + `downGate`; calibration spans multiple exercises; consecutive-frame direction filter (3 frames)
 
 > Earlier sessions archived in `docs/roadmap-archive.md`
 

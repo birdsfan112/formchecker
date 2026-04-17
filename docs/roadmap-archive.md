@@ -60,6 +60,69 @@ Detailed session logs and completed phase checklists. Moved here from roadmap.md
 
 ## Session Log
 
+### 2026-04-11 — Roadmap migration to template v2
+
+- Added Next Session field, renamed Blockers → External Blockers, fixed field order; renamed Phase 5 section → Current Sprint; added section comments and Reference Docs section; no content changes
+- Phase value mapped: "Phase 5 — Exercise Library Expansion" → Implement
+- Next: Scott phone-test Session 1 exercises per `docs/refactor-audit-2026-04-10.md` focus order
+
+### 2026-04-10 — Audit-derived Playwright specs: bandpullapart, lsit, dip (34 tests, all passing)
+
+- **Why:** Three behavioral divergences from the framework audit (D1–D3) had no automated regression guard. Y4M recordings can't cover these — landmark injection lets us assert exact per-frame output without real camera or video.
+- **New harness capabilities shipped in `_helpers.ts`:** `window.__poseInstance` exposure; `VIDEO_STUB` stubs `play`; `startWorkout(page)` fires `#btn-start` via `dispatchEvent`; `makeLandmarks(overrides)` builds full 33-element array; `injectPoseFrame(page, lm)` drives the real `onResults` path.
+- **Key ordering constraint:** `switchExercise()` resets `state.workoutState` to 'idle'. Must call it BEFORE `startWorkout()`.
+- **Specs added:** `bandpullapart.spec.ts` (invertedPolarity rep count), `lsit.spec.ts` (MM:SS in #rep-counter), `dip.spec.ts` (orientation hint NOT present). 6 new tests + 3 updated placeholder → real specs.
+- **Tests: 289 unit + 34 Playwright = 323 total, 0 failing.**
+- **Next session:** Scott phone-tests exercises (Step 2). Record Y4M files to expand remaining 16 placeholder Playwright specs.
+
+### 2026-04-10 — Playwright smoke-test harness scaffolded (31 tests, all passing)
+
+- **Why:** The framework refactor (94c634d) was a 2185-line diff with no automated browser test safety net.
+- **Architecture constraint:** All app JS is closure-scoped inside `window.addEventListener('load', fn)` — `page.evaluate()` cannot reach it. Workaround: DOM-observable strategy (`#exercise-select` options mirror the registry).
+- **CDN mocking:** `addInitScript` pre-defines stubs + `page.route` returns empty JS. Fake webcam: `black-frame-320x240.y4m` → `poseLandmarks=null` → rep counter stays 0 deterministically.
+- **Files added:** `playwright.config.ts`, `package.json`, `tests/playwright/exercises/_helpers.ts`, 3 real specs, 19 placeholder stubs, `fixtures/black-frame-320x240.y4m`, `docs/playwright-harness-guide.md`
+- **Tests: 289 unit + 31 Playwright = 320 total, 0 failing.**
+
+### 2026-04-10 — Behavioral-equivalence audit of framework refactor (94c634d)
+
+- **Finding: 19 EQUIVALENT, 3 DIVERGENT, 0 UNCERTAIN.** bandpullapart old rep counter was silently broken (phases never fired); lsit timer display changed MM:SS; dip orientation hint dropped.
+- **Deliverable:** `docs/refactor-audit-2026-04-10.md` — per-exercise table, divergence details, 3-session phone-test focus order.
+
+### 2026-04-10 — Exercise framework refactor complete (Step 3)
+
+- All 22 exercises migrated to `addExercise(config)`. Extensions: `invertedPolarity`, `downGate(lm)`. Tests: 284 → 289 passing.
+- Two dead-code findings → Backlog §2; dip orientation nudge dropped → Backlog §3
+
+### 2026-04-09 — Framework spec, research docs, roadmap sequencing
+
+- Research docs persisted: `docs/ux-research.md`, `docs/system-audit.md`, `docs/specs/exercise-framework-spec.md`
+- `dispatch-protocol` skill created and installed
+- Roadmap updated with full sequenced plan; Step 1 open questions surfaced for Scott's review
+- Stale worktrees pruned: loving-gauss, nifty-feistel, nostalgic-fermat, wonderful-mcclintock
+
+### 2026-04-09 — Mobility/PT Batch (exercises 16-22)
+
+- Added: Shoulder Dislocates, Hip Flexor Stretch, Wrist Warm-up, Band Pull-Aparts, Foam Roller, Cat-Cow, Bird-Dog
+- Two new silhouette functions: `drawKneelingStretch()`, `drawQuadruped()` (with bird-dog variant)
+- 31 new tests; 207 total, 0 failing. `docs/exercise-testing-protocol.md` updated for all 22 exercises.
+
+### 2026-04-09 — Arch Hang + Scapular Pulls (exercises 14-15)
+
+- Arch Hang + Scapular Pulls added; `buildSetSummary` refactored to use `exerciseRegistry[exercise]?.isTimed`
+- 11 new tests; 176 total, 0 failing
+
+### 2026-04-07 — Thermal fix, welcome screen, exercise picker, testing protocol
+
+- Lowered MediaPipe `modelComplexity` 1→0 (~50% less GPU); rest period throttles to 4fps via `isResting` flag
+- Welcome screen: "Calibrate & Start", "Load Calibration", "Jump to Workout"
+- Exercise dropdown replaced with visual picker modal (2-column card grid)
+- `docs/exercise-testing-protocol.md` — new 9-step per-exercise phone testing checklist; 165 tests passing
+
+### 2026-04-04 — Batch 2 exercises + Phase 5 engine refactor
+
+- Batch 2: Inverted Rows, L-Sit, Pistol Squat, Glute Bridge. All 13 exercises in registry; 165 tests passing
+- Data-driven `exerciseRegistry`; `invertedPolarity` + `downGate`; calibration spans multiple exercises; consecutive-frame direction filter (3 frames)
+
 ### Session: 2026-03-26
 **Completed:**
 1. **Auto-pause rep counting when out of position** — Added `isInPosition(lm, exercise)` function. Counter grays out with exercise-specific message. Plank timer also resets when user leaves position.
