@@ -4,9 +4,9 @@
 | Priority | active |
 | Phase | Implement |
 | Updated | 2026-04-17 |
-| Summary | Step 5.5 pipeline core complete. `extract_trajectory.py` → `normalize_loop.py` → `emit_rom.py` all validated on the Pexels squat clip: auto-detected a 49-frame rep cycle, produced a 35.7 KB 60-frame loop JSON (hip 0.47→0.72, loop seam 0.0000 after blend) + ROM baseline (knee 38°→173.5°, hip 29.7°→175.5°, 60/60 samples). Knee min below spec's [70°, 180°] guess because the Pexels clip is an ATG depth squat — pipeline math is correct; just a flag that source-clip depth drives the ROM baseline, so Scott's curation should favor "normal" reps where calibration realism matters. |
-| Needs Scott | (1) Curate `pipeline/sources.yaml` — one clip URL per exercise (~2 hrs, Pexels first then YouTube). Favor "normal" depth/ROM clips, not extremes — ROM baselines drive smart-calibration thresholds. (2) Review each extracted trajectory before commit. (3) Phone test all 22 with new animations + picker once pipeline ships. |
-| Autonomous | Write `generate_picker.py` (imagegen skill). App-side trajectory loader + `drawHowToSkeleton` rewrite. Playwright `animation-loading.spec.ts`. No further pipeline work possible until Scott curates sources.yaml. |
+| Summary | Step 5.5 pipeline core complete + squat animation live on GitHub Pages, phone-reviewed ("MUCH better!"). Pipeline: `extract_trajectory.py` → `normalize_loop.py` → `emit_rom.py` all validated on the Pexels squat clip. Normalize now includes `--mirror-x`, `--period-ms`, `canonicalize_to_outline()` (uniform scale+shift to head y=0.09, ankle y=0.81, hip x=0.50) and per-frame `anchor_feet()`. App-side: trajectory loader + cache + new `drawHowToSkeletonFromTrajectory` using `POSE_CONNECTIONS`; legacy keyframe path preserved as fallback. Aesthetic approved — batch run will inherit these fixes by default. |
+| Needs Scott | (1) Curate `pipeline/sources.yaml` — one clip URL per exercise (~2 hrs, Pexels first then YouTube). Favor "normal" depth/ROM clips. Note each clip's facing direction so `--mirror-x` is set correctly. (2) Review each extracted trajectory before commit. (3) Phone test all 22 with new animations + picker once pipeline ships. |
+| Autonomous | Write `generate_picker.py` (imagegen skill — post-curation so it can use extracted-pose references). Playwright `animation-loading.spec.ts`. Retire `HOW_TO_KEYFRAMES` + `EXERCISE_SVGS` once batch lands. No further pipeline work possible until Scott curates sources.yaml. |
 | Blockers | None |
 
 <!-- CHIEF OF STAFF NOTE: The Status block above is read by the daily review. Keep every field current.
@@ -57,7 +57,7 @@
 - [ ] Batch-run pipeline; commit `assets/animations/*.json` + `assets/rom/*.json`
 - [ ] Scott: review each trajectory via `pipeline/preview.py`
 - [ ] Write `generate_picker.py` via `imagegen` skill; batch-generate 22 silhouette PNGs
-- [ ] App-side: trajectory loader + cache; rewrite `drawHowToSkeleton` to use `drawConnectors` + `POSE_CONNECTIONS`
+- [x] App-side: trajectory loader + cache; rewrite `drawHowToSkeleton` to use `POSE_CONNECTIONS` (2026-04-17, squat shipped + phone-approved)
 - [ ] App-side: swap `EXERCISE_SVGS` for per-exercise PNG map
 - [ ] Add Playwright spec: `animation-loading.spec.ts`
 - [ ] Run `node tests.js` + `npx playwright test` — all green
@@ -127,7 +127,20 @@
 - **`emit_rom.py`:** Reads canonical JSON + `exercise_angles.yaml` triplets. Computes angle-at-vertex B per frame, skips frames where any landmark vis < 0.6. Squat output: knee 38°→173.5°, hip 29.7°→175.5°, 60/60 samples. Knee-min below spec's [70°, 180°] assumption because the smoke-test clip is an ATG squat (hips_y = 0.718 ≥ knees_y = 0.716 at bottom — classic full-depth form, not a bug).
 - **Bug fix along the way:** `np.round(float32).tolist()` re-inflates to float64 and serialises ~15 digits per number (e.g. `0.382999986410141`). Fix: `[float(f"{x:.3f}") for x in row]` via string-round → clean Python floats with short repr. Dropped JSON size from 101.6 KB → 35.7 KB.
 - **Drift noted:** spec's <25KB target missed; spec's [70°, 180°] squat knee sanity range doesn't tolerate ATG clips. Both are source-clip dependent, so worth noting in Scott's source-curation guidance: choose "normal" reps (shoulder-width stance, thighs-parallel depth), not extremes.
-- **Next session:** Step 5 is blocked on Scott curating `sources.yaml`. Autonomous options: `generate_picker.py` (imagegen skill), app-side trajectory loader + `drawHowToSkeleton` rewrite, Playwright `animation-loading.spec.ts`.
+
+**Sprint execution — aesthetic preview + tuning (ship-one-before-batch)**
+
+- **One Thing Inquiry (single-project) ran mid-session.** Recommendation: ship the squat preview to GitHub Pages for phone review BEFORE Scott spent 2 hrs curating 21 more URLs. Rationale: aesthetic decisions (orientation, scale, tempo, floor alignment) are baked into the normalize pipeline, so catching them on ONE clip turns them into pipeline-parameter fixes instead of a full batch rerun. Scott approved the flip.
+- **App-side wiring shipped (commit `fd03e81`):** `trajectoryCache` + `loadTrajectory(ex)` in `index.html`; split `drawHowToSkeleton` into `-FromTrajectory` (new, uses `POSE_CONNECTIONS`, lerps 33 landmarks between frames i/j, skips connectors/dots where avg visibility < 0.3, blue `rgba(96,165,250,0.88)` line width 5) and `-FromKeyframes` (old path kept as fallback until all 22 ship). Loader called with `cache: 'force-cache'` initially — backfired (see below).
+- **Phone review surfaced 4 aesthetic issues** (all normalize-step parameter fixes, not per-exercise rework):
+  1. Facing opposite direction from outline → `--mirror-x` flag + `mirror_x()` (x → 1−x).
+  2. Moving too fast → `PERIOD_MS_DEFAULT` 2000 → 3000, `--period-ms` flag.
+  3. Feet sliding up screen during rep → `anchor_feet()`: per-frame Y shift so ankle midpoint stays at `TARGET_ANKLE_Y` (0.81). Ankle-y range dropped 0.046 → 0.000.
+  4. Not aligned with outline (height + floor) → `canonicalize_to_outline()`: uniform scale+shift using max-span (most-standing) frame as reference, so nose y → 0.09, ankle y → 0.81, hip x → 0.50. Preserves motion (same linear transform every frame).
+- **Commit `0e84697`** landed the four normalize_loop fixes + regenerated `assets/animations/squat.json`. Batch run will inherit these by default (fixes generalize — they're driven by the outline-anchor constants, not hand-tuned per clip).
+- **Cache bug (commit `12e4346`):** After pushing the fixes, Scott hard-refreshed and saw no change. Root cause: `fetch(url, { cache: 'force-cache' })` tells the browser to serve any cached copy *without* revalidation, even on explicit reload. Removed the option so the default `max-age=600` from GitHub Pages applies and busted URL params work. Scott confirmed "MUCH better!" after hard cache clear.
+- **Validated pattern saved to memory:** "Ship one to phone before batch-running aesthetic pipelines" — for UI/UX asset generation, the default build→batch→review path is wrong; flip to build→ship-one→phone-review→iterate→batch. Saved as `feedback_aesthetic_ship_one_first.md`.
+- **Next session:** Step 5.5 remains blocked on Scott curating `sources.yaml` — but now with confidence the pipeline produces a phone-approved result. Autonomous options: `generate_picker.py` (post-curation so it can use extracted-pose references), Playwright `animation-loading.spec.ts`.
 
 ### 2026-04-16 — architecture-map.md moved to docs/specs/ (audit fix)
 

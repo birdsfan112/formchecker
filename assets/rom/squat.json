@@ -1,0 +1,15 @@
+{
+  "exercise": "squat",
+  "angles": {
+    "knee": {
+      "min": 38.0,
+      "max": 173.5,
+      "samples": 60
+    },
+    "hip": {
+      "min": 29.7,
+      "max": 175.5,
+      "samples": 60
+    }
+  }
+}
