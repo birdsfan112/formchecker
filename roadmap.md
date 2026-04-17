@@ -4,9 +4,9 @@
 | Priority | active |
 | Phase | Implement |
 | Updated | 2026-04-17 |
-| Summary | New sprint: Step 5.5 — automated asset pipeline for how-to animations + picker images. Paradigm eval + implementation spec approved (2026-04-17). Pipeline: source clip → MediaPipe Pose extraction → canonical trajectory JSON → outputs (animation, picker PNG, ROM baseline). Retires hand-authored HOW_TO_KEYFRAMES + 7 shared picker SVGs. Step 5 phone tests deferred until after pipeline ships. |
+| Summary | Step 5.5 pipeline kicked off. `pipeline/` scaffolded + `extract_trajectory.py` validated end-to-end on Pexels squat clip (395/395 frames, mean vis 0.809). Two spec adjustments in flight: MediaPipe Tasks API (`pose_landmarker_heavy.task`) instead of removed `mp.solutions.pose`; `yt-dlp[curl-cffi]` for Cloudflare bypass. Next: `normalize_loop.py` then `emit_rom.py`, then Scott curates sources.yaml. |
 | Needs Scott | (1) Curate `pipeline/sources.yaml` — one clip URL per exercise (~2 hrs, Pexels first then YouTube). (2) Review each extracted trajectory before commit. (3) Phone test all 22 with new animations + picker (per `docs/exercise-testing-protocol.md`) once pipeline ships. |
-| Autonomous | Scaffold pipeline scripts (`extract_trajectory.py`, `normalize_loop.py`, `emit_rom.py`, `generate_picker.py`), write app-side trajectory loader + `drawHowToSkeleton` rewrite, add Playwright spec for animation loading. |
+| Autonomous | Write `normalize_loop.py`, `emit_rom.py`, `generate_picker.py`. Smoke-test normalize/rom against existing squat.npz before moving to curation. Eventually app-side trajectory loader + `drawHowToSkeleton` rewrite + Playwright spec. |
 | Blockers | None |
 
 <!-- CHIEF OF STAFF NOTE: The Status block above is read by the daily review. Keep every field current.
@@ -49,8 +49,8 @@
 ### Step 5.5 — Automated asset pipeline (NEW — approved 2026-04-17)
 *Per `docs/specs/animation-pipeline-implementation.md`. Paradigm rationale in `docs/specs/animation-paradigm-evaluation.md`. Source → MediaPipe Pose → canonical trajectory JSON → outputs (animation + picker PNG + ROM baseline).*
 
-- [ ] Scaffold `pipeline/` dir: `requirements.txt`, `sources.yaml`, `picker_prompts.yaml`, `exercise_angles.yaml`
-- [ ] Write `extract_trajectory.py` (MediaPipe Pose at complexity=2, yt-dlp for URLs)
+- [x] Scaffold `pipeline/` dir: `requirements.txt`, `sources.yaml`, `picker_prompts.yaml`, `exercise_angles.yaml` (2026-04-17)
+- [x] Write `extract_trajectory.py` — MediaPipe Tasks API (`pose_landmarker_heavy.task`, Py 3.13 dropped `mp.solutions`); yt-dlp[curl-cffi] for Pexels; smoke-tested on squat clip → 395/395 frames detected, mean vis 0.809 (2026-04-17)
 - [ ] Write `normalize_loop.py` (trim + resample to 60 frames + smooth + loop-seam blend)
 - [ ] Write `emit_rom.py` (per-exercise joint angle min/max from trajectory)
 - [ ] Scott: curate `sources.yaml` — 22 clip URLs (Pexels → YouTube → flag self-film)
@@ -102,12 +102,23 @@
 
 ### 2026-04-17 — Step 5.5 approved: automated asset pipeline replaces hand-authored animations + picker
 
+**Paradigm decision**
+
 - **Problem:** 21 of 22 how-to animations fail on anatomy/physics (only pull-ups acceptable). 7 shared picker SVGs serve 22 exercises — weak identification.
 - **Paradigm evaluation:** `docs/specs/animation-paradigm-evaluation.md` — compared Mixamo, stock video, self-filmed clips, Rive-style. First draft misread intent (clips-to-users); Scott clarified goal is *automated pipeline where sources are inputs and derived skeleton/silhouette are outputs*. Spec reworked accordingly.
 - **Scott's 5 decisions:** (1) YouTube OK as source (coordinates, not pixels), (2) minimalist silhouette for picker via `imagegen`, (3) 60-frame loops (~2s, thermally equivalent to current 2-keyframe), (4) self-film decided per-exercise after first pipeline run, (5) ROM baselines as bonus output of same pass.
 - **Implementation spec:** `docs/specs/animation-pipeline-implementation.md` — JSON schema, 4 pipeline scripts (extract/normalize/rom/picker), per-exercise source acquisition strategy, 14-step implementation sequence, test plan, acceptance criteria.
 - **Step 5 phone test deferred** — folded into Step 5.5 phone test (test new animations, not the ones we're retiring).
-- **Next session:** scaffold pipeline, write extraction script, Scott curates sources.yaml.
+
+**Sprint execution — Steps 1–2 complete**
+
+- **Scaffolded `pipeline/`:** `requirements.txt`, `README.md`, `sources.yaml`, `picker_prompts.yaml` (22 pose descriptions), `exercise_angles.yaml` (22 joint-angle specs). All three YAMLs cover all 22 exercises as stubs. `.gitignore` extended for `.venv/`, `pipeline/.cache/`, `pipeline/raw/`, `*.npz`.
+- **`extract_trajectory.py` written + validated:** Smoke-tested on `https://www.pexels.com/video/woman-doing-a-squat-exercise-5025965/` → `pipeline/raw/squat.npz` (133 KB, 395 frames × 33 landmarks × [x,y,visibility], **100% detection rate, mean visibility 0.809**).
+- **Two spec adjustments forced by runtime reality:**
+  - MediaPipe 0.10.33 on Python 3.13 removed the legacy `mp.solutions.pose` API — migrated to the Tasks API (`PoseLandmarker` + `pose_landmarker_heavy.task`, 30 MB auto-downloaded once to `pipeline/.cache/`). Same 33-landmark topology, same quality tier as old `complexity=2`.
+  - Pexels fronts via Cloudflare, so yt-dlp needs `curl-cffi` impersonation (`--extractor-args "generic:impersonate"`). Added `yt-dlp[curl-cffi]` to `requirements.txt`.
+- **Deviation noted:** implementation spec references `complexity=2` — reality uses Tasks API `heavy` model. Functionally equivalent; no spec rewrite needed, but worth the heads-up for future MediaPipe work.
+- **Next session:** Step 3 (`normalize_loop.py`) → Step 4 (`emit_rom.py`), both testable against existing `pipeline/raw/squat.npz` without further curation. Then Scott curates `sources.yaml`.
 
 ### 2026-04-16 — architecture-map.md moved to docs/specs/ (audit fix)
 

@@ -1,0 +1,29 @@
+# Pose descriptions fed into the imagegen picker template.
+# Template (see generate_picker.py):
+#   "Minimalist solid-black silhouette of a person doing a {exercise_name}.
+#    {pose_description}. Transparent background. No details, no face,
+#    no clothing patterns — pure silhouette. Centered, full body visible,
+#    8:10 aspect ratio. Same clean vector-style rendering as a fitness app icon."
+
+squat:             "Bottom of a squat: knees bent deeply, hips back, torso upright, arms extended forward for balance. Side profile."
+lunge:             "Forward lunge at depth: front knee bent 90°, back knee near floor, torso upright. Side profile."
+pistol:            "Bottom of a single-leg pistol squat: one leg bent at depth, the other extended straight forward, arms forward. Side profile."
+dip:               "Bottom of a parallel-bar dip: arms bent, elbows back, body suspended between two bars, feet tucked. Front view."
+lsit:              "Seated L-sit: hands pressing down, body lifted, legs held straight and horizontal. Side profile."
+shoulderdislocate: "Standing, holding a stick overhead with wide grip, arms passing back over head. Front view."
+wristwarmup:       "Standing with arms extended forward, wrists circling. Front view."
+bandpullapart:     "Standing, arms extended forward at shoulder height, pulling a band apart horizontally across the chest. Front view."
+pushup:            "Bottom of a push-up: body straight, elbows bent at sides, chest low to floor. Side profile."
+pike:              "Pike push-up at depth: hips high, body inverted V, head lowered between hands. Side profile."
+plank:             "High plank hold: straight line from head to heels, arms extended, forearms-to-elbows engaged. Side profile."
+row:               "Inverted row at the top: body straight, arms pulled toward a horizontal bar, elbows at sides. Side profile."
+glutebridge:       "Top of a glute bridge: hips lifted, knees bent, shoulders on floor, body in a straight line from knees to shoulders. Side profile."
+foamroller:        "Lying on back on a foam roller placed across the upper back, knees bent, feet on floor. Side profile."
+pullup:            "Top of a pull-up: chin above the bar, body hanging below, arms bent. Front view."
+deadhang:          "Dead hang from a bar: arms fully extended overhead, body relaxed straight below. Front view."
+legraise:          "Hanging leg raise at the top: body hanging from bar, legs straight and lifted parallel to ground. Side profile."
+archhang:          "Arch hang from a bar: arms extended overhead, chest pulled forward, body in a slight front-arch. Front view."
+scapularpull:      "Hanging from a bar, shoulders actively pulled down and back without bending the elbows. Front view."
+hipflexor:         "Kneeling lunge hip-flexor stretch: back knee on floor, front knee bent 90°, hips pressed forward, torso upright. Side profile."
+catcow:            "Quadruped on hands and knees: spine rounded upward (cat pose). Side profile."
+birddog:           "Quadruped on hands and knees: one arm extended forward and opposite leg extended back, both parallel to ground. Side profile."

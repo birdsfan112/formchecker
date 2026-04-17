@@ -26,6 +26,15 @@ __pycache__/
 *.pyc
 *.pyo
 
+# Python venv
+.venv/
+venv/
+
+# Pipeline intermediate artifacts — too large for git
+pipeline/.cache/
+pipeline/raw/
+*.npz
+
 # Environment / secrets
 .env
 

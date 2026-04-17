@@ -1,0 +1,85 @@
+# Joint angles computed by emit_rom.py for each exercise.
+# Each entry: angle name + 3 MediaPipe landmark indices [A, B, C], angle at B.
+# Landmark reference in pipeline/README.md.
+#
+# Default: left-side landmarks (11/13/15/23/25/27) for side-view exercises.
+# For front-view hanging exercises we still use left side — symmetry makes choice arbitrary.
+# Leave list empty if no meaningful joint angle applies (e.g., foam roller position).
+
+squat:
+  - { name: knee, triplet: [23, 25, 27] }   # hip - knee - ankle
+  - { name: hip,  triplet: [11, 23, 25] }   # shoulder - hip - knee
+
+lunge:
+  - { name: front_knee, triplet: [23, 25, 27] }
+  - { name: hip,        triplet: [11, 23, 25] }
+
+pistol:
+  - { name: standing_knee, triplet: [23, 25, 27] }
+  - { name: hip,           triplet: [11, 23, 25] }
+
+dip:
+  - { name: elbow,    triplet: [11, 13, 15] }   # shoulder - elbow - wrist
+  - { name: shoulder, triplet: [13, 11, 23] }   # elbow - shoulder - hip
+
+lsit:
+  - { name: hip,  triplet: [11, 23, 25] }
+  - { name: knee, triplet: [23, 25, 27] }
+
+shoulderdislocate:
+  - { name: shoulder, triplet: [13, 11, 23] }
+
+wristwarmup: []   # no MediaPipe landmark for wrist rotation
+
+bandpullapart:
+  - { name: shoulder, triplet: [13, 11, 23] }
+  - { name: elbow,    triplet: [11, 13, 15] }
+
+pushup:
+  - { name: elbow,    triplet: [11, 13, 15] }
+  - { name: shoulder, triplet: [13, 11, 23] }
+
+pike:
+  - { name: shoulder, triplet: [13, 11, 23] }
+  - { name: hip,      triplet: [11, 23, 25] }
+
+plank:
+  - { name: hip,      triplet: [11, 23, 25] }
+  - { name: shoulder, triplet: [13, 11, 23] }
+
+row:
+  - { name: elbow,    triplet: [11, 13, 15] }
+  - { name: shoulder, triplet: [13, 11, 23] }
+
+glutebridge:
+  - { name: hip,  triplet: [11, 23, 25] }
+  - { name: knee, triplet: [23, 25, 27] }
+
+foamroller: []
+
+pullup:
+  - { name: elbow,    triplet: [11, 13, 15] }
+  - { name: shoulder, triplet: [13, 11, 23] }
+
+deadhang:
+  - { name: shoulder, triplet: [13, 11, 23] }
+
+legraise:
+  - { name: hip, triplet: [11, 23, 25] }
+
+archhang:
+  - { name: shoulder, triplet: [13, 11, 23] }
+
+scapularpull:
+  - { name: shoulder, triplet: [13, 11, 23] }
+
+hipflexor:
+  - { name: hip,  triplet: [11, 23, 25] }
+  - { name: knee, triplet: [23, 25, 27] }
+
+catcow:
+  - { name: spine, triplet: [11, 23, 25] }   # shoulder - hip - knee proxies spinal curvature
+
+birddog:
+  - { name: hip,      triplet: [11, 23, 25] }
+  - { name: shoulder, triplet: [13, 11, 23] }
