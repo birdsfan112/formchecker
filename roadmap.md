@@ -3,10 +3,10 @@
 |-------|-------|
 | Priority | active |
 | Phase | Implement |
-| Updated | 2026-04-16 |
-| Summary | 22 exercises. Step 5 complete: SVG picker silhouettes + how-to skeleton animation both shipped. Camera error handling improved: insecure context (file://) now shows actionable setup instructions instead of cryptic NotAllowedError. 289 unit + 38 Playwright = 327 passing. |
-| Needs Scott | (1) Phone test SVG picker cards on iOS Safari. (2) Phone test how-to animation (blue skeleton, idle state). (3) Phone test all 22 exercises per `docs/exercise-testing-protocol.md`. Record Y4M files for remaining Playwright specs. |
-| Autonomous | None — waiting on phone test results before deciding if Step 5 needs any tweaks. |
+| Updated | 2026-04-17 |
+| Summary | New sprint: Step 5.5 — automated asset pipeline for how-to animations + picker images. Paradigm eval + implementation spec approved (2026-04-17). Pipeline: source clip → MediaPipe Pose extraction → canonical trajectory JSON → outputs (animation, picker PNG, ROM baseline). Retires hand-authored HOW_TO_KEYFRAMES + 7 shared picker SVGs. Step 5 phone tests deferred until after pipeline ships. |
+| Needs Scott | (1) Curate `pipeline/sources.yaml` — one clip URL per exercise (~2 hrs, Pexels first then YouTube). (2) Review each extracted trajectory before commit. (3) Phone test all 22 with new animations + picker (per `docs/exercise-testing-protocol.md`) once pipeline ships. |
+| Autonomous | Scaffold pipeline scripts (`extract_trajectory.py`, `normalize_loop.py`, `emit_rom.py`, `generate_picker.py`), write app-side trajectory loader + `drawHowToSkeleton` rewrite, add Playwright spec for animation loading. |
 | Blockers | None |
 
 <!-- CHIEF OF STAFF NOTE: The Status block above is read by the daily review. Keep every field current.
@@ -38,13 +38,32 @@
 ### Step 4 — Update visual polish spec (13 → 22 exercises) ✅ COMPLETE (2026-04-12)
 *Spec updated; bonus fix: 3 blank exercise picker cards patched (kneeling + quadruped mini silhouettes added to `drawMiniSilhouette()`). See `docs/specs/visual-polish-sprint.md` for PNG-vs-canvas decision table.*
 
-### Step 5 — Visual polish sprint
-*SVG silhouettes embedded as JS strings + CSS-animated how-to keyframes.*
+### Step 5 — Visual polish sprint (superseded by Step 5.5)
+*Shipped but quality insufficient: 21 of 22 how-to animations fail on anatomy/physics/human-likeness; only pull-ups acceptable. Paradigm evaluated 2026-04-17; replacement (Step 5.5) approved. Phone test deferred until after Step 5.5 ships.*
 
-- [x] SVG silhouettes added to picker cards — 7 shapes cover all 22 exercises via `drawStyle+drawVariant`. `EXERCISE_SVGS` map + `getSvgKey()` helper. `<canvas>` replaced with `<img src="data:image/svg+xml,...">`. Source SVGs in `assets/silhouettes/`.
-- [ ] Phone-test picker card SVG rendering on iOS Safari
-- [x] How-to animation — `HOW_TO_KEYFRAMES` (all 22 exercises, 2 keyframes each) + `drawHowToSkeleton()` draws blue animated stick skeleton on guide canvas during idle. Interpolates with `Date.now()` sine wave, driven by existing 7.5fps idle throttle in `drawGuide()`.
-- [ ] Phone-test how-to animation on iOS Safari (check: blue skeleton visible, animation smooth, doesn't interfere with alignment tinting)
+- [x] SVG silhouettes added to picker cards — 7 shapes cover all 22 exercises (to be replaced per-exercise in Step 5.5)
+- [x] How-to animation — 2-keyframe `HOW_TO_KEYFRAMES` (to be retired in Step 5.5)
+- [ ] ~~Phone-test picker card SVG rendering~~ — folded into Step 5.5 phone test
+- [ ] ~~Phone-test how-to animation~~ — folded into Step 5.5 phone test
+
+### Step 5.5 — Automated asset pipeline (NEW — approved 2026-04-17)
+*Per `docs/specs/animation-pipeline-implementation.md`. Paradigm rationale in `docs/specs/animation-paradigm-evaluation.md`. Source → MediaPipe Pose → canonical trajectory JSON → outputs (animation + picker PNG + ROM baseline).*
+
+- [ ] Scaffold `pipeline/` dir: `requirements.txt`, `sources.yaml`, `picker_prompts.yaml`, `exercise_angles.yaml`
+- [ ] Write `extract_trajectory.py` (MediaPipe Pose at complexity=2, yt-dlp for URLs)
+- [ ] Write `normalize_loop.py` (trim + resample to 60 frames + smooth + loop-seam blend)
+- [ ] Write `emit_rom.py` (per-exercise joint angle min/max from trajectory)
+- [ ] Scott: curate `sources.yaml` — 22 clip URLs (Pexels → YouTube → flag self-film)
+- [ ] Batch-run pipeline; commit `assets/animations/*.json` + `assets/rom/*.json`
+- [ ] Scott: review each trajectory via `pipeline/preview.py`
+- [ ] Write `generate_picker.py` via `imagegen` skill; batch-generate 22 silhouette PNGs
+- [ ] App-side: trajectory loader + cache; rewrite `drawHowToSkeleton` to use `drawConnectors` + `POSE_CONNECTIONS`
+- [ ] App-side: swap `EXERCISE_SVGS` for per-exercise PNG map
+- [ ] Add Playwright spec: `animation-loading.spec.ts`
+- [ ] Run `node tests.js` + `npx playwright test` — all green
+- [ ] Scott phone-tests all 22 with new animations + picker
+- [ ] Delete `HOW_TO_KEYFRAMES`, `assets/silhouettes/*.svg`, `EXERCISE_SVGS`, `getSvgKey()`
+- [ ] Deploy to `main`
 
 ## Backlog
 
@@ -73,12 +92,22 @@
 | 2026-Q1 | Data-driven exerciseRegistry | Merged exerciseMeta + exercises — adding an exercise is now one object + one `<option>` | Accepted |
 | 2026-Q1 | Lite MediaPipe model (complexity 0) | Reduced thermal load ~50% on mobile; acceptable accuracy tradeoff for bodyweight exercises | Accepted |
 | 2026-Q1 | Smart calibration covers multiple exercises | Squat ROM → squat + lunge; pushup ROM → pushup + pike + pullup. 6 reps calibrates all 4 rep-based exercises | Accepted |
+| 2026-04-17 | Automated asset pipeline for animations + picker | Replace hand-authored 2-keyframe lerp + 7-shared-SVG picker with MediaPipe-extraction pipeline. YouTube allowed as source (coordinates not pixels). 60-frame loops. Minimalist silhouette picker via `imagegen`. ROM baseline as bonus output. | Accepted |
 
 ## Session Log
 
 <!-- Reverse-chronological. Most recent entry first. Cap at ~15 entries.
      Archive older entries to docs/roadmap-archive.md (see Archive Pointer below).
      Multiple sessions on the same date can be consolidated into one entry. -->
+
+### 2026-04-17 — Step 5.5 approved: automated asset pipeline replaces hand-authored animations + picker
+
+- **Problem:** 21 of 22 how-to animations fail on anatomy/physics (only pull-ups acceptable). 7 shared picker SVGs serve 22 exercises — weak identification.
+- **Paradigm evaluation:** `docs/specs/animation-paradigm-evaluation.md` — compared Mixamo, stock video, self-filmed clips, Rive-style. First draft misread intent (clips-to-users); Scott clarified goal is *automated pipeline where sources are inputs and derived skeleton/silhouette are outputs*. Spec reworked accordingly.
+- **Scott's 5 decisions:** (1) YouTube OK as source (coordinates, not pixels), (2) minimalist silhouette for picker via `imagegen`, (3) 60-frame loops (~2s, thermally equivalent to current 2-keyframe), (4) self-film decided per-exercise after first pipeline run, (5) ROM baselines as bonus output of same pass.
+- **Implementation spec:** `docs/specs/animation-pipeline-implementation.md` — JSON schema, 4 pipeline scripts (extract/normalize/rom/picker), per-exercise source acquisition strategy, 14-step implementation sequence, test plan, acceptance criteria.
+- **Step 5 phone test deferred** — folded into Step 5.5 phone test (test new animations, not the ones we're retiring).
+- **Next session:** scaffold pipeline, write extraction script, Scott curates sources.yaml.
 
 ### 2026-04-16 — architecture-map.md moved to docs/specs/ (audit fix)
 
@@ -195,5 +224,7 @@
 - [`docs/refactor-audit-2026-04-10.md`](docs/refactor-audit-2026-04-10.md) — per-exercise behavioral equivalence audit; phone-test priority order
 - [`docs/exercise-testing-protocol.md`](docs/exercise-testing-protocol.md) — 9-step phone testing checklist per exercise
 - [`docs/specs/exercise-framework-spec.md`](docs/specs/exercise-framework-spec.md) — framework refactor spec
-- [`docs/specs/visual-polish-sprint.md`](docs/specs/visual-polish-sprint.md) — visual polish sprint (Step 5)
+- [`docs/specs/visual-polish-sprint.md`](docs/specs/visual-polish-sprint.md) — visual polish sprint (Step 5, superseded)
+- [`docs/specs/animation-paradigm-evaluation.md`](docs/specs/animation-paradigm-evaluation.md) — Step 5.5 paradigm decision doc
+- [`docs/specs/animation-pipeline-implementation.md`](docs/specs/animation-pipeline-implementation.md) — Step 5.5 implementation spec
 - [`docs/roadmap-archive.md`](docs/roadmap-archive.md) — earlier session history
