@@ -28,13 +28,22 @@ PROJECT_ROOT = PIPELINE_DIR.parent
 OUT_DIR = PROJECT_ROOT / "assets" / "animations"
 
 FRAME_COUNT = 60
-PERIOD_MS = 2000
+PERIOD_MS_DEFAULT = 3000
 SMOOTH_WINDOW = 3
 SEAM_FRAMES = 5
 SEAM_THRESHOLD = 0.02  # normalized-coord units (~2% of canvas span)
 
+# Target canvas anchors — match drawStandingSide/drawHorizontalSide outlines in index.html.
+# Outline has head center at y=0.11 and ankle at y≈0.81, so head top sits near 0.08.
+TARGET_HEAD_Y = 0.09
+TARGET_ANKLE_Y = 0.81
+TARGET_CENTER_X = 0.50
+
+NOSE = 0
 L_HIP = 23
 R_HIP = 24
+L_ANKLE = 27
+R_ANKLE = 28
 
 
 def load_raw(exercise: str) -> tuple[np.ndarray, float]:
@@ -124,6 +133,54 @@ def moving_average(seq: np.ndarray, window: int = 3) -> np.ndarray:
     return out
 
 
+def mirror_x(seq: np.ndarray) -> np.ndarray:
+    """Flip landmarks horizontally around x=0.5."""
+    out = seq.copy()
+    out[:, :, 0] = 1.0 - out[:, :, 0]
+    return out
+
+
+def canonicalize_to_outline(seq: np.ndarray) -> np.ndarray:
+    """Scale + shift landmarks so the skeleton matches the static silhouette's size and position.
+
+    - Uses the "most standing" frame (max nose-to-ankle vertical span) as the reference.
+    - Scales uniformly so reference head y → TARGET_HEAD_Y, reference ankle y → TARGET_ANKLE_Y.
+    - Horizontally centers the reference frame's hip midpoint at TARGET_CENTER_X.
+    - Applies the same linear transform to every frame (preserves motion, doesn't warp the figure).
+    """
+    ankle_y = (seq[:, L_ANKLE, 1] + seq[:, R_ANKLE, 1]) * 0.5
+    nose_y = seq[:, NOSE, 1]
+    span = ankle_y - nose_y
+    ref = int(np.argmax(span))
+    ref_span = float(span[ref])
+    if ref_span < 1e-6:
+        return seq.copy()
+
+    target_span = TARGET_ANKLE_Y - TARGET_HEAD_Y
+    scale = target_span / ref_span
+
+    ref_hip_x = float((seq[ref, L_HIP, 0] + seq[ref, R_HIP, 0]) * 0.5)
+    ref_ankle_y = float(ankle_y[ref])
+
+    out = seq.copy().astype(np.float32)
+    out[:, :, 0] = (out[:, :, 0] - ref_hip_x) * scale + TARGET_CENTER_X
+    out[:, :, 1] = (out[:, :, 1] - ref_ankle_y) * scale + TARGET_ANKLE_Y
+    return out
+
+
+def anchor_feet(seq: np.ndarray) -> np.ndarray:
+    """Shift each frame vertically so the ankle midpoint y stays at TARGET_ANKLE_Y.
+
+    Kills the "feet slide up screen" artifact that happens when the source clip had camera drift
+    or slight perspective change during the rep. Horizontal motion is preserved.
+    """
+    out = seq.copy()
+    ankle_y = (out[:, L_ANKLE, 1] + out[:, R_ANKLE, 1]) * 0.5
+    for i in range(out.shape[0]):
+        out[i, :, 1] += TARGET_ANKLE_Y - ankle_y[i]
+    return out
+
+
 def blend_seam(seq: np.ndarray, seam_frames: int, threshold: float) -> tuple[np.ndarray, float, bool]:
     """If frame 0 and frame -1 disagree on xy, ramp last `seam_frames` toward frame 0."""
     diff = float(np.linalg.norm(seq[0, :, :2] - seq[-1, :, :2], axis=1).max())
@@ -143,6 +200,12 @@ def main() -> None:
     ap.add_argument("--exercise", required=True)
     ap.add_argument("--start-frame", type=int, default=None)
     ap.add_argument("--end-frame", type=int, default=None, help="exclusive")
+    ap.add_argument("--mirror-x", action="store_true",
+                    help="horizontally flip landmarks (clip subject faces wrong direction)")
+    ap.add_argument("--period-ms", type=int, default=PERIOD_MS_DEFAULT,
+                    help=f"loop period in ms (default {PERIOD_MS_DEFAULT})")
+    ap.add_argument("--no-align", action="store_true",
+                    help="skip outline canonicalization (keep raw MediaPipe coords)")
     args = ap.parse_args()
 
     landmarks, fps = load_raw(args.exercise)
@@ -162,6 +225,15 @@ def main() -> None:
 
     resampled = resample_linear(cycle, FRAME_COUNT)
     smoothed = moving_average(resampled, window=SMOOTH_WINDOW)
+
+    if args.mirror_x:
+        smoothed = mirror_x(smoothed)
+        print("[mirror] x -> 1 - x")
+    if not args.no_align:
+        smoothed = canonicalize_to_outline(smoothed)
+        smoothed = anchor_feet(smoothed)
+        print(f"[align] head_y -> {TARGET_HEAD_Y}  ankle_y -> {TARGET_ANKLE_Y}  hip_x -> {TARGET_CENTER_X}  + per-frame foot anchor")
+
     final, seam_diff, blended = blend_seam(smoothed, SEAM_FRAMES, SEAM_THRESHOLD)
     print(f"[seam] max xy diff frame0 vs frame-1 = {seam_diff:.4f}"
           + (f"  (blended last {SEAM_FRAMES})" if blended else "  (no blend needed)"))
@@ -179,7 +251,7 @@ def main() -> None:
 
     payload = {
         "exercise": args.exercise,
-        "period_ms": PERIOD_MS,
+        "period_ms": args.period_ms,
         "frame_count": FRAME_COUNT,
         "landmarks": xy_list,
         "visibility": vis_list,
