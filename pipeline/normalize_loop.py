@@ -91,6 +91,12 @@ PRESETS = {
             (L_WRIST, R_WRIST),
             (L_HIP, R_HIP),
         ],
+        # Hands gripping a bar — fingers don't move relative to wrist. Lock each
+        # finger to the median (dx, dy) offset from its wrist across all frames.
+        "hand_groups": [
+            {"wrist": L_WRIST, "fingers": [17, 19, 21]},
+            {"wrist": R_WRIST, "fingers": [18, 20, 22]},
+        ],
     },
 }
 
@@ -106,30 +112,58 @@ def load_raw(exercise: str) -> tuple[np.ndarray, float]:
     return data["landmarks"], float(data["fps"])
 
 
-def correct_lr_swaps(landmarks: np.ndarray) -> tuple[np.ndarray, int]:
+def correct_lr_swaps(landmarks: np.ndarray) -> tuple[np.ndarray, int, dict]:
     """Fix frames where MediaPipe swapped L/R side labels.
 
-    Determines the "correct" orientation from the majority sign of shoulder-x
-    delta (L_SHOULDER.x - R_SHOULDER.x) across all valid frames. For any frame
-    whose sign disagrees, swaps every mirror-pair landmark (shoulders/elbows/
-    wrists/hips/knees/ankles/etc.) together. Returns (corrected_landmarks, swap_count).
+    Two-stage correction:
+      1. Whole-frame: if shoulder x-sign disagrees with the global majority,
+         swap every mirror-pair together (catches full-body label flips).
+      2. Per-pair: for each pair independently, compute its own majority sign,
+         then for each frame swap just that pair's landmarks if the sign
+         disagrees AND the magnitude is above PAIR_SWAP_MIN (so frames where
+         L and R coincide near a centerline aren't flipped on noise).
+
+    Returns (corrected, whole_frame_swaps, per_pair_swap_counts).
     """
-    diffs = landmarks[:, L_SHOULDER, 0] - landmarks[:, R_SHOULDER, 0]
-    majority = np.sign(np.nanmedian(diffs))
-    if majority == 0 or np.isnan(majority):
-        return landmarks, 0
+    PAIR_SWAP_MIN = 0.03
+
     out = landmarks.copy()
-    swaps = 0
-    for i in range(out.shape[0]):
-        d = diffs[i]
-        if np.isnan(d) or np.sign(d) == majority:
+
+    # Stage 1: whole-frame swap based on shoulder sign.
+    diffs = out[:, L_SHOULDER, 0] - out[:, R_SHOULDER, 0]
+    majority = np.sign(np.nanmedian(diffs))
+    whole_swaps = 0
+    if majority != 0 and not np.isnan(majority):
+        for i in range(out.shape[0]):
+            d = diffs[i]
+            if np.isnan(d) or np.sign(d) == majority:
+                continue
+            for a, b in LR_PAIRS:
+                tmp = out[i, a].copy()
+                out[i, a] = out[i, b]
+                out[i, b] = tmp
+            whole_swaps += 1
+
+    # Stage 2: per-pair correction (after whole-frame fix).
+    pair_swaps: dict = {}
+    for a, b in LR_PAIRS:
+        pair_diff = out[:, a, 0] - out[:, b, 0]
+        pair_majority = np.sign(np.nanmedian(pair_diff))
+        if pair_majority == 0 or np.isnan(pair_majority):
             continue
-        for a, b in LR_PAIRS:
+        count = 0
+        for i in range(out.shape[0]):
+            d = pair_diff[i]
+            if np.isnan(d) or np.sign(d) == pair_majority or abs(d) < PAIR_SWAP_MIN:
+                continue
             tmp = out[i, a].copy()
             out[i, a] = out[i, b]
             out[i, b] = tmp
-        swaps += 1
-    return out, swaps
+            count += 1
+        if count:
+            pair_swaps[(a, b)] = count
+
+    return out, whole_swaps, pair_swaps
 
 
 def pelvis_y_signal(landmarks: np.ndarray) -> np.ndarray:
@@ -294,6 +328,26 @@ def enforce_lateral_width(seq: np.ndarray, pair_groups: list[tuple[int, int]]) -
     return out, stats
 
 
+def lock_fingers_to_wrist(seq: np.ndarray, hand_groups: list[dict]) -> np.ndarray:
+    """Replace each finger landmark with its wrist position + median offset.
+
+    Anatomically correct for grip-on-bar exercises where the hand is fixed.
+    """
+    out = seq.copy()
+    for group in hand_groups:
+        w = group["wrist"]
+        for f in group["fingers"]:
+            dx = out[:, f, 0] - out[:, w, 0]
+            dy = out[:, f, 1] - out[:, w, 1]
+            med_dx = float(np.nanmedian(dx))
+            med_dy = float(np.nanmedian(dy))
+            if np.isnan(med_dx) or np.isnan(med_dy):
+                continue
+            out[:, f, 0] = out[:, w, 0] + med_dx
+            out[:, f, 1] = out[:, w, 1] + med_dy
+    return out
+
+
 def blend_seam(seq: np.ndarray, seam_frames: int, threshold: float) -> tuple[np.ndarray, float, bool]:
     """If frame 0 and frame -1 disagree on xy, ramp last `seam_frames` toward frame 0."""
     diff = float(np.linalg.norm(seq[0, :, :2] - seq[-1, :, :2], axis=1).max())
@@ -327,9 +381,12 @@ def main() -> None:
     n_frames = landmarks.shape[0]
     print(f"[normalize] {args.exercise}.npz: {n_frames} frames @ {fps:.1f} fps")
 
-    landmarks, swap_count = correct_lr_swaps(landmarks)
-    if swap_count:
-        print(f"[lr-swap] corrected {swap_count}/{n_frames} frames where MediaPipe flipped L/R labels")
+    landmarks, whole_swaps, pair_swaps = correct_lr_swaps(landmarks)
+    if whole_swaps:
+        print(f"[lr-swap] whole-frame: corrected {whole_swaps}/{n_frames} frames")
+    if pair_swaps:
+        for (a, b), c in pair_swaps.items():
+            print(f"[lr-swap] per-pair ({a},{b}): corrected {c}/{n_frames} frames")
 
     if args.start_frame is not None and args.end_frame is not None:
         start, end = args.start_frame, args.end_frame
@@ -357,6 +414,9 @@ def main() -> None:
             smoothed, lat_stats = enforce_lateral_width(smoothed, preset["lateral_pairs"])
             for (l, r), s in lat_stats.items():
                 print(f"[width-lock] pair ({l},{r}): locked to span={s['median_full_span']:.3f}")
+        if preset.get("hand_groups"):
+            smoothed = lock_fingers_to_wrist(smoothed, preset["hand_groups"])
+            print(f"[hand-lock] fingers bound to wrist median offsets")
 
     final, seam_diff, blended = blend_seam(smoothed, SEAM_FRAMES, SEAM_THRESHOLD)
     print(f"[seam] max xy diff frame0 vs frame-1 = {seam_diff:.4f}"
