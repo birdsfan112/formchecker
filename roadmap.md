@@ -4,8 +4,8 @@
 | Priority | active |
 | Phase | Implement |
 | Updated | 2026-04-18 |
-| Summary | Step 5.5 pipeline phone-approved on 2 of 22 exercises (squat + pullup). Pullup iteration added 4 anatomical-constraint layers to `hanging_front` preset: per-pair LR correction, lateral width-lock (shoulders/elbows/wrists/hips), y-sync for bilaterally symmetric movements, finger-to-wrist rigid binding, and a 7-frame post-lock smoothing pass. All fixes generalize to other hanging exercises (deadhang, archhang, scapularpull) via the preset config — no per-exercise code. Pytest regression suite added under `pipeline/tests/` (62 tests, all passing) covering every pure function in `normalize_loop.py`, `emit_rom.py`, and `extract_trajectory.py`. |
-| Needs Scott | (1) Curate remaining 20 clip URLs in `pipeline/sources.yaml` (~2 hrs). Note each clip's facing direction. (2) Consider whether the plank/static-hold case warrants its own preset before curating statics. (3) `docs/specs/normalize-loop-bug-fixes-spec.md` is ready to implement — test harness now exists to validate the two fixes. |
+| Summary | Step 5.5 pipeline phone-approved on 2 of 22 exercises (squat + pullup). Pullup iteration added 4 anatomical-constraint layers to `hanging_front` preset: per-pair LR correction, lateral width-lock (shoulders/elbows/wrists/hips), y-sync for bilaterally symmetric movements, finger-to-wrist rigid binding, and a 7-frame post-lock smoothing pass. All fixes generalize to other hanging exercises (deadhang, archhang, scapularpull) via the preset config — no per-exercise code. Pytest regression suite landed under `pipeline/tests/` (73 tests, all passing). Three surgical `normalize_loop.py` bug fixes shipped: `enforce_lateral_width` `raw_span_range` log-stat corrected, plus early-return guards in `correct_lr_swaps` and `pelvis_y_signal` silencing spurious all-NaN RuntimeWarnings. |
+| Needs Scott | (1) Curate remaining 20 clip URLs in `pipeline/sources.yaml` (~2 hrs). Note each clip's facing direction. (2) Consider whether the plank/static-hold case warrants its own preset before curating statics. |
 | Autonomous | Add horizontal/kneeling/quadruped presets once Scott curates an example clip of each drawStyle. `generate_picker.py` (imagegen skill). Playwright `animation-loading.spec.ts`. Retire `HOW_TO_KEYFRAMES` + `EXERCISE_SVGS` once batch lands. |
 | Blockers | None |
 
@@ -129,7 +129,16 @@ Spawned independently of the pullup work above. The bug-fix spec `docs/specs/nor
 
 **Next session:** (1) Scott curates remaining 20 URLs OR moves to plank (first static-hold test) to validate the pipeline on a third pose profile. (2) Implement the two fixes in `docs/specs/normalize-loop-bug-fixes-spec.md` — the test harness is now in place to validate them.
 
-### 2026-04-17 — Step 5.5 approved: automated asset pipeline replaces hand-authored animations + picker
+**`normalize_loop.py` surgical bug fixes — 3-agent (Plan → Implement → Check) run**
+
+Same-day follow-on after the test harness landed. Plan agent authored the spec (`docs/specs/normalize-loop-bug-fixes-spec.md`, commit `903e6a5`), Implement agent applied three one-file edits on branch `claude/admiring-mendeleev-a06c6d`, Check agent verified all three PASS and the test suite stayed green. Merged as `18a74c9`.
+
+- **Bug 1 — `enforce_lateral_width` log stat (commit `3b09e4f`):** `span_before` on line 336 was computing `(max|x| − min|x|) · 2`, which collapses sign and reads zero whenever the L/R sign is stable across frames (the common case). Replaced with `(nanmax(signed_half) − nanmin(signed_half)) · 2` — the true per-frame span range, unsigned math preserved only where the `abs` is correct (`median_full_span`). Value written to `stats[(l_id, r_id)]["raw_span_range"]`; not yet surfaced in the `[width-lock]` log line, so no user-visible diff until someone adds it. Tuple shape and keys unchanged.
+- **Bug 2a — `correct_lr_swaps` all-NaN guard (commit `f642a87`):** Inserted a 3-line early-return (`if np.isnan(out).all(): return out, 0, {}`) between `out = landmarks.copy()` and Stage 1's `diffs = ...`. Kills two `RuntimeWarning: All-NaN slice encountered` warnings from `nanmedian` that fired on fully-empty trajectories. Return shape matches the existing `(corrected, whole_swaps, pair_swaps)` signature, so `main()`'s log branches short-circuit correctly.
+- **Bug 2b — `pelvis_y_signal` all-NaN guard (commit `d4e1b77`):** Inserted `if np.isnan(landmarks[:, [L_HIP, R_HIP], 1]).all(): sys.exit(...)` ahead of the `nanmean` call. Exit string verbatim from the existing `mask.sum() < 10` path so grep-based tooling still matches. Kills `RuntimeWarning: Mean of empty slice` on all-NaN pelvis input.
+- **Test-suite drift check:** 73 passed (same count pre- and post-merge — no test additions). Warning count dropped from 6 to 5: the all-NaN `test_exits_when_too_few_valid` case now hits the early-return instead of tripping `nanmean`. Remaining `RuntimeWarning`s in the output come from partial-NaN test fixtures (`test_handles_all_nan_shoulders` NaNs only shoulders, not the whole array) and are intentionally out of scope per the spec — the docstring on that test flags it explicitly.
+- **Audit:** `git diff main…origin/claude/admiring-mendeleev-a06c6d --stat` shows exactly one file changed, +7/−1 lines, three hunks — no incidental edits. Matches spec's "only these three lines" constraint.
+- **Next session:** items (1) and (2) from the parent entry still stand; item (2) is now "validate the two fixes in real-world use once Scott batch-runs the pipeline" — the spec-level implementation is done.
 
 **Paradigm decision**
 
