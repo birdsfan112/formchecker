@@ -3,9 +3,9 @@
 |-------|-------|
 | Priority | active |
 | Phase | Implement |
-| Updated | 2026-04-17 |
-| Summary | Step 5.5 pipeline validated on 2 of 22 exercises: squat (standing preset, phone-approved) + pullup (hanging_front preset, one residual flip artifact). Pipeline now includes a `--preset` system (standing vs. hanging_front; more to add for horizontal/kneeling/quadruped), L/R label swap correction, 2D rigid per-frame anchor (x and y), and cubic ease-in-out playback for natural rest-pause at loop seam. Also fixed independent RAF loop for how-to animation so it plays in dark rooms (was stalling on MediaPipe onResults). Scott sleeping; picks back up tomorrow. |
-| Needs Scott | (1) Final phone review of pullup after deploy `0778fd1` settles (ease-in-out playback) — confirm residual flip fixed or flag timing/location. (2) Curate remaining 20 clip URLs in `pipeline/sources.yaml` (~2 hrs). Note each clip's facing direction. (3) Consider whether the plank/static-hold case warrants its own preset before curating statics. |
+| Updated | 2026-04-18 |
+| Summary | Step 5.5 pipeline validated on 2 of 22 exercises: squat (standing preset, phone-approved) + pullup (hanging_front preset, one residual flip artifact). Pipeline includes a `--preset` system (standing vs. hanging_front), L/R label swap correction, 2D rigid per-frame anchor, and cubic ease-in-out playback. **New this session:** pytest regression suite for all three pipeline scripts (62 tests, all passing) under `pipeline/tests/`. Surfaced 3 non-blocking issues for Scott to triage (nonsensical `raw_span_range` stat in `enforce_lateral_width`; two `RuntimeWarning` emissions from all-NaN edge cases in `correct_lr_swaps` and `pelvis_y_signal`). |
+| Needs Scott | (1) Final phone review of pullup after deploy `0778fd1` settles — confirm residual flip fixed or flag timing/location. (2) Curate remaining 20 clip URLs in `pipeline/sources.yaml` (~2 hrs). Note each clip's facing direction. (3) Consider whether the plank/static-hold case warrants its own preset before curating statics. (4) Triage the 3 pipeline issues flagged by the new test pass — see 2026-04-18 session log. |
 | Autonomous | Add horizontal/kneeling/quadruped presets once Scott curates an example clip of each drawStyle. `generate_picker.py` (imagegen skill). Playwright `animation-loading.spec.ts`. Retire `HOW_TO_KEYFRAMES` + `EXERCISE_SVGS` once batch lands. |
 | Blockers | None |
 
@@ -99,6 +99,23 @@
 <!-- Reverse-chronological. Most recent entry first. Cap at ~15 entries.
      Archive older entries to docs/roadmap-archive.md (see Archive Pointer below).
      Multiple sessions on the same date can be consolidated into one entry. -->
+
+### 2026-04-18 — Pipeline test coverage: pytest suite for all three Step 5.5 scripts
+
+**Test suite added** (tests only — no pipeline script modifications).
+
+- **Files:** `pipeline/tests/conftest.py` (sys.path shim), `pipeline/tests/test_normalize_loop.py` (32 tests), `pipeline/tests/test_emit_rom.py` (17 tests), `pipeline/tests/test_extract_trajectory.py` (13 tests). 62 total, all passing.
+- **Coverage:**
+  - `normalize_loop.py` — every pure function (`correct_lr_swaps`, `pelvis_y_signal`, `auto_detect_cycle`, `resample_linear`, `moving_average`, `mirror_x`, `canonicalize_to_outline`, `anchor_per_frame`, `enforce_lateral_width`, `blend_seam`) plus `load_raw` + PRESETS schema. Happy paths + NaN / too-short / zero-span edges.
+  - `emit_rom.py` — `angle_deg` (90°/180°/60°/zero-length/numeric-overshoot), `compute_rom` (constant angle, low-vis filtering, all-masked → nulls, interleaved min/max), loaders, plus a schema check against the shipped `exercise_angles.yaml`.
+  - `extract_trajectory.py` — `load_source` (4 branches), `resolve_clip` local + cached, yt-dlp branch tested via fake `subprocess.run` (cache hit short-circuits, download success, failure exit, "success but no file" exit), `ensure_pose_model` cache-hit + download (fake `urllib.request.urlretrieve`). Full MediaPipe/OpenCV extraction in `extract()` itself not covered — requires a real video fixture.
+- **Running:** Must use the shared project venv (`C:\Hub\FormChecker\pipeline\.venv`) because cv2/mediapipe aren't on system Python. `cd pipeline && "C:\Hub\FormChecker\pipeline\.venv\Scripts\python.exe" -m pytest tests`.
+- **3 non-blocking issues flagged (not fixed per task rules):**
+  1. `enforce_lateral_width` logs a stat `raw_span_range = nanmax(|signed_half|)*2 − nanmin(|signed_half|)*2` that's always ≥ 0 and lacks clear meaning — looks like it was meant to be `(nanmax − nanmin) * 2`, i.e. the range of span before locking. Logging-only, not breaking. [pipeline/normalize_loop.py:282](pipeline/normalize_loop.py:282)
+  2. `correct_lr_swaps` emits `RuntimeWarning: All-NaN slice encountered` when all shoulder landmarks are NaN. Behavior is correct (no-op return), but noisy. [pipeline/normalize_loop.py:111](pipeline/normalize_loop.py:111)
+  3. `pelvis_y_signal` emits `RuntimeWarning: Mean of empty slice` for the same reason. [pipeline/normalize_loop.py:130](pipeline/normalize_loop.py:130)
+- **Bug caught mid-write (in a test, fixed in test only):** initial `moving_average` impulse test assumed channel default of 0.0, but `_blank_frames` helper defaults x to 0.5. Corrected test helper usage — spec behavior of `moving_average` is sound.
+- **Next session:** Scott triages the 3 flagged issues (quick fixes to silence warnings + rename the logging stat) or keeps going on source curation / preset expansion.
 
 ### 2026-04-17 — Step 5.5 approved: automated asset pipeline replaces hand-authored animations + picker
 
