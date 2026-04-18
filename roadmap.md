@@ -3,9 +3,9 @@
 |-------|-------|
 | Priority | active |
 | Phase | Implement |
-| Updated | 2026-04-17 |
-| Summary | Step 5.5 pipeline validated on 2 of 22 exercises: squat (standing preset, phone-approved) + pullup (hanging_front preset, one residual flip artifact). Pipeline now includes a `--preset` system (standing vs. hanging_front; more to add for horizontal/kneeling/quadruped), L/R label swap correction, 2D rigid per-frame anchor (x and y), and cubic ease-in-out playback for natural rest-pause at loop seam. Also fixed independent RAF loop for how-to animation so it plays in dark rooms (was stalling on MediaPipe onResults). Scott sleeping; picks back up tomorrow. |
-| Needs Scott | (1) Final phone review of pullup after deploy `0778fd1` settles (ease-in-out playback) — confirm residual flip fixed or flag timing/location. (2) Curate remaining 20 clip URLs in `pipeline/sources.yaml` (~2 hrs). Note each clip's facing direction. (3) Consider whether the plank/static-hold case warrants its own preset before curating statics. |
+| Updated | 2026-04-18 |
+| Summary | Step 5.5 pipeline phone-approved on 2 of 22 exercises (squat + pullup). Pullup iteration added 4 anatomical-constraint layers to `hanging_front` preset: per-pair LR correction, lateral width-lock (shoulders/elbows/wrists/hips), y-sync for bilaterally symmetric movements, finger-to-wrist rigid binding, and a 7-frame post-lock smoothing pass. All fixes generalize to other hanging exercises (deadhang, archhang, scapularpull) via the preset config — no per-exercise code. |
+| Needs Scott | (1) Curate remaining 20 clip URLs in `pipeline/sources.yaml` (~2 hrs). Note each clip's facing direction. (2) Consider whether the plank/static-hold case warrants its own preset before curating statics. |
 | Autonomous | Add horizontal/kneeling/quadruped presets once Scott curates an example clip of each drawStyle. `generate_picker.py` (imagegen skill). Playwright `animation-loading.spec.ts`. Retire `HOW_TO_KEYFRAMES` + `EXERCISE_SVGS` once batch lands. |
 | Blockers | None |
 
@@ -99,6 +99,20 @@
 <!-- Reverse-chronological. Most recent entry first. Cap at ~15 entries.
      Archive older entries to docs/roadmap-archive.md (see Archive Pointer below).
      Multiple sessions on the same date can be consolidated into one entry. -->
+
+### 2026-04-18 — Pullup animation finalized: anatomical-constraint stack added to hanging_front preset
+
+Picked up Scott's overnight feedback: residual flip at top-of-rep + descent. Diagnosed via landmark-data inspection, not visual symptoms — first hypothesis (label swaps) was wrong; real cause was MediaPipe shoulder/wrist span *collapsing* when arms occlude the head overhead. Five iterations, each one a phone-review cycle.
+
+- **Width-lock (commit `a6e3b16`, then extended `e5d82c0`):** `enforce_lateral_width()` — for each (L,R) pair in `preset.lateral_pairs`, replaces per-frame x with median half-span around the midpoint. Anatomically correct for pullup (shoulders, elbows, wrists, hips don't change horizontal width). Locked spans for pullup: shoulders 0.151, elbows 0.254, wrists 0.194, hips 0.113.
+- **Per-pair LR correction (commit `f8585ec`):** `correct_lr_swaps` extended to a second stage. Whole-frame swap (using shoulder sign) was missing 7 elbow + 6 wrist + 6-8 finger label swaps where MediaPipe correctly labeled shoulders but mis-labeled individual pairs. New per-pair stage uses each pair's own majority sign + magnitude threshold (0.03) to physically swap mislabeled landmark data (x, y, vis).
+- **Finger rigid-bind (commit `f8585ec`):** `lock_fingers_to_wrist()` — for grip-on-bar exercises, replaces each finger landmark with `wrist + median(dx, dy)` across all frames. Hands gripping a bar don't move relative to the wrist, so a rigid model beats MediaPipe's noisy per-frame finger tracking.
+- **Y-sync (commit `bcf20df`):** `enforce_y_sync()` — for bilaterally symmetric movements, force each (L,R) pair to share its per-frame mean y. Fixes "one arm leading the other" jitter caused by MediaPipe's small per-side y noise.
+- **Post-lock smoothing (commit `20c286a`):** `preset.post_smooth_window=7` — second moving-average pass after all locks. Wrists/fingers are constant by construction so smoothing them is a no-op; the pass cleans residual y noise on shoulders/elbows/hips that survived the initial 3-frame smooth. Bonus: pullup seam diff dropped 0.25 → 0.15.
+- **Live scoring impact:** Verified pullup live form-check code uses bilateral averages — `(angle(11,13,15) + angle(12,14,16)) / 2` for tracking, average wrist y for chinOverBar, etc. The `swing` check is single-sided but uses `Math.abs(L_hip.x - L_shoulder.x)`, so symmetric L↔R swaps don't change it. Pipeline LR fixes are for visual animation only; live scoring is robust by design.
+- **Memory saved:** `feedback_animation_anatomical_constraints.md` — for ML-pose animation pipelines, layered anatomical constraints beat smoothing-only approaches; pipeline order (label cleanup → resample → smooth → align → locks → final smooth → seam blend) matters; presets generalize fixes across exercises in the same view.
+- **Sources curated this session:** still 2 of 22. Same as session start — this session was tuning, not curation.
+- **Next session:** Scott curates remaining 20 URLs OR Claude moves to plank (first static-hold test) to validate the pipeline on a third pose profile before batch.
 
 ### 2026-04-17 — Step 5.5 approved: automated asset pipeline replaces hand-authored animations + picker
 
