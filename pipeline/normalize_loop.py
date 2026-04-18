@@ -74,12 +74,16 @@ PRESETS = {
     # drawHangingFront (pullup, deadhang, archhang, scapularpull).
     # "far" is hips, not ankles — many bar/hanging clips are framed tight and cut off the legs,
     # so ankles/knees land below y=1.0 (off-canvas, hallucinated). Hips match outline hip at y=0.49.
+    # lateral_pairs: shoulders + wrists hold near-constant horizontal span during a pullup;
+    # enforcing the median width kills MediaPipe's tendency to collapse them when arms occlude
+    # the head overhead (visually reads as the body twisting away from camera).
     "hanging_front": {
         "anchor_ids": [L_WRIST, R_WRIST],
         "far_ids": [L_HIP, R_HIP],
         "anchor_y": 0.08,
         "far_y": 0.49,
         "center_ids": [L_SHOULDER, R_SHOULDER],
+        "lateral_pairs": [(L_SHOULDER, R_SHOULDER), (L_WRIST, R_WRIST)],
     },
 }
 
@@ -259,6 +263,30 @@ def anchor_per_frame(seq: np.ndarray, preset: dict) -> np.ndarray:
     return out
 
 
+def enforce_lateral_width(seq: np.ndarray, pair_groups: list[tuple[int, int]]) -> tuple[np.ndarray, dict]:
+    """Lock each (L, R) pair's horizontal spread to the median across frames.
+
+    Per-frame midpoint is preserved (so anchor_per_frame's pinning still holds).
+    Only x is touched; y values are left alone. Stats returned for logging.
+    """
+    out = seq.copy()
+    stats = {}
+    for l_id, r_id in pair_groups:
+        signed_half = (out[:, l_id, 0] - out[:, r_id, 0]) / 2.0
+        median_half = float(np.nanmedian(signed_half))
+        if np.isnan(median_half):
+            continue
+        mid_x = (out[:, l_id, 0] + out[:, r_id, 0]) / 2.0
+        out[:, l_id, 0] = mid_x + median_half
+        out[:, r_id, 0] = mid_x - median_half
+        span_before = float(np.nanmax(np.abs(signed_half)) * 2 - np.nanmin(np.abs(signed_half)) * 2)
+        stats[(l_id, r_id)] = {
+            "median_full_span": abs(median_half) * 2,
+            "raw_span_range": span_before,
+        }
+    return out, stats
+
+
 def blend_seam(seq: np.ndarray, seam_frames: int, threshold: float) -> tuple[np.ndarray, float, bool]:
     """If frame 0 and frame -1 disagree on xy, ramp last `seam_frames` toward frame 0."""
     diff = float(np.linalg.norm(seq[0, :, :2] - seq[-1, :, :2], axis=1).max())
@@ -318,6 +346,10 @@ def main() -> None:
         smoothed = canonicalize_to_outline(smoothed, preset)
         smoothed = anchor_per_frame(smoothed, preset)
         print(f"[align] preset={args.preset}  anchor_y -> {preset['anchor_y']}  far_y -> {preset['far_y']}  center_x -> {TARGET_CENTER_X}")
+        if preset.get("lateral_pairs"):
+            smoothed, lat_stats = enforce_lateral_width(smoothed, preset["lateral_pairs"])
+            for (l, r), s in lat_stats.items():
+                print(f"[width-lock] pair ({l},{r}): locked to span={s['median_full_span']:.3f}")
 
     final, seam_diff, blended = blend_seam(smoothed, SEAM_FRAMES, SEAM_THRESHOLD)
     print(f"[seam] max xy diff frame0 vs frame-1 = {seam_diff:.4f}"
