@@ -185,6 +185,8 @@ def correct_lr_swaps(landmarks: np.ndarray) -> tuple[np.ndarray, int, dict]:
 
 def pelvis_y_signal(landmarks: np.ndarray) -> np.ndarray:
     """Return per-frame mean pelvis y, with NaN gaps linearly interpolated."""
+    if np.isnan(landmarks[:, [L_HIP, R_HIP], 1]).all():
+        sys.exit("pelvis landmarks missing on too many frames")
     y = np.nanmean(landmarks[:, [L_HIP, R_HIP], 1], axis=1)
     mask = ~np.isnan(y)
     if mask.sum() < 10:
