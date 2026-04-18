@@ -333,7 +333,7 @@ def enforce_lateral_width(seq: np.ndarray, pair_groups: list[tuple[int, int]]) -
         mid_x = (out[:, l_id, 0] + out[:, r_id, 0]) / 2.0
         out[:, l_id, 0] = mid_x + median_half
         out[:, r_id, 0] = mid_x - median_half
-        span_before = float(np.nanmax(np.abs(signed_half)) * 2 - np.nanmin(np.abs(signed_half)) * 2)
+        span_before = float((np.nanmax(signed_half) - np.nanmin(signed_half)) * 2)
         stats[(l_id, r_id)] = {
             "median_full_span": abs(median_half) * 2,
             "raw_span_range": span_before,
