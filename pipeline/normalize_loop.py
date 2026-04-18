@@ -142,6 +142,10 @@ def correct_lr_swaps(landmarks: np.ndarray) -> tuple[np.ndarray, int, dict]:
 
     out = landmarks.copy()
 
+    # All-NaN input: nothing to detect. Return no-op to avoid nanmedian warnings.
+    if np.isnan(out).all():
+        return out, 0, {}
+
     # Stage 1: whole-frame swap based on shoulder sign.
     diffs = out[:, L_SHOULDER, 0] - out[:, R_SHOULDER, 0]
     majority = np.sign(np.nanmedian(diffs))
@@ -181,6 +185,8 @@ def correct_lr_swaps(landmarks: np.ndarray) -> tuple[np.ndarray, int, dict]:
 
 def pelvis_y_signal(landmarks: np.ndarray) -> np.ndarray:
     """Return per-frame mean pelvis y, with NaN gaps linearly interpolated."""
+    if np.isnan(landmarks[:, [L_HIP, R_HIP], 1]).all():
+        sys.exit("pelvis landmarks missing on too many frames")
     y = np.nanmean(landmarks[:, [L_HIP, R_HIP], 1], axis=1)
     mask = ~np.isnan(y)
     if mask.sum() < 10:
@@ -333,7 +339,7 @@ def enforce_lateral_width(seq: np.ndarray, pair_groups: list[tuple[int, int]]) -
         mid_x = (out[:, l_id, 0] + out[:, r_id, 0]) / 2.0
         out[:, l_id, 0] = mid_x + median_half
         out[:, r_id, 0] = mid_x - median_half
-        span_before = float(np.nanmax(np.abs(signed_half)) * 2 - np.nanmin(np.abs(signed_half)) * 2)
+        span_before = float((np.nanmax(signed_half) - np.nanmin(signed_half)) * 2)
         stats[(l_id, r_id)] = {
             "median_full_span": abs(median_half) * 2,
             "raw_span_range": span_before,
