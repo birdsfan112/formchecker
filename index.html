@@ -3089,6 +3089,22 @@ function drawGuide(retryCount) {
   }
 }
 
+// Keep guide animating at ~15fps independent of the MediaPipe onResults callback.
+// onResults-driven redraw stalls when the camera can't detect a pose (dark room,
+// obscured camera, user off-frame), which would freeze the how-to animation.
+let _idleGuideLastTs = 0;
+function idleGuideTick(ts) {
+  const needsRedraw = state.workoutState === 'idle'
+    || state.workoutState === 'countdown'
+    || (state.workoutState === 'warmup' && state.warmupSubPhase === 'positioning');
+  if (needsRedraw && ts - _idleGuideLastTs >= 65) {
+    drawGuide();
+    _idleGuideLastTs = ts;
+  }
+  requestAnimationFrame(idleGuideTick);
+}
+requestAnimationFrame(idleGuideTick);
+
 function drawHead(cx, cy, r) {
   guideCtx.beginPath();
   guideCtx.arc(cx, cy, r, 0, Math.PI * 2);
