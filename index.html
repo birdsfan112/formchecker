@@ -2955,7 +2955,13 @@ function drawHowToSkeleton(w, h, ex) {
 }
 
 function drawHowToSkeletonFromTrajectory(w, h, traj) {
-  const t = (Date.now() % traj.period_ms) / traj.period_ms;
+  const raw = (Date.now() % traj.period_ms) / traj.period_ms;
+  // Cubic ease-in-out so playback slows at the loop seam (which is the rest
+  // position: hang for pullups, standing for squats). Linear playback "bounces"
+  // off the rest position; easing gives a natural pause there.
+  const t = raw < 0.5
+    ? 4 * raw * raw * raw
+    : 1 - Math.pow(-2 * raw + 2, 3) / 2;
   const fi = t * traj.frame_count;
   const i = Math.floor(fi) % traj.frame_count;
   const j = (i + 1) % traj.frame_count;
