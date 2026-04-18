@@ -106,6 +106,10 @@ PRESETS = {
             {"wrist": L_WRIST, "fingers": [17, 19, 21]},
             {"wrist": R_WRIST, "fingers": [18, 20, 22]},
         ],
+        # Final smoothing pass after locks — kills residual torso/shoulder y
+        # jitter that survives initial smoothing. Wrists/fingers are already
+        # constant by construction so smoothing them is a no-op.
+        "post_smooth_window": 7,
     },
 }
 
@@ -444,6 +448,10 @@ def main() -> None:
         if preset.get("hand_groups"):
             smoothed = lock_fingers_to_wrist(smoothed, preset["hand_groups"])
             print(f"[hand-lock] fingers bound to wrist median offsets")
+        post_window = preset.get("post_smooth_window", 0)
+        if post_window > 1:
+            smoothed = moving_average(smoothed, window=post_window)
+            print(f"[post-smooth] window={post_window} frames")
 
     final, seam_diff, blended = blend_seam(smoothed, SEAM_FRAMES, SEAM_THRESHOLD)
     print(f"[seam] max xy diff frame0 vs frame-1 = {seam_diff:.4f}"
