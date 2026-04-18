@@ -102,6 +102,13 @@
 
 ### 2026-04-18 — Pullup animation finalized + pipeline test harness landed
 
+**Session closure (end of day)**
+
+- Verified 3 `normalize_loop.py` surgical fixes (`3b09e4f`, `f642a87`, `d4e1b77`) and the pipeline test harness (`cee9997`) are all live on `main` via merge commits `18a74c9` + `f2ddc1c`; roadmap status block already reflects both.
+- 73-test pytest suite (`pipeline/tests/`) passing under `pipeline/.venv`; post-fix warning count dropped 6 → 5 as expected.
+- Pruned merged orphan worktree `blissful-williams-4e9ce9` (test-harness worktree, behind main but fully merged). Current worktree `competent-haibt-cf033f` will be pruned by Scott after exit.
+- **Next session:** unchanged from parent entry — Scott curates remaining 20 URLs OR tries plank as first static-hold pipeline test.
+
 **Pullup animation finalized: anatomical-constraint stack added to hanging_front preset**
 
 Picked up Scott's overnight feedback: residual flip at top-of-rep + descent. Diagnosed via landmark-data inspection, not visual symptoms — first hypothesis (label swaps) was wrong; real cause was MediaPipe shoulder/wrist span *collapsing* when arms occlude the head overhead. Five iterations, each one a phone-review cycle.
