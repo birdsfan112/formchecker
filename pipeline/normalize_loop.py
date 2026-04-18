@@ -46,6 +46,19 @@ R_HIP = 24
 L_ANKLE = 27
 R_ANKLE = 28
 
+# Mirror-pair (L, R) landmark indices in MediaPipe's 33-landmark scheme. Used by
+# correct_lr_swaps() — when MediaPipe flips a frame's side labels (common for
+# front-view poses), we swap every pair in that frame together.
+LR_PAIRS = [
+    (1, 4), (2, 5), (3, 6),         # eyes (inner/center/outer)
+    (7, 8),                          # ears
+    (9, 10),                         # mouth corners
+    (11, 12), (13, 14), (15, 16),   # shoulders, elbows, wrists
+    (17, 18), (19, 20), (21, 22),   # pinky, index, thumb
+    (23, 24), (25, 26), (27, 28),   # hips, knees, ankles
+    (29, 30), (31, 32),              # heels, foot_index
+]
+
 # Each preset: which landmark(s) are "anchor" (fixed contact surface, should not drift across frames),
 # which are "far" (opposite end of body), the target y for each after canonicalization, and the
 # landmark(s) whose x midpoint should centre at TARGET_CENTER_X on the reference frame.
@@ -80,6 +93,32 @@ def load_raw(exercise: str) -> tuple[np.ndarray, float]:
         )
     data = np.load(path)
     return data["landmarks"], float(data["fps"])
+
+
+def correct_lr_swaps(landmarks: np.ndarray) -> tuple[np.ndarray, int]:
+    """Fix frames where MediaPipe swapped L/R side labels.
+
+    Determines the "correct" orientation from the majority sign of shoulder-x
+    delta (L_SHOULDER.x - R_SHOULDER.x) across all valid frames. For any frame
+    whose sign disagrees, swaps every mirror-pair landmark (shoulders/elbows/
+    wrists/hips/knees/ankles/etc.) together. Returns (corrected_landmarks, swap_count).
+    """
+    diffs = landmarks[:, L_SHOULDER, 0] - landmarks[:, R_SHOULDER, 0]
+    majority = np.sign(np.nanmedian(diffs))
+    if majority == 0 or np.isnan(majority):
+        return landmarks, 0
+    out = landmarks.copy()
+    swaps = 0
+    for i in range(out.shape[0]):
+        d = diffs[i]
+        if np.isnan(d) or np.sign(d) == majority:
+            continue
+        for a, b in LR_PAIRS:
+            tmp = out[i, a].copy()
+            out[i, a] = out[i, b]
+            out[i, b] = tmp
+        swaps += 1
+    return out, swaps
 
 
 def pelvis_y_signal(landmarks: np.ndarray) -> np.ndarray:
@@ -245,6 +284,10 @@ def main() -> None:
     landmarks, fps = load_raw(args.exercise)
     n_frames = landmarks.shape[0]
     print(f"[normalize] {args.exercise}.npz: {n_frames} frames @ {fps:.1f} fps")
+
+    landmarks, swap_count = correct_lr_swaps(landmarks)
+    if swap_count:
+        print(f"[lr-swap] corrected {swap_count}/{n_frames} frames where MediaPipe flipped L/R labels")
 
     if args.start_frame is not None and args.end_frame is not None:
         start, end = args.start_frame, args.end_frame
