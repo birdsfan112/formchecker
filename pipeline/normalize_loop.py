@@ -240,15 +240,22 @@ def canonicalize_to_outline(seq: np.ndarray, preset: dict) -> np.ndarray:
 
 
 def anchor_per_frame(seq: np.ndarray, preset: dict) -> np.ndarray:
-    """Shift each frame vertically so the anchor-landmark y stays at preset["anchor_y"].
+    """Per-frame rigid translation so the anchor-landmark midpoint (x, y) stays pinned.
 
-    Kills contact-point drift (feet sliding, hands drifting off the bar) from camera motion
-    or perspective change during the rep. Horizontal motion is preserved.
+    Target is (TARGET_CENTER_X, preset["anchor_y"]) — i.e. ankles-mid stays centered at
+    floor level for standing, wrists-mid stays centered at bar level for hanging, etc.
+    Kills contact-point drift from camera pan, body sway, or perspective change. Applies
+    the same (dx, dy) translation to all landmarks in the frame, so relative body
+    geometry is preserved.
     """
     out = seq.copy()
+    anchor_x = _mid_x(out, preset["anchor_ids"])
     anchor_y = _mid_y(out, preset["anchor_ids"])
     for i in range(out.shape[0]):
-        out[i, :, 1] += preset["anchor_y"] - anchor_y[i]
+        dx = TARGET_CENTER_X - anchor_x[i]
+        dy = preset["anchor_y"] - anchor_y[i]
+        out[i, :, 0] += dx
+        out[i, :, 1] += dy
     return out
 
 
