@@ -33,17 +33,42 @@ SMOOTH_WINDOW = 3
 SEAM_FRAMES = 5
 SEAM_THRESHOLD = 0.02  # normalized-coord units (~2% of canvas span)
 
-# Target canvas anchors — match drawStandingSide/drawHorizontalSide outlines in index.html.
-# Outline has head center at y=0.11 and ankle at y≈0.81, so head top sits near 0.08.
-TARGET_HEAD_Y = 0.09
-TARGET_ANKLE_Y = 0.81
+# Target canvas anchors per outline style (match draw* functions in index.html).
 TARGET_CENTER_X = 0.50
 
 NOSE = 0
+L_SHOULDER = 11
+R_SHOULDER = 12
+L_WRIST = 15
+R_WRIST = 16
 L_HIP = 23
 R_HIP = 24
 L_ANKLE = 27
 R_ANKLE = 28
+
+# Each preset: which landmark(s) are "anchor" (fixed contact surface, should not drift across frames),
+# which are "far" (opposite end of body), the target y for each after canonicalization, and the
+# landmark(s) whose x midpoint should centre at TARGET_CENTER_X on the reference frame.
+PRESETS = {
+    # drawStandingSide / drawHorizontalSide (squat, lunge, pistol, dips, mobility)
+    "standing": {
+        "anchor_ids": [L_ANKLE, R_ANKLE],
+        "far_ids": [NOSE],
+        "anchor_y": 0.81,
+        "far_y": 0.09,
+        "center_ids": [L_HIP, R_HIP],
+    },
+    # drawHangingFront (pullup, deadhang, archhang, scapularpull).
+    # "far" is hips, not ankles — many bar/hanging clips are framed tight and cut off the legs,
+    # so ankles/knees land below y=1.0 (off-canvas, hallucinated). Hips match outline hip at y=0.49.
+    "hanging_front": {
+        "anchor_ids": [L_WRIST, R_WRIST],
+        "far_ids": [L_HIP, R_HIP],
+        "anchor_y": 0.08,
+        "far_y": 0.49,
+        "center_ids": [L_SHOULDER, R_SHOULDER],
+    },
+}
 
 
 def load_raw(exercise: str) -> tuple[np.ndarray, float]:
@@ -140,44 +165,51 @@ def mirror_x(seq: np.ndarray) -> np.ndarray:
     return out
 
 
-def canonicalize_to_outline(seq: np.ndarray) -> np.ndarray:
+def _mid_y(seq: np.ndarray, ids: list[int]) -> np.ndarray:
+    return seq[:, ids, 1].mean(axis=1)
+
+
+def _mid_x(seq: np.ndarray, ids: list[int]) -> np.ndarray:
+    return seq[:, ids, 0].mean(axis=1)
+
+
+def canonicalize_to_outline(seq: np.ndarray, preset: dict) -> np.ndarray:
     """Scale + shift landmarks so the skeleton matches the static silhouette's size and position.
 
-    - Uses the "most standing" frame (max nose-to-ankle vertical span) as the reference.
-    - Scales uniformly so reference head y → TARGET_HEAD_Y, reference ankle y → TARGET_ANKLE_Y.
-    - Horizontally centers the reference frame's hip midpoint at TARGET_CENTER_X.
-    - Applies the same linear transform to every frame (preserves motion, doesn't warp the figure).
+    Uses the frame with max |anchor_y - far_y| span as the reference (extended body position).
+    Scales uniformly so ref anchor_y → preset["anchor_y"], ref far_y → preset["far_y"].
+    Horizontally centers the reference frame's center-landmark x at TARGET_CENTER_X.
     """
-    ankle_y = (seq[:, L_ANKLE, 1] + seq[:, R_ANKLE, 1]) * 0.5
-    nose_y = seq[:, NOSE, 1]
-    span = ankle_y - nose_y
+    anchor_y_series = _mid_y(seq, preset["anchor_ids"])
+    far_y_series = _mid_y(seq, preset["far_ids"])
+    span = np.abs(anchor_y_series - far_y_series)
     ref = int(np.argmax(span))
     ref_span = float(span[ref])
     if ref_span < 1e-6:
         return seq.copy()
 
-    target_span = TARGET_ANKLE_Y - TARGET_HEAD_Y
+    target_span = abs(preset["anchor_y"] - preset["far_y"])
     scale = target_span / ref_span
 
-    ref_hip_x = float((seq[ref, L_HIP, 0] + seq[ref, R_HIP, 0]) * 0.5)
-    ref_ankle_y = float(ankle_y[ref])
+    ref_center_x = float(_mid_x(seq, preset["center_ids"])[ref])
+    ref_anchor_y = float(anchor_y_series[ref])
 
     out = seq.copy().astype(np.float32)
-    out[:, :, 0] = (out[:, :, 0] - ref_hip_x) * scale + TARGET_CENTER_X
-    out[:, :, 1] = (out[:, :, 1] - ref_ankle_y) * scale + TARGET_ANKLE_Y
+    out[:, :, 0] = (out[:, :, 0] - ref_center_x) * scale + TARGET_CENTER_X
+    out[:, :, 1] = (out[:, :, 1] - ref_anchor_y) * scale + preset["anchor_y"]
     return out
 
 
-def anchor_feet(seq: np.ndarray) -> np.ndarray:
-    """Shift each frame vertically so the ankle midpoint y stays at TARGET_ANKLE_Y.
+def anchor_per_frame(seq: np.ndarray, preset: dict) -> np.ndarray:
+    """Shift each frame vertically so the anchor-landmark y stays at preset["anchor_y"].
 
-    Kills the "feet slide up screen" artifact that happens when the source clip had camera drift
-    or slight perspective change during the rep. Horizontal motion is preserved.
+    Kills contact-point drift (feet sliding, hands drifting off the bar) from camera motion
+    or perspective change during the rep. Horizontal motion is preserved.
     """
     out = seq.copy()
-    ankle_y = (out[:, L_ANKLE, 1] + out[:, R_ANKLE, 1]) * 0.5
+    anchor_y = _mid_y(out, preset["anchor_ids"])
     for i in range(out.shape[0]):
-        out[i, :, 1] += TARGET_ANKLE_Y - ankle_y[i]
+        out[i, :, 1] += preset["anchor_y"] - anchor_y[i]
     return out
 
 
@@ -204,6 +236,8 @@ def main() -> None:
                     help="horizontally flip landmarks (clip subject faces wrong direction)")
     ap.add_argument("--period-ms", type=int, default=PERIOD_MS_DEFAULT,
                     help=f"loop period in ms (default {PERIOD_MS_DEFAULT})")
+    ap.add_argument("--preset", choices=sorted(PRESETS.keys()), default="standing",
+                    help="outline-matching preset (default: standing)")
     ap.add_argument("--no-align", action="store_true",
                     help="skip outline canonicalization (keep raw MediaPipe coords)")
     args = ap.parse_args()
@@ -230,9 +264,10 @@ def main() -> None:
         smoothed = mirror_x(smoothed)
         print("[mirror] x -> 1 - x")
     if not args.no_align:
-        smoothed = canonicalize_to_outline(smoothed)
-        smoothed = anchor_feet(smoothed)
-        print(f"[align] head_y -> {TARGET_HEAD_Y}  ankle_y -> {TARGET_ANKLE_Y}  hip_x -> {TARGET_CENTER_X}  + per-frame foot anchor")
+        preset = PRESETS[args.preset]
+        smoothed = canonicalize_to_outline(smoothed, preset)
+        smoothed = anchor_per_frame(smoothed, preset)
+        print(f"[align] preset={args.preset}  anchor_y -> {preset['anchor_y']}  far_y -> {preset['far_y']}  center_x -> {TARGET_CENTER_X}")
 
     final, seam_diff, blended = blend_seam(smoothed, SEAM_FRAMES, SEAM_THRESHOLD)
     print(f"[seam] max xy diff frame0 vs frame-1 = {seam_diff:.4f}"

@@ -24,7 +24,7 @@ plank:             { url: "", provider: "", trim: [0, 0], view: "side",  notes: 
 row:               { url: "", provider: "", trim: [0, 0], view: "side",  notes: "inverted/bodyweight row" }
 glutebridge:       { url: "", provider: "", trim: [0, 0], view: "side",  notes: "" }
 foamroller:        { url: "", provider: "", trim: [0, 0], view: "side",  notes: "upper-back roll" }
-pullup:            { url: "", provider: "", trim: [0, 0], view: "front", notes: "" }
+pullup:            { url: "https://www.pexels.com/video/a-man-doing-pull-ups-exercise-8691729/", provider: "pexels", trim: [0, 0], view: "front", notes: "" }
 deadhang:          { url: "", provider: "", trim: [0, 0], view: "front", notes: "static hold" }
 legraise:          { url: "", provider: "", trim: [0, 0], view: "side",  notes: "hanging or floor" }
 archhang:          { url: "", provider: "", trim: [0, 0], view: "front", notes: "" }
