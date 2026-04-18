@@ -51,11 +51,12 @@ def _squat_like_frames(n: int = 60) -> np.ndarray:
 class TestCorrectLrSwaps:
     def test_no_swap_when_all_frames_consistent(self):
         frames = _squat_like_frames(30)
-        out, swaps = nl.correct_lr_swaps(frames)
-        assert swaps == 0
+        out, whole_swaps, pair_swaps = nl.correct_lr_swaps(frames)
+        assert whole_swaps == 0
+        assert pair_swaps == {}
         np.testing.assert_allclose(out, frames)
 
-    def test_swaps_outlier_frame(self):
+    def test_whole_frame_swap_detects_outlier(self):
         frames = _squat_like_frames(11)
         # Flip shoulder x on ONE frame so the sign of (L-R) disagrees with majority
         bad = 5
@@ -63,31 +64,73 @@ class TestCorrectLrSwaps:
             frames[bad, nl.R_SHOULDER, 0],
             frames[bad, nl.L_SHOULDER, 0],
         )
-        # Also flip hips on that frame to make sure the whole pair set is swapped back
+        # Also flip hips on that frame — whole-frame swap should fix them too
         frames[bad, nl.L_HIP, 0], frames[bad, nl.R_HIP, 0] = (
             frames[bad, nl.R_HIP, 0],
             frames[bad, nl.L_HIP, 0],
         )
-        out, swaps = nl.correct_lr_swaps(frames)
-        assert swaps == 1
+        out, whole_swaps, pair_swaps = nl.correct_lr_swaps(frames)
+        assert whole_swaps == 1
         # after correction: L_SHOULDER.x < R_SHOULDER.x on every frame
         assert np.all(out[:, nl.L_SHOULDER, 0] < out[:, nl.R_SHOULDER, 0])
         assert np.all(out[:, nl.L_HIP, 0] < out[:, nl.R_HIP, 0])
 
+    def test_per_pair_swap_catches_elbow_only_flip(self):
+        """Shoulder sign stays consistent, but one frame has its elbow pair flipped.
+        Stage 1 (whole-frame) can't catch this — Stage 2 (per-pair) should."""
+        frames = _squat_like_frames(11)
+        # Set up elbow landmarks with consistent orientation (L.x < R.x)
+        frames[:, nl.L_ELBOW, 0] = 0.43
+        frames[:, nl.R_ELBOW, 0] = 0.57
+        frames[:, nl.L_ELBOW, 1] = 0.40
+        frames[:, nl.R_ELBOW, 1] = 0.40
+        # Flip just the elbows on ONE frame (shoulders untouched)
+        bad = 5
+        frames[bad, nl.L_ELBOW, 0] = 0.57
+        frames[bad, nl.R_ELBOW, 0] = 0.43
+        out, whole_swaps, pair_swaps = nl.correct_lr_swaps(frames)
+        # Shoulders never flipped → no whole-frame swap
+        assert whole_swaps == 0
+        # But per-pair stage should see the elbow outlier (0.14 gap > PAIR_SWAP_MIN=0.03)
+        assert (nl.L_ELBOW, nl.R_ELBOW) in pair_swaps
+        assert pair_swaps[(nl.L_ELBOW, nl.R_ELBOW)] == 1
+        # And corrected so L_ELBOW.x < R_ELBOW.x everywhere
+        assert np.all(out[:, nl.L_ELBOW, 0] < out[:, nl.R_ELBOW, 0])
+
+    def test_per_pair_magnitude_threshold_ignores_near_zero_spread(self):
+        """Pairs whose absolute diff is below PAIR_SWAP_MIN (0.03) should not be
+        swapped, even if sign disagrees — prevents flipping on jitter when L and R
+        are near a centerline."""
+        frames = _squat_like_frames(11)
+        # Tight elbow gap: L=0.495, R=0.505 → diff = -0.010, below threshold
+        frames[:, nl.L_ELBOW, 0] = 0.495
+        frames[:, nl.R_ELBOW, 0] = 0.505
+        # Flip ONE frame: L=0.505, R=0.495 → diff = +0.010, still < 0.03
+        bad = 5
+        frames[bad, nl.L_ELBOW, 0] = 0.505
+        frames[bad, nl.R_ELBOW, 0] = 0.495
+        out, whole_swaps, pair_swaps = nl.correct_lr_swaps(frames)
+        # Below the magnitude threshold → no per-pair swap recorded
+        assert (nl.L_ELBOW, nl.R_ELBOW) not in pair_swaps
+
     def test_zero_swaps_returns_same_array(self):
         frames = _squat_like_frames(5)
-        out, swaps = nl.correct_lr_swaps(frames)
-        assert swaps == 0
+        out, whole_swaps, pair_swaps = nl.correct_lr_swaps(frames)
+        assert whole_swaps == 0
+        assert pair_swaps == {}
         # Contract: when nothing to do, function still returns an ndarray of same shape
         assert out.shape == frames.shape
 
     def test_handles_all_nan_shoulders(self):
+        """All-NaN shoulder input currently emits a RuntimeWarning (tracked in
+        docs/specs/normalize-loop-bug-fixes-spec.md). Behavior is still correct —
+        function returns without mutating data."""
         frames = _blank_frames(5)
         frames[:, nl.L_SHOULDER] = np.nan
         frames[:, nl.R_SHOULDER] = np.nan
-        out, swaps = nl.correct_lr_swaps(frames)
-        assert swaps == 0
-        # array unchanged when majority sign is undefined
+        out, whole_swaps, pair_swaps = nl.correct_lr_swaps(frames)
+        assert whole_swaps == 0
+        # NaN shoulders preserved
         np.testing.assert_array_equal(
             np.isnan(out[:, nl.L_SHOULDER]), np.isnan(frames[:, nl.L_SHOULDER])
         )
@@ -311,6 +354,106 @@ class TestEnforceLateralWidth:
         np.testing.assert_allclose(out[:, nl.R_SHOULDER, 1], frames[:, nl.R_SHOULDER, 1])
 
 
+# ---------- enforce_y_sync --------------------------------------------------
+
+class TestEnforceYSync:
+    def test_both_sides_share_per_frame_mean(self):
+        frames = _blank_frames(5)
+        frames[:, nl.L_SHOULDER, 1] = [0.30, 0.32, 0.34, 0.36, 0.38]
+        frames[:, nl.R_SHOULDER, 1] = [0.32, 0.30, 0.38, 0.34, 0.36]
+        out = nl.enforce_y_sync(frames, [(nl.L_SHOULDER, nl.R_SHOULDER)])
+        expected = (frames[:, nl.L_SHOULDER, 1] + frames[:, nl.R_SHOULDER, 1]) / 2.0
+        np.testing.assert_allclose(out[:, nl.L_SHOULDER, 1], expected, atol=1e-6)
+        np.testing.assert_allclose(out[:, nl.R_SHOULDER, 1], expected, atol=1e-6)
+
+    def test_x_and_visibility_untouched(self):
+        frames = _blank_frames(4)
+        frames[:, nl.L_HIP, 0] = [0.40, 0.41, 0.42, 0.43]
+        frames[:, nl.R_HIP, 0] = [0.60, 0.61, 0.62, 0.63]
+        frames[:, nl.L_HIP, 1] = [0.50, 0.52, 0.54, 0.56]
+        frames[:, nl.R_HIP, 1] = [0.54, 0.50, 0.58, 0.52]
+        before_x_l = frames[:, nl.L_HIP, 0].copy()
+        before_x_r = frames[:, nl.R_HIP, 0].copy()
+        before_vis_l = frames[:, nl.L_HIP, 2].copy()
+        out = nl.enforce_y_sync(frames, [(nl.L_HIP, nl.R_HIP)])
+        np.testing.assert_array_equal(out[:, nl.L_HIP, 0], before_x_l)
+        np.testing.assert_array_equal(out[:, nl.R_HIP, 0], before_x_r)
+        np.testing.assert_array_equal(out[:, nl.L_HIP, 2], before_vis_l)
+
+    def test_empty_pair_list_returns_copy(self):
+        frames = _squat_like_frames(5)
+        out = nl.enforce_y_sync(frames, [])
+        np.testing.assert_array_equal(out, frames)
+        assert out is not frames
+
+    def test_does_not_mutate_input(self):
+        frames = _blank_frames(5)
+        frames[:, nl.L_SHOULDER, 1] = [0.30, 0.32, 0.34, 0.36, 0.38]
+        frames[:, nl.R_SHOULDER, 1] = [0.32, 0.30, 0.38, 0.34, 0.36]
+        snap = frames.copy()
+        _ = nl.enforce_y_sync(frames, [(nl.L_SHOULDER, nl.R_SHOULDER)])
+        np.testing.assert_array_equal(frames, snap)
+
+
+# ---------- lock_fingers_to_wrist ------------------------------------------
+
+class TestLockFingersToWrist:
+    def test_fingers_track_wrist_with_median_offset(self):
+        frames = _blank_frames(5)
+        # wrist moves along y across frames
+        frames[:, nl.L_WRIST, 0] = [0.40, 0.42, 0.44, 0.46, 0.48]
+        frames[:, nl.L_WRIST, 1] = [0.10, 0.12, 0.14, 0.16, 0.18]
+        # finger 17 (pinky) — noisy relative offset, median dx=0.02, dy=0.01
+        frames[:, 17, 0] = frames[:, nl.L_WRIST, 0] + np.array([0.01, 0.03, 0.02, 0.05, 0.02])
+        frames[:, 17, 1] = frames[:, nl.L_WRIST, 1] + np.array([0.00, 0.02, 0.01, 0.00, 0.02])
+        groups = [{"wrist": nl.L_WRIST, "fingers": [17]}]
+        out = nl.lock_fingers_to_wrist(frames, groups)
+        # Resulting finger x should equal wrist x + constant offset on every frame
+        offset_x = out[:, 17, 0] - out[:, nl.L_WRIST, 0]
+        offset_y = out[:, 17, 1] - out[:, nl.L_WRIST, 1]
+        assert np.allclose(offset_x, offset_x[0], atol=1e-6)
+        assert np.allclose(offset_y, offset_y[0], atol=1e-6)
+        # median of [0.01, 0.03, 0.02, 0.05, 0.02] = 0.02
+        assert offset_x[0] == pytest.approx(0.02, abs=1e-6)
+        assert offset_y[0] == pytest.approx(0.01, abs=1e-6)
+
+    def test_nan_median_skips_landmark(self):
+        """If a finger is all-NaN across the clip, leave it alone rather than raise."""
+        frames = _blank_frames(5)
+        frames[:, nl.L_WRIST, 0] = 0.40
+        frames[:, nl.L_WRIST, 1] = 0.10
+        frames[:, 17, 0] = np.nan
+        frames[:, 17, 1] = np.nan
+        groups = [{"wrist": nl.L_WRIST, "fingers": [17]}]
+        out = nl.lock_fingers_to_wrist(frames, groups)
+        # Finger left untouched (still NaN)
+        assert np.all(np.isnan(out[:, 17, 0]))
+        assert np.all(np.isnan(out[:, 17, 1]))
+
+    def test_multiple_fingers_independent(self):
+        frames = _blank_frames(4)
+        frames[:, nl.R_WRIST, 0] = 0.60
+        frames[:, nl.R_WRIST, 1] = 0.10
+        # finger 18: constant +0.01 x, +0.02 y
+        frames[:, 18, 0] = 0.61
+        frames[:, 18, 1] = 0.12
+        # finger 20: constant +0.02 x, -0.01 y
+        frames[:, 20, 0] = 0.62
+        frames[:, 20, 1] = 0.09
+        groups = [{"wrist": nl.R_WRIST, "fingers": [18, 20]}]
+        out = nl.lock_fingers_to_wrist(frames, groups)
+        assert np.allclose(out[:, 18, 0] - out[:, nl.R_WRIST, 0], 0.01, atol=1e-6)
+        assert np.allclose(out[:, 20, 0] - out[:, nl.R_WRIST, 0], 0.02, atol=1e-6)
+        assert np.allclose(out[:, 18, 1] - out[:, nl.R_WRIST, 1], 0.02, atol=1e-6)
+        assert np.allclose(out[:, 20, 1] - out[:, nl.R_WRIST, 1], -0.01, atol=1e-6)
+
+    def test_empty_groups_returns_copy(self):
+        frames = _squat_like_frames(5)
+        out = nl.lock_fingers_to_wrist(frames, [])
+        np.testing.assert_array_equal(out, frames)
+        assert out is not frames
+
+
 # ---------- blend_seam ------------------------------------------------------
 
 class TestBlendSeam:
@@ -346,6 +489,24 @@ class TestPresets:
         for name, preset in nl.PRESETS.items():
             missing = required - preset.keys()
             assert not missing, f"preset {name!r} missing keys: {missing}"
+
+    def test_hanging_front_has_bar_grip_locks(self):
+        """hanging_front adds lateral_pairs, y_sync_pairs, hand_groups, post_smooth_window
+        to keep the body rigid under MediaPipe occlusion noise when arms go overhead."""
+        preset = nl.PRESETS["hanging_front"]
+        for key in ("lateral_pairs", "y_sync_pairs", "hand_groups", "post_smooth_window"):
+            assert key in preset, f"hanging_front preset missing {key!r}"
+        # each pair group entry should be a 2-tuple of ints
+        for pair in preset["lateral_pairs"] + preset["y_sync_pairs"]:
+            assert len(pair) == 2
+            assert all(isinstance(i, int) for i in pair)
+        # each hand group must point at a wrist landmark and list at least one finger
+        for group in preset["hand_groups"]:
+            assert "wrist" in group and "fingers" in group
+            assert isinstance(group["wrist"], int)
+            assert len(group["fingers"]) >= 1
+        assert isinstance(preset["post_smooth_window"], int)
+        assert preset["post_smooth_window"] >= 0
 
 
 # ---------- load_raw (filesystem) ------------------------------------------

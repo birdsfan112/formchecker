@@ -4,8 +4,8 @@
 | Priority | active |
 | Phase | Implement |
 | Updated | 2026-04-18 |
-| Summary | Step 5.5 pipeline validated on 2 of 22 exercises: squat (standing preset, phone-approved) + pullup (hanging_front preset, one residual flip artifact). Pipeline includes a `--preset` system (standing vs. hanging_front), L/R label swap correction, 2D rigid per-frame anchor, and cubic ease-in-out playback. **New this session:** pytest regression suite for all three pipeline scripts (62 tests, all passing) under `pipeline/tests/`. Surfaced 3 non-blocking issues for Scott to triage (nonsensical `raw_span_range` stat in `enforce_lateral_width`; two `RuntimeWarning` emissions from all-NaN edge cases in `correct_lr_swaps` and `pelvis_y_signal`). |
-| Needs Scott | (1) Final phone review of pullup after deploy `0778fd1` settles — confirm residual flip fixed or flag timing/location. (2) Curate remaining 20 clip URLs in `pipeline/sources.yaml` (~2 hrs). Note each clip's facing direction. (3) Consider whether the plank/static-hold case warrants its own preset before curating statics. (4) Triage the 3 pipeline issues flagged by the new test pass — see 2026-04-18 session log. |
+| Summary | Step 5.5 pipeline phone-approved on 2 of 22 exercises (squat + pullup). Pullup iteration added 4 anatomical-constraint layers to `hanging_front` preset: per-pair LR correction, lateral width-lock (shoulders/elbows/wrists/hips), y-sync for bilaterally symmetric movements, finger-to-wrist rigid binding, and a 7-frame post-lock smoothing pass. All fixes generalize to other hanging exercises (deadhang, archhang, scapularpull) via the preset config — no per-exercise code. Pytest regression suite added under `pipeline/tests/` (62 tests, all passing) covering every pure function in `normalize_loop.py`, `emit_rom.py`, and `extract_trajectory.py`. |
+| Needs Scott | (1) Curate remaining 20 clip URLs in `pipeline/sources.yaml` (~2 hrs). Note each clip's facing direction. (2) Consider whether the plank/static-hold case warrants its own preset before curating statics. (3) `docs/specs/normalize-loop-bug-fixes-spec.md` is ready to implement — test harness now exists to validate the two fixes. |
 | Autonomous | Add horizontal/kneeling/quadruped presets once Scott curates an example clip of each drawStyle. `generate_picker.py` (imagegen skill). Playwright `animation-loading.spec.ts`. Retire `HOW_TO_KEYFRAMES` + `EXERCISE_SVGS` once batch lands. |
 | Blockers | None |
 
@@ -100,22 +100,34 @@
      Archive older entries to docs/roadmap-archive.md (see Archive Pointer below).
      Multiple sessions on the same date can be consolidated into one entry. -->
 
-### 2026-04-18 — Pipeline test coverage: pytest suite for all three Step 5.5 scripts
+### 2026-04-18 — Pullup animation finalized + pipeline test harness landed
 
-**Test suite added** (tests only — no pipeline script modifications).
+**Pullup animation finalized: anatomical-constraint stack added to hanging_front preset**
 
-- **Files:** `pipeline/tests/conftest.py` (sys.path shim), `pipeline/tests/test_normalize_loop.py` (32 tests), `pipeline/tests/test_emit_rom.py` (17 tests), `pipeline/tests/test_extract_trajectory.py` (13 tests). 62 total, all passing.
+Picked up Scott's overnight feedback: residual flip at top-of-rep + descent. Diagnosed via landmark-data inspection, not visual symptoms — first hypothesis (label swaps) was wrong; real cause was MediaPipe shoulder/wrist span *collapsing* when arms occlude the head overhead. Five iterations, each one a phone-review cycle.
+
+- **Width-lock (commit `a6e3b16`, then extended `e5d82c0`):** `enforce_lateral_width()` — for each (L,R) pair in `preset.lateral_pairs`, replaces per-frame x with median half-span around the midpoint. Anatomically correct for pullup (shoulders, elbows, wrists, hips don't change horizontal width). Locked spans for pullup: shoulders 0.151, elbows 0.254, wrists 0.194, hips 0.113.
+- **Per-pair LR correction (commit `f8585ec`):** `correct_lr_swaps` extended to a second stage. Whole-frame swap (using shoulder sign) was missing 7 elbow + 6 wrist + 6-8 finger label swaps where MediaPipe correctly labeled shoulders but mis-labeled individual pairs. New per-pair stage uses each pair's own majority sign + magnitude threshold (0.03) to physically swap mislabeled landmark data (x, y, vis).
+- **Finger rigid-bind (commit `f8585ec`):** `lock_fingers_to_wrist()` — for grip-on-bar exercises, replaces each finger landmark with `wrist + median(dx, dy)` across all frames. Hands gripping a bar don't move relative to the wrist, so a rigid model beats MediaPipe's noisy per-frame finger tracking.
+- **Y-sync (commit `bcf20df`):** `enforce_y_sync()` — for bilaterally symmetric movements, force each (L,R) pair to share its per-frame mean y. Fixes "one arm leading the other" jitter caused by MediaPipe's small per-side y noise.
+- **Post-lock smoothing (commit `20c286a`):** `preset.post_smooth_window=7` — second moving-average pass after all locks. Wrists/fingers are constant by construction so smoothing them is a no-op; the pass cleans residual y noise on shoulders/elbows/hips that survived the initial 3-frame smooth. Bonus: pullup seam diff dropped 0.25 → 0.15.
+- **Live scoring impact:** Verified pullup live form-check code uses bilateral averages — `(angle(11,13,15) + angle(12,14,16)) / 2` for tracking, average wrist y for chinOverBar, etc. The `swing` check is single-sided but uses `Math.abs(L_hip.x - L_shoulder.x)`, so symmetric L↔R swaps don't change it. Pipeline LR fixes are for visual animation only; live scoring is robust by design.
+- **Memory saved:** `feedback_animation_anatomical_constraints.md` — for ML-pose animation pipelines, layered anatomical constraints beat smoothing-only approaches; pipeline order (label cleanup → resample → smooth → align → locks → final smooth → seam blend) matters; presets generalize fixes across exercises in the same view.
+- **Sources curated this session:** still 2 of 22. Same as session start — this session was tuning, not curation.
+
+**Pipeline test harness added** (parallel worktree, test files only — no pipeline script modifications)
+
+Spawned independently of the pullup work above. The bug-fix spec `docs/specs/normalize-loop-bug-fixes-spec.md` explicitly noted no Python test harness existed; this session creates one before the fixes land so they can be validated.
+
+- **Files:** `pipeline/tests/conftest.py` (sys.path shim), `pipeline/tests/test_normalize_loop.py`, `pipeline/tests/test_emit_rom.py`, `pipeline/tests/test_extract_trajectory.py`. 62 tests total, all passing against the current (post-pullup-iteration) `normalize_loop.py`.
 - **Coverage:**
-  - `normalize_loop.py` — every pure function (`correct_lr_swaps`, `pelvis_y_signal`, `auto_detect_cycle`, `resample_linear`, `moving_average`, `mirror_x`, `canonicalize_to_outline`, `anchor_per_frame`, `enforce_lateral_width`, `blend_seam`) plus `load_raw` + PRESETS schema. Happy paths + NaN / too-short / zero-span edges.
+  - `normalize_loop.py` — every pure function (`correct_lr_swaps` including the per-pair Stage 2, `pelvis_y_signal`, `auto_detect_cycle`, `resample_linear`, `moving_average`, `mirror_x`, `canonicalize_to_outline`, `anchor_per_frame`, `enforce_lateral_width`, `enforce_y_sync`, `lock_fingers_to_wrist`, `blend_seam`), plus `load_raw` and `PRESETS` schema (including `hanging_front`'s new `y_sync_pairs` / `hand_groups` / `post_smooth_window` keys). Happy paths + NaN / too-short / zero-span edges.
   - `emit_rom.py` — `angle_deg` (90°/180°/60°/zero-length/numeric-overshoot), `compute_rom` (constant angle, low-vis filtering, all-masked → nulls, interleaved min/max), loaders, plus a schema check against the shipped `exercise_angles.yaml`.
-  - `extract_trajectory.py` — `load_source` (4 branches), `resolve_clip` local + cached, yt-dlp branch tested via fake `subprocess.run` (cache hit short-circuits, download success, failure exit, "success but no file" exit), `ensure_pose_model` cache-hit + download (fake `urllib.request.urlretrieve`). Full MediaPipe/OpenCV extraction in `extract()` itself not covered — requires a real video fixture.
+  - `extract_trajectory.py` — `load_source` (4 branches), `resolve_clip` local + cached, yt-dlp branch tested via fake `subprocess.run`, `ensure_pose_model` cache-hit + download (fake `urllib.request.urlretrieve`). Full MediaPipe/OpenCV extraction in `extract()` itself not covered — requires a real video fixture.
 - **Running:** Must use the shared project venv (`C:\Hub\FormChecker\pipeline\.venv`) because cv2/mediapipe aren't on system Python. `cd pipeline && "C:\Hub\FormChecker\pipeline\.venv\Scripts\python.exe" -m pytest tests`.
-- **3 non-blocking issues flagged (not fixed per task rules):**
-  1. `enforce_lateral_width` logs a stat `raw_span_range = nanmax(|signed_half|)*2 − nanmin(|signed_half|)*2` that's always ≥ 0 and lacks clear meaning — looks like it was meant to be `(nanmax − nanmin) * 2`, i.e. the range of span before locking. Logging-only, not breaking. [pipeline/normalize_loop.py:282](pipeline/normalize_loop.py:282)
-  2. `correct_lr_swaps` emits `RuntimeWarning: All-NaN slice encountered` when all shoulder landmarks are NaN. Behavior is correct (no-op return), but noisy. [pipeline/normalize_loop.py:111](pipeline/normalize_loop.py:111)
-  3. `pelvis_y_signal` emits `RuntimeWarning: Mean of empty slice` for the same reason. [pipeline/normalize_loop.py:130](pipeline/normalize_loop.py:130)
-- **Bug caught mid-write (in a test, fixed in test only):** initial `moving_average` impulse test assumed channel default of 0.0, but `_blank_frames` helper defaults x to 0.5. Corrected test helper usage — spec behavior of `moving_average` is sound.
-- **Next session:** Scott triages the 3 flagged issues (quick fixes to silence warnings + rename the logging stat) or keeps going on source curation / preset expansion.
+- **Confirms the two bugs in `normalize-loop-bug-fixes-spec.md` are still live:** `correct_lr_swaps` and `pelvis_y_signal` both emit `RuntimeWarning` on all-NaN input (two tests currently pass through that code path — will be strengthened to assert warnings-absent once the fixes land). `enforce_lateral_width.raw_span_range` tested as part of the public tuple shape but its value isn't asserted yet; add a value assertion once Bug 1 is fixed.
+
+**Next session:** (1) Scott curates remaining 20 URLs OR moves to plank (first static-hold test) to validate the pipeline on a third pose profile. (2) Implement the two fixes in `docs/specs/normalize-loop-bug-fixes-spec.md` — the test harness is now in place to validate them.
 
 ### 2026-04-17 — Step 5.5 approved: automated asset pipeline replaces hand-authored animations + picker
 
