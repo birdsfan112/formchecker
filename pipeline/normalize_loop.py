@@ -39,6 +39,8 @@ TARGET_CENTER_X = 0.50
 NOSE = 0
 L_SHOULDER = 11
 R_SHOULDER = 12
+L_ELBOW = 13
+R_ELBOW = 14
 L_WRIST = 15
 R_WRIST = 16
 L_HIP = 23
@@ -83,7 +85,12 @@ PRESETS = {
         "anchor_y": 0.08,
         "far_y": 0.49,
         "center_ids": [L_SHOULDER, R_SHOULDER],
-        "lateral_pairs": [(L_SHOULDER, R_SHOULDER), (L_WRIST, R_WRIST)],
+        "lateral_pairs": [
+            (L_SHOULDER, R_SHOULDER),
+            (L_ELBOW, R_ELBOW),
+            (L_WRIST, R_WRIST),
+            (L_HIP, R_HIP),
+        ],
     },
 }
 
