@@ -4,9 +4,9 @@
 | Priority | active |
 | Phase | Implement |
 | Updated | 2026-04-17 |
-| Summary | Step 5.5 pipeline core complete + squat animation live on GitHub Pages, phone-reviewed ("MUCH better!"). Pipeline: `extract_trajectory.py` → `normalize_loop.py` → `emit_rom.py` all validated on the Pexels squat clip. Normalize now includes `--mirror-x`, `--period-ms`, `canonicalize_to_outline()` (uniform scale+shift to head y=0.09, ankle y=0.81, hip x=0.50) and per-frame `anchor_feet()`. App-side: trajectory loader + cache + new `drawHowToSkeletonFromTrajectory` using `POSE_CONNECTIONS`; legacy keyframe path preserved as fallback. Aesthetic approved — batch run will inherit these fixes by default. |
-| Needs Scott | (1) Curate `pipeline/sources.yaml` — one clip URL per exercise (~2 hrs, Pexels first then YouTube). Favor "normal" depth/ROM clips. Note each clip's facing direction so `--mirror-x` is set correctly. (2) Review each extracted trajectory before commit. (3) Phone test all 22 with new animations + picker once pipeline ships. |
-| Autonomous | Write `generate_picker.py` (imagegen skill — post-curation so it can use extracted-pose references). Playwright `animation-loading.spec.ts`. Retire `HOW_TO_KEYFRAMES` + `EXERCISE_SVGS` once batch lands. No further pipeline work possible until Scott curates sources.yaml. |
+| Summary | Step 5.5 pipeline validated on 2 of 22 exercises: squat (standing preset, phone-approved) + pullup (hanging_front preset, one residual flip artifact). Pipeline now includes a `--preset` system (standing vs. hanging_front; more to add for horizontal/kneeling/quadruped), L/R label swap correction, 2D rigid per-frame anchor (x and y), and cubic ease-in-out playback for natural rest-pause at loop seam. Also fixed independent RAF loop for how-to animation so it plays in dark rooms (was stalling on MediaPipe onResults). Scott sleeping; picks back up tomorrow. |
+| Needs Scott | (1) Final phone review of pullup after deploy `0778fd1` settles (ease-in-out playback) — confirm residual flip fixed or flag timing/location. (2) Curate remaining 20 clip URLs in `pipeline/sources.yaml` (~2 hrs). Note each clip's facing direction. (3) Consider whether the plank/static-hold case warrants its own preset before curating statics. |
+| Autonomous | Add horizontal/kneeling/quadruped presets once Scott curates an example clip of each drawStyle. `generate_picker.py` (imagegen skill). Playwright `animation-loading.spec.ts`. Retire `HOW_TO_KEYFRAMES` + `EXERCISE_SVGS` once batch lands. |
 | Blockers | None |
 
 <!-- CHIEF OF STAFF NOTE: The Status block above is read by the daily review. Keep every field current.
@@ -53,7 +53,7 @@
 - [x] Write `extract_trajectory.py` — MediaPipe Tasks API (`pose_landmarker_heavy.task`, Py 3.13 dropped `mp.solutions`); yt-dlp[curl-cffi] for Pexels; smoke-tested on squat clip → 395/395 frames detected, mean vis 0.809 (2026-04-17)
 - [x] Write `normalize_loop.py` — auto cycle-detect via pelvis-y autocorrelation + 60-frame resample + 3-frame MA + seam blend; squat test: 395→49→60 frames, seam closed to 0.0000, 35.7 KB JSON (2026-04-17)
 - [x] Write `emit_rom.py` — per-joint angle min/max with vis<0.6 skip; squat: knee 38°→173.5°, hip 29.7°→175.5° (60/60 samples — source clip is ATG depth, pipeline correct) (2026-04-17)
-- [ ] Scott: curate `sources.yaml` — 22 clip URLs (Pexels → YouTube → flag self-film)
+- [ ] Scott: curate `sources.yaml` — 22 clip URLs (2/22 done: squat, pullup)
 - [ ] Batch-run pipeline; commit `assets/animations/*.json` + `assets/rom/*.json`
 - [ ] Scott: review each trajectory via `pipeline/preview.py`
 - [ ] Write `generate_picker.py` via `imagegen` skill; batch-generate 22 silhouette PNGs
@@ -140,7 +140,19 @@
 - **Commit `0e84697`** landed the four normalize_loop fixes + regenerated `assets/animations/squat.json`. Batch run will inherit these by default (fixes generalize — they're driven by the outline-anchor constants, not hand-tuned per clip).
 - **Cache bug (commit `12e4346`):** After pushing the fixes, Scott hard-refreshed and saw no change. Root cause: `fetch(url, { cache: 'force-cache' })` tells the browser to serve any cached copy *without* revalidation, even on explicit reload. Removed the option so the default `max-age=600` from GitHub Pages applies and busted URL params work. Scott confirmed "MUCH better!" after hard cache clear.
 - **Validated pattern saved to memory:** "Ship one to phone before batch-running aesthetic pipelines" — for UI/UX asset generation, the default build→batch→review path is wrong; flip to build→ship-one→phone-review→iterate→batch. Saved as `feedback_aesthetic_ship_one_first.md`.
-- **Next session:** Step 5.5 remains blocked on Scott curating `sources.yaml` — but now with confidence the pipeline produces a phone-approved result. Autonomous options: `generate_picker.py` (post-curation so it can use extracted-pose references), Playwright `animation-loading.spec.ts`.
+
+**Sprint execution — pullup (first front-view/hanging test)**
+
+Scott picked pullup as the 2nd exercise per the "test new pose profile before batching" plan. Surfaced 4 pipeline issues + 1 app-side bug. Each one is a pipeline/runtime parameter fix, not per-exercise rework — the batch inherits them all.
+
+- **Issue 1: presets.** Original `canonicalize_to_outline` + `anchor_feet` hardcoded ankles-to-floor. Pullup needs wrists-to-bar. Generalized into a `--preset` system (commit `0285a28`): each preset specifies `anchor_ids` (fixed-contact landmarks), `far_ids` (opposite end of body), target y for each, and x-centering landmarks. Two presets land: `standing` and `hanging_front`. Used hips (not ankles) as `hanging_front`'s `far_ids` because bar/hanging clips routinely cut off the legs (Pexels pullup clip: ankle vis = 0.018, knee vis = 0.092 — landmarks below hip are hallucinated off-canvas).
+- **Issue 2: dark-room animation freeze (app bug, not pipeline).** Scott reported "animations don't move now" even for legacy keyframe exercises. Root cause: `drawGuide()` was only called from MediaPipe's `onResults` callback, which stalls when the camera can't detect a pose. Fix (commit `a9382f6`): added an independent ~15fps RAF loop that calls `drawGuide()` when in idle/countdown/warmup-positioning states. Not specific to pipeline — a pre-existing bug exposed by Scott testing with the lights off.
+- **Issue 3: L/R label swaps (MediaPipe quirk).** 27 of 98 pullup frames and 45 of 395 squat frames had MediaPipe swapping which side it labeled "left" vs "right" (common for front-ish views with arms/head overlap). Caused visible rotation artifacts, especially near the loop seam where swapped and correct frames blended together. Fix (commit `c199170`): `correct_lr_swaps()` computes majority sign of `L_shoulder.x - R_shoulder.x` across all frames, then swaps all 14 mirror pairs together (shoulders, elbows, wrists, hips, knees, ankles, eyes, ears, mouth, hands, heels, feet) in any disagreeing frame.
+- **Issue 4: x-anchor missing.** `anchor_per_frame` was y-only, letting wrist-mid-x drift with natural body sway. Whole skeleton appeared to translate during the rep. Fix (commit `02a4192`): 2D rigid translation — anchor midpoint pinned to `(TARGET_CENTER_X, anchor_y)` every frame. Post-fix: wrist-mid range = 0.0000 on pullup, ankle-mid range = 0.0000 on squat.
+- **Issue 5: linear playback "bounces" at rest position.** Rep should pause at the bottom (pullup hang / squat standing). Fix (commit `0778fd1`): cubic ease-in-out on period fraction in `drawHowToSkeletonFromTrajectory`. Slow at loop seam (rest), fast through middle (rep peak). Applies to all trajectory animations — no regeneration needed. Keyframe fallback already uses cosine oscillation, naturally eased.
+- **Residual artifact (unresolved):** Scott reports "still some flip" after the L/R swap fix. Likely per-landmark noise (individual limbs flickering) rather than whole-frame swaps — different root cause, different fix. Deferred until Scott confirms post-playback-easing behavior and, if still present, pinpoints when in the rep it occurs.
+- **Sources curated this session:** 2 of 22 (squat, pullup). 20 remaining for Scott.
+- **Next session:** (1) Scott phone-reviews pullup after deploy `0778fd1` settles. (2) If approved, move to plank (first static-hold test). (3) Scott begins batch curation of remaining URLs.
 
 ### 2026-04-16 — architecture-map.md moved to docs/specs/ (audit fix)
 
