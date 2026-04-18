@@ -142,6 +142,10 @@ def correct_lr_swaps(landmarks: np.ndarray) -> tuple[np.ndarray, int, dict]:
 
     out = landmarks.copy()
 
+    # All-NaN input: nothing to detect. Return no-op to avoid nanmedian warnings.
+    if np.isnan(out).all():
+        return out, 0, {}
+
     # Stage 1: whole-frame swap based on shoulder sign.
     diffs = out[:, L_SHOULDER, 0] - out[:, R_SHOULDER, 0]
     majority = np.sign(np.nanmedian(diffs))
