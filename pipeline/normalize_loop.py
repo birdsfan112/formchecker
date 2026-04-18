@@ -91,6 +91,15 @@ PRESETS = {
             (L_WRIST, R_WRIST),
             (L_HIP, R_HIP),
         ],
+        # Bilaterally symmetric — both arms rise/fall together, both hips too.
+        # Force each pair to share its per-frame mean y so MediaPipe's small
+        # per-side y noise doesn't read as "one arm leading the other".
+        "y_sync_pairs": [
+            (L_SHOULDER, R_SHOULDER),
+            (L_ELBOW, R_ELBOW),
+            (L_WRIST, R_WRIST),
+            (L_HIP, R_HIP),
+        ],
         # Hands gripping a bar — fingers don't move relative to wrist. Lock each
         # finger to the median (dx, dy) offset from its wrist across all frames.
         "hand_groups": [
@@ -328,6 +337,21 @@ def enforce_lateral_width(seq: np.ndarray, pair_groups: list[tuple[int, int]]) -
     return out, stats
 
 
+def enforce_y_sync(seq: np.ndarray, pair_groups: list[tuple[int, int]]) -> np.ndarray:
+    """Force each (L, R) pair to share the same y value (per-frame mean).
+
+    For bilaterally symmetric movements (pullup, deadhang), MediaPipe's small
+    per-frame y noise on L vs R reads visually as one arm leading the other.
+    Averaging eliminates the asynchrony.
+    """
+    out = seq.copy()
+    for l_id, r_id in pair_groups:
+        mean_y = (out[:, l_id, 1] + out[:, r_id, 1]) / 2.0
+        out[:, l_id, 1] = mean_y
+        out[:, r_id, 1] = mean_y
+    return out
+
+
 def lock_fingers_to_wrist(seq: np.ndarray, hand_groups: list[dict]) -> np.ndarray:
     """Replace each finger landmark with its wrist position + median offset.
 
@@ -414,6 +438,9 @@ def main() -> None:
             smoothed, lat_stats = enforce_lateral_width(smoothed, preset["lateral_pairs"])
             for (l, r), s in lat_stats.items():
                 print(f"[width-lock] pair ({l},{r}): locked to span={s['median_full_span']:.3f}")
+        if preset.get("y_sync_pairs"):
+            smoothed = enforce_y_sync(smoothed, preset["y_sync_pairs"])
+            print(f"[y-sync] {len(preset['y_sync_pairs'])} pair(s) y-averaged")
         if preset.get("hand_groups"):
             smoothed = lock_fingers_to_wrist(smoothed, preset["hand_groups"])
             print(f"[hand-lock] fingers bound to wrist median offsets")
