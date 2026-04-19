@@ -31,7 +31,7 @@
  *   - page.route(/cdn.jsdelivr.net/): returns empty JS bodies so the browser
  *     doesn't hang waiting for real CDN. Add CORS header to satisfy crossorigin="anonymous".
  */
-import { Page, expect } from '@playwright/test';
+import { Page, Route, expect } from '@playwright/test';
 
 // ---------- MediaPipe stub strings ----------
 
@@ -250,4 +250,90 @@ export async function injectPoseFrame(
       pose._cb({ poseLandmarks: lm, poseWorldLandmarks: lm });
     }
   }, landmarks);
+}
+
+// ---------- Guide-canvas helpers (trajectory animation) ----------
+
+/**
+ * True iff any pixel on #guide-canvas has non-zero alpha — i.e. something was
+ * drawn. Used to prove drawHowToSkeletonFromTrajectory (or its keyframe
+ * fallback) ran without throwing.
+ */
+export async function guideCanvasHasPixels(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const c = document.getElementById('guide-canvas') as HTMLCanvasElement;
+    if (!c || c.width === 0 || c.height === 0) return false;
+    const ctx = c.getContext('2d');
+    if (!ctx) return false;
+    const data = ctx.getImageData(0, 0, c.width, c.height).data;
+    for (let i = 3; i < data.length; i += 4) {
+      if (data[i] !== 0) return true;
+    }
+    return false;
+  });
+}
+
+/**
+ * Return a cheap fingerprint of the guide canvas: a hex string of a 16x16
+ * nearest-neighbour downsample of the full canvas, computed inside the page
+ * so we don't ship the full ImageData over the CDP wire. Two fingerprints
+ * sampled at different animation phases should differ.
+ */
+export async function getGuideCanvasFingerprint(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const c = document.getElementById('guide-canvas') as HTMLCanvasElement;
+    if (!c || c.width === 0 || c.height === 0) return '';
+    const tmp = document.createElement('canvas');
+    tmp.width = 16;
+    tmp.height = 16;
+    const tctx = tmp.getContext('2d');
+    if (!tctx) return '';
+    tctx.imageSmoothingEnabled = false;
+    tctx.drawImage(c, 0, 0, 16, 16);
+    const data = tctx.getImageData(0, 0, 16, 16).data;
+    let hex = '';
+    for (let i = 0; i < data.length; i += 4) {
+      // Pack R/G/B/A nibbles into a compact hex string — lossy but stable.
+      const v = ((data[i] >> 4) << 12) | ((data[i + 1] >> 4) << 8)
+              | ((data[i + 2] >> 4) << 4) | (data[i + 3] >> 4);
+      hex += v.toString(16).padStart(4, '0');
+    }
+    return hex;
+  });
+}
+
+/**
+ * Route-intercept the trajectory JSON fetch for a single exercise id.
+ *   'missing'   — respond HTTP 404 (loader takes the `!r.ok` → null branch)
+ *   'malformed' — respond HTTP 200 with invalid JSON (loader's r.json() throws → .catch)
+ *   'empty'     — respond HTTP 200 with body "null" (loader stores null directly)
+ *
+ * Playwright routes are additive and URL patterns are distinct from the
+ * cdn.jsdelivr.net mock in loadPage(), so this can be called either before
+ * or after loadPage(). Call before loadPage() to guarantee the route is
+ * registered before the very first fetch.
+ */
+export async function mockTrajectory(
+  page: Page,
+  exerciseId: string,
+  mode: 'missing' | 'malformed' | 'empty',
+): Promise<void> {
+  await page.route(`**/assets/animations/${exerciseId}.json`, async (route: Route) => {
+    if (mode === 'missing') {
+      return route.fulfill({ status: 404, body: '' });
+    }
+    if (mode === 'malformed') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: '{not-json',
+      });
+    }
+    // 'empty'
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: 'null',
+    });
+  });
 }
