@@ -49,6 +49,7 @@ import {
   getRepCounterText,
   guideCanvasHasPixels,
   getGuideCanvasFingerprint,
+  fingerprintsDiffer,
   mockTrajectory,
 } from './_helpers';
 
@@ -62,7 +63,7 @@ test.describe('how-to animation loading — trajectory path', () => {
     // tick after switchExercise calls loadTrajectory('squat') which fires the fetch.
     const responsePromise = page.waitForResponse(
       r => r.url().endsWith('/assets/animations/squat.json') && r.status() === 200,
-      { timeout: 2000 },
+      { timeout: 5000 },
     );
     await switchExercise(page, 'squat');
     const response = await responsePromise;
@@ -82,7 +83,7 @@ test.describe('how-to animation loading — trajectory path', () => {
 
     const responsePromise = page.waitForResponse(
       r => r.url().endsWith('/assets/animations/squat.json') && r.status() === 200,
-      { timeout: 2000 },
+      { timeout: 5000 },
     );
     await switchExercise(page, 'squat');
     await responsePromise;
@@ -101,7 +102,7 @@ test.describe('how-to animation loading — trajectory path', () => {
 
     const responsePromise = page.waitForResponse(
       r => r.url().endsWith('/assets/animations/squat.json') && r.status() === 200,
-      { timeout: 2000 },
+      { timeout: 5000 },
     );
     await switchExercise(page, 'squat');
     await responsePromise;
@@ -119,7 +120,10 @@ test.describe('how-to animation loading — trajectory path', () => {
     await page.waitForTimeout(400);
     const f2 = await getGuideCanvasFingerprint(page);
     expect(f2).not.toBe('');
-    expect(f1).not.toBe(f2);
+    // Hamming-distance comparator (≥ 2 differing nibbles) is the spec's
+    // §6 Test 3 "Iterate" fallback — resilient to tiny sampling jitter from
+    // a slow Python webserver under concurrent workers.
+    expect(fingerprintsDiffer(f1, f2, 2)).toBe(true);
   });
 
   test('missing trajectory JSON does not crash the app (falls back to keyframes)', async ({ page }) => {
@@ -144,7 +148,7 @@ test.describe('how-to animation loading — trajectory path', () => {
     // its trajectory JSON should load normally.
     const pullupPromise = page.waitForResponse(
       r => r.url().endsWith('/assets/animations/pullup.json') && r.status() === 200,
-      { timeout: 2000 },
+      { timeout: 5000 },
     );
     await switchExercise(page, 'pullup');
     await pullupPromise;

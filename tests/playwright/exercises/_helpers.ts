@@ -274,23 +274,27 @@ export async function guideCanvasHasPixels(page: Page): Promise<boolean> {
 }
 
 /**
- * Return a cheap fingerprint of the guide canvas: a hex string of a 16x16
+ * Return a cheap fingerprint of the guide canvas: a hex string of a 32x32
  * nearest-neighbour downsample of the full canvas, computed inside the page
- * so we don't ship the full ImageData over the CDP wire. Two fingerprints
- * sampled at different animation phases should differ.
+ * so we don't ship the full ImageData over the CDP wire.
+ *
+ * Upsized from 16x16 to 32x32 per spec §6 Test 3 "Iterate" fallback — the
+ * finer grid + Hamming-distance comparator (fingerprintsDiffer) is more
+ * robust to near-identical frames when the Python webserver is slow under
+ * concurrent workers and the second sample lands one tick later than planned.
  */
 export async function getGuideCanvasFingerprint(page: Page): Promise<string> {
   return page.evaluate(() => {
     const c = document.getElementById('guide-canvas') as HTMLCanvasElement;
     if (!c || c.width === 0 || c.height === 0) return '';
     const tmp = document.createElement('canvas');
-    tmp.width = 16;
-    tmp.height = 16;
+    tmp.width = 32;
+    tmp.height = 32;
     const tctx = tmp.getContext('2d');
     if (!tctx) return '';
     tctx.imageSmoothingEnabled = false;
-    tctx.drawImage(c, 0, 0, 16, 16);
-    const data = tctx.getImageData(0, 0, 16, 16).data;
+    tctx.drawImage(c, 0, 0, 32, 32);
+    const data = tctx.getImageData(0, 0, 32, 32).data;
     let hex = '';
     for (let i = 0; i < data.length; i += 4) {
       // Pack R/G/B/A nibbles into a compact hex string — lossy but stable.
@@ -300,6 +304,22 @@ export async function getGuideCanvasFingerprint(page: Page): Promise<string> {
     }
     return hex;
   });
+}
+
+/**
+ * Compare two guide-canvas fingerprints by Hamming distance across 4-bit
+ * nibbles. Returns true iff at least `minDifferingNibbles` nibbles differ.
+ * Use instead of `expect(a).not.toBe(b)` to allow tiny sampling jitter while
+ * still catching "animation didn't progress at all" regressions.
+ */
+export function fingerprintsDiffer(a: string, b: string, minDifferingNibbles = 2): boolean {
+  if (!a || !b || a.length !== b.length) return a !== b;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) diff++;
+    if (diff >= minDifferingNibbles) return true;
+  }
+  return false;
 }
 
 /**
