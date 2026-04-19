@@ -3,10 +3,10 @@
 |-------|-------|
 | Priority | active |
 | Phase | Implement |
-| Updated | 2026-04-18 |
-| Summary | Step 5.5 pipeline phone-approved on 2 of 22 exercises (squat + pullup). Pullup iteration added 4 anatomical-constraint layers to `hanging_front` preset: per-pair LR correction, lateral width-lock (shoulders/elbows/wrists/hips), y-sync for bilaterally symmetric movements, finger-to-wrist rigid binding, and a 7-frame post-lock smoothing pass. All fixes generalize to other hanging exercises (deadhang, archhang, scapularpull) via the preset config — no per-exercise code. Pytest regression suite landed under `pipeline/tests/` (73 tests, all passing). Three surgical `normalize_loop.py` bug fixes shipped: `enforce_lateral_width` `raw_span_range` log-stat corrected, plus early-return guards in `correct_lr_swaps` and `pelvis_y_signal` silencing spurious all-NaN RuntimeWarnings. |
+| Updated | 2026-04-19 |
+| Summary | Step 5.5 pipeline phone-approved on 2 of 22 exercises (squat + pullup). Playwright spec `animation-loading.spec.ts` shipped — 6 regression tests locking in the trajectory loader + idle animation (squat.json fetch, pixel-present check, fingerprint-changes-across-frames, and 3 failure-mode fallbacks covering 404/malformed/empty JSON). Three new helpers added to `_helpers.ts` (`guideCanvasHasPixels`, `getGuideCanvasFingerprint` at 32×32 + `fingerprintsDiffer` Hamming comparator, `mockTrajectory`). Full Playwright suite now 44 passing (38 baseline + 6 new) with no index.html changes and no global exposure. Prior work intact: pytest harness (73 tests), normalize_loop surgical fixes, 4-layer anatomical constraints on `hanging_front` preset. |
 | Needs Scott | (1) Curate remaining 20 clip URLs in `pipeline/sources.yaml` (~2 hrs). Note each clip's facing direction. (2) Consider whether the plank/static-hold case warrants its own preset before curating statics. |
-| Autonomous | Add horizontal/kneeling/quadruped presets once Scott curates an example clip of each drawStyle. `generate_picker.py` (imagegen skill). Playwright `animation-loading.spec.ts`. Retire `HOW_TO_KEYFRAMES` + `EXERCISE_SVGS` once batch lands. |
+| Autonomous | Add horizontal/kneeling/quadruped presets once Scott curates an example clip of each drawStyle. `generate_picker.py` (imagegen skill). Retire `HOW_TO_KEYFRAMES` + `EXERCISE_SVGS` once batch lands. |
 | Blockers | None |
 
 <!-- CHIEF OF STAFF NOTE: The Status block above is read by the daily review. Keep every field current.
@@ -59,7 +59,7 @@
 - [ ] Write `generate_picker.py` via `imagegen` skill; batch-generate 22 silhouette PNGs
 - [x] App-side: trajectory loader + cache; rewrite `drawHowToSkeleton` to use `POSE_CONNECTIONS` (2026-04-17, squat shipped + phone-approved)
 - [ ] App-side: swap `EXERCISE_SVGS` for per-exercise PNG map
-- [ ] Add Playwright spec: `animation-loading.spec.ts`
+- [x] Add Playwright spec: `animation-loading.spec.ts` (2026-04-19 — 6 tests, 44/44 passing)
 - [ ] Run `node tests.js` + `npx playwright test` — all green
 - [ ] Scott phone-tests all 22 with new animations + picker
 - [ ] Delete `HOW_TO_KEYFRAMES`, `assets/silhouettes/*.svg`, `EXERCISE_SVGS`, `getSvgKey()`
@@ -99,6 +99,18 @@
 <!-- Reverse-chronological. Most recent entry first. Cap at ~15 entries.
      Archive older entries to docs/roadmap-archive.md (see Archive Pointer below).
      Multiple sessions on the same date can be consolidated into one entry. -->
+
+### 2026-04-19 — Playwright `animation-loading.spec.ts` shipped (Step 5.5 regression guard)
+
+Three-agent Plan/Implement/Check run. Plan agent authored the spec on 2026-04-18 (`docs/specs/formchecker-animation-loading-spec.md`, merged as `11bd542`). Implement agent landed the test file + helpers today on `claude/clever-lederberg-1241ce` (`bf523bf`). Check agent verified, hardened for CI concurrency, and merged as `2ce6240`.
+
+- **Files added:** `tests/playwright/exercises/animation-loading.spec.ts` (197 lines, 6 tests) and 3 new exports in `tests/playwright/exercises/_helpers.ts` — `guideCanvasHasPixels`, `getGuideCanvasFingerprint`, `mockTrajectory`, plus the `fingerprintsDiffer` Hamming-distance helper added during flake hardening.
+- **Tests locked in:** (1) squat.json is fetched + parseable when squat is active; (2) `#guide-canvas` has drawn pixels after trajectory load; (3) canvas fingerprint changes across 400 ms during idle; (4) missing JSON (404) → keyframe fallback still draws + app stays healthy; (5) malformed JSON → same; (6) empty JSON (`"null"`) → same. Failure-mode tests all assert `page.on('pageerror')` stayed empty.
+- **Isolated run:** 6/6 passing first try. **Full-suite runs surfaced 2 flake points** under 2-worker Python http.server concurrency: (a) Test 1's 2 s `waitForResponse` timeout was too tight — bumped to 5 s; (b) Test 3's exact-inequality fingerprint comparison failed on near-identical frames when `idleGuideTick` RAFs slipped. Applied the spec-authorised §6 Test 3 "Iterate" fallback: 16×16 → 32×32 downsample + Hamming-distance comparator (`fingerprintsDiffer`, ≥2 differing nibbles). Hardening committed as `aef9267`.
+- **Verification:** 3 consecutive full-suite runs post-hardening = 44/44 passing (38 baseline + 6 new). Baseline on main (pre-merge) also confirmed clean at 38/38. No `index.html` changes, no `window.__*` exposure — purely DOM-observable via `getImageData` + `waitForResponse` + route interception.
+- **Merge chain:** `11bd542` (spec) → `bf523bf` (implement) → `aef9267` (flake harden) → `2ce6240` (merge to main, pushed). GitHub Pages will inherit no behavior change — this is pure test addition.
+- **Sources curated this session:** still 2 of 22. Session was pure tooling.
+- **Next session:** Scott curates remaining 20 URLs OR tries plank (first static-hold test on the pipeline). Same breadcrumb as the 2026-04-18 entry.
 
 ### 2026-04-18 — Pullup animation finalized + pipeline test harness landed
 
