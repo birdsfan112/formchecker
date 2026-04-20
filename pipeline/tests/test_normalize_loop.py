@@ -524,3 +524,155 @@ class TestLoadRaw:
         lm, fps = nl.load_raw("squat")
         assert lm.shape == data.shape
         assert fps == pytest.approx(30.0)
+
+
+# ---------- Signature schema helpers ------------------------------------------
+
+class TestComputeAngleTimeseries:
+    def test_returns_dict_with_configured_angles(self):
+        """compute_angle_timeseries returns dict keyed by angle name."""
+        lm = _squat_like_frames(60)[:, :, :2]  # xy only
+        vis = np.ones((60, 33), dtype=np.float32) * 0.9
+        angle_defs = [
+            {"name": "knee", "triplet": [23, 25, 27]},
+            {"name": "hip", "triplet": [11, 23, 25]},
+        ]
+
+        result = nl.compute_angle_timeseries(lm, vis, angle_defs)
+
+        assert "knee" in result
+        assert "hip" in result
+        assert len(result["knee"]) == 60
+        assert len(result["hip"]) == 60
+
+    def test_low_visibility_produces_none(self):
+        """Frames with low visibility produce None in angle timeseries."""
+        lm = _squat_like_frames(60)[:, :, :2]
+        vis = np.ones((60, 33), dtype=np.float32) * 0.3  # All low visibility
+        angle_defs = [{"name": "knee", "triplet": [23, 25, 27]}]
+
+        result = nl.compute_angle_timeseries(lm, vis, angle_defs)
+
+        # All should be None due to low visibility (serializes as JSON null)
+        assert all(v is None for v in result["knee"])
+
+
+class TestAutoDetectPhases:
+    def test_rep_exercise_detects_top_and_bottom(self):
+        """Rep-based exercise with varying angles gets top/bottom phases."""
+        # Simulate knee angle going from 180 (top) to 90 (bottom) and back
+        series = list(range(180, 90, -3)) + list(range(90, 180, 3))
+        angle_ts = {"knee": series[:60]}  # Ensure exactly 60 frames
+        angle_defs = [{"name": "knee", "triplet": [23, 25, 27]}]
+
+        phases = nl.auto_detect_phases(angle_ts, angle_defs)
+
+        names = {p["name"] for p in phases}
+        assert "top" in names
+        assert "bottom" in names
+
+    def test_static_exercise_detects_start_middle_end(self):
+        """Static/timed exercise with constant angle gets start/middle/end."""
+        angle_ts = {"hip": [90.0] * 60}
+        angle_defs = [{"name": "hip", "triplet": [11, 23, 25]}]
+
+        phases = nl.auto_detect_phases(angle_ts, angle_defs)
+
+        names = {p["name"] for p in phases}
+        assert "start" in names
+        assert "middle" in names
+        assert "end" in names
+        # Verify frame indices per spec (0/30/59)
+        idx_by_name = {p["name"]: p["frame_idx"] for p in phases}
+        assert idx_by_name["start"] == 0
+        assert idx_by_name["middle"] == 30
+        assert idx_by_name["end"] == 59
+
+    def test_no_angles_gets_timed_phases(self):
+        """Exercise with no configured angles gets timed phases."""
+        phases = nl.auto_detect_phases({}, [])
+
+        names = {p["name"] for p in phases}
+        assert "start" in names
+        assert "middle" in names
+        assert "end" in names
+
+
+class TestBuildCanonicalRep:
+    def test_has_all_required_fields(self):
+        """build_canonical_rep returns dict with all 8 required fields."""
+        lm = _squat_like_frames(60)[:, :, :2]
+        vis = np.ones((60, 33), dtype=np.float32) * 0.9
+        angle_defs = [{"name": "knee", "triplet": [23, 25, 27]}]
+
+        rep = nl.build_canonical_rep(
+            rep_id=0,
+            landmarks60=lm,
+            visibility60=vis,
+            angle_defs=angle_defs,
+            period_ms=3000,
+        )
+
+        required = [
+            "rep_id", "period_ms", "frame_count",
+            "landmarks", "visibility",
+            "angle_timeseries", "phases", "rom_advisory",
+        ]
+        for field in required:
+            assert field in rep, f"Missing field: {field}"
+
+    def test_landmarks_have_correct_precision(self):
+        """landmarks are rounded to 3 decimal places."""
+        lm = np.full((60, 33, 2), 0.123456789, dtype=np.float32)
+        vis = np.ones((60, 33), dtype=np.float32) * 0.9
+        angle_defs = []
+
+        rep = nl.build_canonical_rep(0, lm, vis, angle_defs, 3000)
+
+        # Check first frame, first landmark
+        x, y = rep["landmarks"][0][0]
+        assert x == 0.123  # Rounded to 3dp
+        assert y == 0.123
+
+    def test_visibility_has_correct_precision(self):
+        """visibility is rounded to 2 decimal places."""
+        lm = np.full((60, 33, 2), 0.5, dtype=np.float32)
+        vis = np.full((60, 33), 0.9876543, dtype=np.float32)
+        angle_defs = []
+
+        rep = nl.build_canonical_rep(0, lm, vis, angle_defs, 3000)
+
+        # Check first frame, first landmark visibility
+        v = rep["visibility"][0][0]
+        assert v == 0.99  # Rounded to 2dp
+
+    def test_phases_frame_idx_in_valid_range(self):
+        """All phase frame_idx values are in [0, frame_count)."""
+        lm = _squat_like_frames(60)[:, :, :2]
+        vis = np.ones((60, 33), dtype=np.float32) * 0.9
+        angle_defs = [{"name": "knee", "triplet": [23, 25, 27]}]
+
+        rep = nl.build_canonical_rep(0, lm, vis, angle_defs, 3000)
+
+        frame_count = rep["frame_count"]
+        for phase in rep["phases"]:
+            assert 0 <= phase["frame_idx"] < frame_count
+
+
+class TestLoadSourcesEntry:
+    def test_loads_squat_with_url(self):
+        """load_sources_entry returns squat entry with normalized url/urls."""
+        entry = nl.load_sources_entry("squat")
+
+        assert "urls" in entry
+        assert isinstance(entry["urls"], list)
+        assert len(entry["urls"]) >= 1
+        assert "url" in entry
+        assert entry["url"] == entry["urls"][0]
+
+    def test_unknown_exercise_returns_empty(self):
+        """Unknown exercise returns empty urls/url."""
+        entry = nl.load_sources_entry("nonexistent_exercise_xyz")
+
+        assert entry["urls"] == []
+        assert entry["url"] == ""

@@ -42,6 +42,31 @@ python emit_rom.py          --exercise squat
 python generate_picker.py   --exercise squat
 ```
 
+## Front-view exercises
+
+`auto_detect_cycle` in `normalize_loop.py` autocorrelates pelvis y to find one
+rep. That works for side-view standing exercises (squat, lunge, pushup) where
+the hips rise and fall clearly. Front-view `hanging_front` preset exercises —
+**pullup, deadhang, archhang, scapularpull** — often don't move the pelvis
+much; their dominant signal is elbow angle or shoulder position.
+
+If `normalize_loop.py` prints
+
+```
+[warn] detected cycle lag at floor (N frames); this often means no clear rep was detected.
+```
+
+…autocorrelation didn't find a peak. The resulting "cycle" is a ~9-frame
+spurious window. Fix it with manual bounds:
+
+```
+python normalize_loop.py --exercise pullup --preset hanging_front \
+    --start-frame 30 --end-frame 120
+```
+
+Eyeball the raw `.npz` or the source clip to pick start/end. Trimming from a
+top-of-hang frame to the next top-of-hang frame gives the cleanest loop.
+
 ## Landmark indices
 
 MediaPipe Pose 33-landmark model. Common joints (left side):

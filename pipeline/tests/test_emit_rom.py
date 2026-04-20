@@ -151,6 +151,59 @@ class TestLoaders:
         got = emit_rom.load_trajectory("squat")
         assert got["exercise"] == "squat"
 
+    def test_load_trajectory_unwraps_v1_nested(self, tmp_path, monkeypatch):
+        """V1 signature: canonical_reps[0] is unwrapped so callers see a flat dict."""
+        monkeypatch.setattr(emit_rom, "ANIM_DIR", tmp_path)
+        payload = {
+            "schema_version": 1,
+            "exercise": "squat",
+            "canonical_reps": [
+                {
+                    "rep_id": 0,
+                    "frame_count": 2,
+                    "landmarks": [[[0.1, 0.2]] * 33, [[0.3, 0.4]] * 33],
+                    "visibility": [[1.0] * 33, [1.0] * 33],
+                }
+            ],
+        }
+        (tmp_path / "squat.json").write_text(json.dumps(payload), encoding="utf-8")
+        got = emit_rom.load_trajectory("squat")
+        assert "landmarks" in got, "v1 nested landmarks were not unwrapped"
+        assert "visibility" in got, "v1 nested visibility was not unwrapped"
+        assert got["frame_count"] == 2
+        assert got["exercise"] == "squat"
+
+    def test_load_trajectory_legacy_flat_still_works(self, tmp_path, monkeypatch):
+        """Legacy flat schema (no canonical_reps) is passed through unchanged."""
+        monkeypatch.setattr(emit_rom, "ANIM_DIR", tmp_path)
+        payload = {
+            "exercise": "squat",
+            "frame_count": 1,
+            "landmarks": [[[0.0, 0.0]] * 33],
+            "visibility": [[1.0] * 33],
+        }
+        (tmp_path / "squat.json").write_text(json.dumps(payload), encoding="utf-8")
+        got = emit_rom.load_trajectory("squat")
+        assert got["exercise"] == "squat"
+        assert got["frame_count"] == 1
+
+    def test_load_trajectory_malformed_raises_explicit_error(self, tmp_path, monkeypatch):
+        """Signature with neither canonical_reps nor flat landmarks raises RuntimeError
+        pointing the user at normalize_loop.py."""
+        monkeypatch.setattr(emit_rom, "ANIM_DIR", tmp_path)
+        # Empty/meaningless payload
+        (tmp_path / "squat.json").write_text(json.dumps({"exercise": "squat"}), encoding="utf-8")
+        with pytest.raises(RuntimeError, match="normalize_loop.py"):
+            emit_rom.load_trajectory("squat")
+
+    def test_load_trajectory_empty_canonical_reps_raises(self, tmp_path, monkeypatch):
+        """Empty canonical_reps array raises explicit error (not IndexError)."""
+        monkeypatch.setattr(emit_rom, "ANIM_DIR", tmp_path)
+        payload = {"schema_version": 1, "exercise": "squat", "canonical_reps": []}
+        (tmp_path / "squat.json").write_text(json.dumps(payload), encoding="utf-8")
+        with pytest.raises(RuntimeError, match="canonical_reps"):
+            emit_rom.load_trajectory("squat")
+
     def test_load_angle_config_returns_list(self, tmp_path, monkeypatch):
         cfg = {"squat": [{"name": "knee", "triplet": [23, 25, 27]}]}
         path = tmp_path / "exercise_angles.yaml"

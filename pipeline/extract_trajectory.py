@@ -41,12 +41,25 @@ POSE_MODEL_PATH = CACHE_DIR / "pose_landmarker_heavy.task"
 
 
 def load_source(exercise: str) -> dict:
+    """Load sources.yaml entry, normalizing url/urls to a consistent format.
+
+    Accepts both legacy `url: <string>` and new `urls: [<string>]` formats.
+    Returns entry with `url` set to first URL (for back-compat) and `urls` as list.
+    """
     with open(SOURCES_YAML, "r", encoding="utf-8") as f:
         sources = yaml.safe_load(f)
     if exercise not in sources:
         sys.exit(f"exercise '{exercise}' not in sources.yaml")
-    entry = sources[exercise]
-    if not entry.get("url"):
+    entry = sources[exercise].copy()
+
+    # Normalize url/urls: support both legacy scalar and new list format
+    urls = entry.get("urls") or []
+    if not urls and entry.get("url"):
+        urls = [entry["url"]]
+    entry["urls"] = urls
+    entry["url"] = urls[0] if urls else ""
+
+    if not entry["url"]:
         sys.exit(f"exercise '{exercise}' has no url; fill sources.yaml first")
     return entry
 

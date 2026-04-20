@@ -324,19 +324,58 @@ export function fingerprintsDiffer(a: string, b: string, minDifferingNibbles = 2
 
 /**
  * Route-intercept the trajectory JSON fetch for a single exercise id.
- *   'missing'   — respond HTTP 404 (loader takes the `!r.ok` → null branch)
- *   'malformed' — respond HTTP 200 with invalid JSON (loader's r.json() throws → .catch)
- *   'empty'     — respond HTTP 200 with body "null" (loader stores null directly)
+ *   'missing'          — respond HTTP 404 (loader takes the `!r.ok` → null branch)
+ *   'malformed'        — respond HTTP 200 with invalid JSON (loader's r.json() throws → .catch)
+ *   'empty'            — respond HTTP 200 with body "null" (loader stores null directly)
+ *   'v1_valid'         — respond HTTP 200 with a minimal valid v1 signature (Step 5.6)
+ *   'version_mismatch' — respond HTTP 200 with v1 signature with mismatched mediapipe version
  *
  * Playwright routes are additive and URL patterns are distinct from the
  * cdn.jsdelivr.net mock in loadPage(), so this can be called either before
  * or after loadPage(). Call before loadPage() to guarantee the route is
  * registered before the very first fetch.
  */
+
+// Minimal valid v1 signature for testing (60 frames, 33 landmarks each)
+const MOCK_V1_SIGNATURE = {
+  schema_version: 1,
+  exercise: 'mock_exercise',
+  bilateral: true,
+  mirror_source: false,
+  provenance: {
+    mediapipe_pipeline_api: 'tasks',
+    mediapipe_pipeline_model: 'pose_landmarker_heavy',
+    mediapipe_pipeline_model_sha256: 'mock_hash',
+    mediapipe_app_api: 'legacy',
+    mediapipe_app_version: '0.5.1675469404',
+    source_url: 'https://example.com/mock',
+    source_provider: 'mock',
+    extracted_at: '2026-01-01T00:00:00Z',
+    pipeline_preset: 'standing',
+  },
+  canonical_reps: [
+    {
+      rep_id: 0,
+      period_ms: 3000,
+      frame_count: 60,
+      // 60 frames, each with 33 landmarks at (0.5, 0.5)
+      landmarks: Array(60).fill(Array(33).fill([0.5, 0.5])),
+      visibility: Array(60).fill(Array(33).fill(0.9)),
+      angle_timeseries: { knee: Array(60).fill(90.0) },
+      phases: [
+        { name: 'top', frame_idx: 0 },
+        { name: 'bottom', frame_idx: 30 },
+      ],
+      rom_advisory: { knee: { min: 90.0, max: 90.0, samples: 60 } },
+    },
+  ],
+  joint_weights: {},
+};
+
 export async function mockTrajectory(
   page: Page,
   exerciseId: string,
-  mode: 'missing' | 'malformed' | 'empty',
+  mode: 'missing' | 'malformed' | 'empty' | 'v1_valid' | 'version_mismatch',
 ): Promise<void> {
   await page.route(`**/assets/animations/${exerciseId}.json`, async (route: Route) => {
     if (mode === 'missing') {
@@ -349,11 +388,35 @@ export async function mockTrajectory(
         body: '{not-json',
       });
     }
-    // 'empty'
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: 'null',
-    });
+    if (mode === 'empty') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: 'null',
+      });
+    }
+    if (mode === 'v1_valid') {
+      const sig = { ...MOCK_V1_SIGNATURE, exercise: exerciseId };
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(sig),
+      });
+    }
+    if (mode === 'version_mismatch') {
+      const sig = {
+        ...MOCK_V1_SIGNATURE,
+        exercise: exerciseId,
+        provenance: {
+          ...MOCK_V1_SIGNATURE.provenance,
+          mediapipe_app_version: '0.0.0-mismatch', // Intentionally mismatched
+        },
+      };
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(sig),
+      });
+    }
   });
 }

@@ -3,15 +3,17 @@
 Usage:
     python normalize_loop.py --exercise squat
     python normalize_loop.py --exercise squat --start-frame 80 --end-frame 140
+    python normalize_loop.py --exercise squat --raw pipeline/raw/squat.npz --raw pipeline/raw/squat_alt.npz
 
-Reads pipeline/raw/<exercise>.npz. Auto-detects one rep cycle from the
-pelvis-y autocorrelation, or uses explicit --start-frame/--end-frame.
+Reads pipeline/raw/<exercise>.npz (or explicit --raw paths). Auto-detects one
+rep cycle from the pelvis-y autocorrelation, or uses explicit --start-frame/--end-frame.
 Resamples to 60 frames, applies a 3-frame moving-average smooth, blends the
 loop seam if frames 0 and 59 disagree, then strips the visibility channel out
 of the landmark array (saved separately).
 
-Output: assets/animations/<exercise>.json per the canonical schema in
-docs/specs/animation-pipeline-implementation.md §"Canonical JSON schema".
+Output: assets/animations/<exercise>.json containing the unified exercise signature
+with schema_version, canonical_reps[], provenance, phases, angle_timeseries, and
+rom_advisory. See docs/specs/exercise-signature-schema.md for full schema.
 """
 from __future__ import annotations
 
@@ -21,11 +23,26 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import yaml
+
+from emit_rom import angle_deg, load_angle_config, compute_rom_advisory
+from lib.provenance import (
+    model_sha256,
+    utc_now_iso,
+    landmarks_content_hash,
+    MEDIAPIPE_APP_VERSION,
+    MEDIAPIPE_PIPELINE_API,
+    MEDIAPIPE_PIPELINE_MODEL,
+)
 
 PIPELINE_DIR = Path(__file__).resolve().parent
 RAW_DIR = PIPELINE_DIR / "raw"
 PROJECT_ROOT = PIPELINE_DIR.parent
 OUT_DIR = PROJECT_ROOT / "assets" / "animations"
+ROM_DIR = PROJECT_ROOT / "assets" / "rom"
+SOURCES_YAML = PIPELINE_DIR / "sources.yaml"
+ANGLES_YAML = PIPELINE_DIR / "exercise_angles.yaml"
+POSE_MODEL_PATH = PIPELINE_DIR / ".cache" / "pose_landmarker_heavy.task"
 
 FRAME_COUNT = 60
 PERIOD_MS_DEFAULT = 3000
@@ -219,6 +236,19 @@ def auto_detect_cycle(landmarks: np.ndarray) -> tuple[int, int]:
         sys.exit("clip too short to detect a cycle")
     best_lag = min_lag + int(np.argmax(ac[min_lag:max_lag]))
 
+    # If argmax fell back to the lower bound, autocorrelation has no clear peak —
+    # often the case for front-view exercises where pelvis y is not the dominant
+    # motion signal (e.g. pullup, deadhang, archhang, scapularpull). The resulting
+    # "cycle" is a spurious ~9-frame window; warn the user to consider manual
+    # overrides rather than silently shipping bad output.
+    if best_lag == min_lag:
+        print(
+            f"[warn] detected cycle lag at floor ({min_lag} frames); this often "
+            f"means no clear rep was detected. Consider --start-frame/--end-frame "
+            f"overrides.",
+            file=sys.stderr,
+        )
+
     window = min(2 * best_lag, n)
     start = int(np.argmin(signal[:window]))  # most-standing frame
 
@@ -396,24 +426,272 @@ def blend_seam(seq: np.ndarray, seam_frames: int, threshold: float) -> tuple[np.
     return out, diff, True
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--exercise", required=True)
-    ap.add_argument("--start-frame", type=int, default=None)
-    ap.add_argument("--end-frame", type=int, default=None, help="exclusive")
-    ap.add_argument("--mirror-x", action="store_true",
-                    help="horizontally flip landmarks (clip subject faces wrong direction)")
-    ap.add_argument("--period-ms", type=int, default=PERIOD_MS_DEFAULT,
-                    help=f"loop period in ms (default {PERIOD_MS_DEFAULT})")
-    ap.add_argument("--preset", choices=sorted(PRESETS.keys()), default="standing",
-                    help="outline-matching preset (default: standing)")
-    ap.add_argument("--no-align", action="store_true",
-                    help="skip outline canonicalization (keep raw MediaPipe coords)")
-    args = ap.parse_args()
+# --------------------------------------------------------------------------
+# Signature schema helpers (v1)
+# --------------------------------------------------------------------------
 
-    landmarks, fps = load_raw(args.exercise)
+VISIBILITY_THRESHOLD = 0.6  # Same as emit_rom.py
+
+
+def load_sources_entry(exercise: str) -> dict:
+    """Load sources.yaml entry, normalizing url/urls to a consistent format.
+
+    Accepts both legacy `url: <string>` and new `urls: [<string>]` formats.
+    Returns entry with `url` set to first URL and `urls` as list.
+    """
+    with open(SOURCES_YAML, "r", encoding="utf-8") as f:
+        sources = yaml.safe_load(f)
+    if exercise not in sources:
+        return {"urls": [], "url": "", "provider": ""}
+    entry = sources[exercise].copy()
+
+    # Normalize url/urls: support both legacy scalar and new list format
+    urls = entry.get("urls") or []
+    if not urls and entry.get("url"):
+        urls = [entry["url"]]
+    entry["urls"] = urls
+    entry["url"] = urls[0] if urls else ""
+
+    return entry
+
+
+def compute_angle_timeseries(
+    landmarks60: np.ndarray,
+    visibility60: np.ndarray,
+    angle_defs: list[dict],
+) -> dict[str, list[float | None]]:
+    """Compute per-frame angle values for each configured joint.
+
+    Returns dict like {"knee": [173.5, 172.9, ...], "hip": [175.5, ...]}.
+    Values are rounded to 1 decimal place. None (serializes as JSON null) if
+    visibility too low or angle computation fails.
+    """
+    n_frames = landmarks60.shape[0]
+    out: dict[str, list[float | None]] = {}
+
+    for spec in angle_defs:
+        name = spec["name"]
+        a_idx, b_idx, c_idx = spec["triplet"]
+        series: list[float | None] = []
+
+        for i in range(n_frames):
+            if (visibility60[i, a_idx] < VISIBILITY_THRESHOLD
+                    or visibility60[i, b_idx] < VISIBILITY_THRESHOLD
+                    or visibility60[i, c_idx] < VISIBILITY_THRESHOLD):
+                series.append(None)
+                continue
+            a = landmarks60[i, a_idx]
+            b = landmarks60[i, b_idx]
+            c = landmarks60[i, c_idx]
+            ang = angle_deg(a, b, c)
+            # Round via string-format for consistent 1dp precision
+            # Use None for NaN (JSON doesn't support NaN, but supports null)
+            if np.isnan(ang):
+                series.append(None)
+            else:
+                series.append(float(f"{ang:.1f}"))
+
+        out[name] = series
+
+    return out
+
+
+def auto_detect_phases(
+    angle_timeseries: dict[str, list[float]],
+    angle_defs: list[dict],
+    phases_override: list[dict] | None = None,
+) -> list[dict]:
+    """Detect phase markers from the primary angle's timeseries.
+
+    For rep-based exercises: returns [{"name": "top", "frame_idx": N}, {"name": "bottom", "frame_idx": M}]
+    For timed/static exercises (max-min < 10 deg): returns [{"name": "start", ...}, {"name": "middle", ...}, {"name": "end", ...}]
+
+    phases_override: if provided, use verbatim (allows manual override in sources.yaml).
+    """
+    if phases_override:
+        return phases_override
+
+    # No angles configured -> timed exercise pattern
+    if not angle_defs or not angle_timeseries:
+        return [
+            {"name": "start", "frame_idx": 0},
+            {"name": "middle", "frame_idx": 30},
+            {"name": "end", "frame_idx": 59},
+        ]
+
+    # Use the primary (first) angle
+    primary_name = angle_defs[0]["name"]
+    series = angle_timeseries.get(primary_name, [])
+
+    if not series:
+        return [
+            {"name": "start", "frame_idx": 0},
+            {"name": "middle", "frame_idx": 30},
+            {"name": "end", "frame_idx": 59},
+        ]
+
+    # Convert to numpy, handling NaN
+    arr = np.array(series, dtype=np.float64)
+    valid_mask = ~np.isnan(arr)
+    if valid_mask.sum() == 0:
+        return [
+            {"name": "start", "frame_idx": 0},
+            {"name": "middle", "frame_idx": 30},
+            {"name": "end", "frame_idx": 59},
+        ]
+
+    val_min = float(np.nanmin(arr))
+    val_max = float(np.nanmax(arr))
+
+    # Timed/static exercise: angle range < 10 degrees
+    if val_max - val_min < 10.0:
+        return [
+            {"name": "start", "frame_idx": 0},
+            {"name": "middle", "frame_idx": 30},
+            {"name": "end", "frame_idx": 59},
+        ]
+
+    # Rep-based exercise: find top (most-extended) and bottom (most-flexed)
+    top_frame = int(np.nanargmax(arr))
+    bottom_frame = int(np.nanargmin(arr))
+
+    return [
+        {"name": "top", "frame_idx": top_frame},
+        {"name": "bottom", "frame_idx": bottom_frame},
+    ]
+
+
+def build_canonical_rep(
+    rep_id: int,
+    landmarks60: np.ndarray,
+    visibility60: np.ndarray,
+    angle_defs: list[dict],
+    period_ms: int,
+    phases_override: list[dict] | None = None,
+) -> dict:
+    """Build a single canonical_reps[i] entry from processed trajectory data.
+
+    landmarks60: shape (60, 33, 2) after all normalization steps
+    visibility60: shape (60, 33)
+    """
+    # Round landmarks to 3dp, visibility to 2dp via string-format
+    xy_list = [
+        [[float(f"{x:.3f}"), float(f"{y:.3f}")] for x, y in frame]
+        for frame in landmarks60
+    ]
+    vis_list = [
+        [float(f"{v:.2f}") for v in frame]
+        for frame in visibility60
+    ]
+
+    # Build trajectory dict for compute_rom_advisory (expects old flat format)
+    traj_flat = {
+        "landmarks": xy_list,
+        "visibility": vis_list,
+        "frame_count": FRAME_COUNT,
+    }
+
+    angle_ts = compute_angle_timeseries(landmarks60, visibility60, angle_defs)
+    phases = auto_detect_phases(angle_ts, angle_defs, phases_override)
+    rom = compute_rom_advisory(traj_flat, angle_defs)
+
+    return {
+        "rep_id": rep_id,
+        "period_ms": period_ms,
+        "frame_count": FRAME_COUNT,
+        "landmarks": xy_list,
+        "visibility": vis_list,
+        "angle_timeseries": angle_ts,
+        "phases": phases,
+        "rom_advisory": rom,
+    }
+
+
+def build_provenance(
+    exercise: str,
+    sources_entry: dict,
+    preset: str,
+) -> dict:
+    """Build the provenance block for a signature."""
+    model_hash = model_sha256(POSE_MODEL_PATH)
+
+    return {
+        "mediapipe_pipeline_api": MEDIAPIPE_PIPELINE_API,
+        "mediapipe_pipeline_model": MEDIAPIPE_PIPELINE_MODEL,
+        "mediapipe_pipeline_model_sha256": model_hash,
+        "mediapipe_app_api": "legacy",
+        "mediapipe_app_version": MEDIAPIPE_APP_VERSION,
+        "source_url": sources_entry.get("url", ""),
+        "source_provider": sources_entry.get("provider", ""),
+        "extracted_at": utc_now_iso(),
+        "pipeline_preset": preset,
+    }
+
+
+def load_existing_signature(exercise: str) -> dict | None:
+    """Load existing signature if present, for content-hash comparison."""
+    path = OUT_DIR / f"{exercise}.json"
+    if not path.exists():
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return None
+
+
+def should_preserve_timestamp(new_landmarks: list, existing_sig: dict | None) -> str | None:
+    """Return existing extracted_at if content hash matches, else None.
+
+    Per spec section 15.6: content-hash gated timestamps to avoid git noise.
+    """
+    if not existing_sig:
+        return None
+
+    existing_reps = existing_sig.get("canonical_reps", [])
+    if not existing_reps:
+        return None
+
+    existing_lm = existing_reps[0].get("landmarks")
+    if not existing_lm:
+        return None
+
+    existing_prov = existing_sig.get("provenance", {})
+    existing_ts = existing_prov.get("extracted_at")
+    if not existing_ts:
+        return None
+
+    # Compare content hashes
+    new_hash = landmarks_content_hash(new_landmarks)
+    old_hash = landmarks_content_hash(existing_lm)
+
+    if new_hash == old_hash:
+        return existing_ts
+    return None
+
+
+def process_one_raw(
+    raw_path: Path,
+    args: argparse.Namespace,
+    rep_id: int,
+    angle_defs: list[dict],
+    sources_entry: dict,
+) -> tuple[dict, np.ndarray, np.ndarray]:
+    """Process a single .npz raw file into a canonical_rep dict.
+
+    Returns (canonical_rep_dict, landmarks60_xy, visibility60).
+    """
+    if not raw_path.exists():
+        sys.exit(
+            f"raw dump missing: {raw_path}\n"
+            f"run: python extract_trajectory.py --exercise {args.exercise}"
+        )
+    data = np.load(raw_path)
+    landmarks = data["landmarks"]
+    fps = float(data["fps"])
+
     n_frames = landmarks.shape[0]
-    print(f"[normalize] {args.exercise}.npz: {n_frames} frames @ {fps:.1f} fps")
+    print(f"[normalize] {raw_path.name}: {n_frames} frames @ {fps:.1f} fps")
 
     landmarks, whole_swaps, pair_swaps = correct_lr_swaps(landmarks)
     if whole_swaps:
@@ -463,31 +741,107 @@ def main() -> None:
     print(f"[seam] max xy diff frame0 vs frame-1 = {seam_diff:.4f}"
           + (f"  (blended last {SEAM_FRAMES})" if blended else "  (no blend needed)"))
 
-    # Round via string-format so json.dump emits e.g. 0.383 not 0.382999986410141
-    # (np.round on float32 leaves precision artifacts when promoted to float64).
-    xy_list = [
-        [[float(f"{x:.3f}"), float(f"{y:.3f}")] for x, y in frame]
-        for frame in final[:, :, :2]
-    ]
-    vis_list = [
-        [float(f"{v:.2f}") for v in frame]
-        for frame in final[:, :, 2]
-    ]
+    # Extract xy and visibility components
+    landmarks60_xy = final[:, :, :2]  # (60, 33, 2)
+    visibility60 = final[:, :, 2]     # (60, 33)
 
+    # Get phases_override from sources.yaml if present
+    phases_override = sources_entry.get("phases_override")
+
+    canonical_rep = build_canonical_rep(
+        rep_id=rep_id,
+        landmarks60=landmarks60_xy,
+        visibility60=visibility60,
+        angle_defs=angle_defs,
+        period_ms=args.period_ms,
+        phases_override=phases_override,
+    )
+
+    return canonical_rep, landmarks60_xy, visibility60
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--exercise", required=True)
+    ap.add_argument("--raw", action="append", dest="raw_paths",
+                    help="path to .npz raw file (can be repeated for multi-canonical)")
+    ap.add_argument("--start-frame", type=int, default=None)
+    ap.add_argument("--end-frame", type=int, default=None, help="exclusive")
+    ap.add_argument("--mirror-x", action="store_true",
+                    help="horizontally flip landmarks (clip subject faces wrong direction)")
+    ap.add_argument("--period-ms", type=int, default=PERIOD_MS_DEFAULT,
+                    help=f"loop period in ms (default {PERIOD_MS_DEFAULT})")
+    ap.add_argument("--preset", choices=sorted(PRESETS.keys()), default="standing",
+                    help="outline-matching preset (default: standing)")
+    ap.add_argument("--no-align", action="store_true",
+                    help="skip outline canonicalization (keep raw MediaPipe coords)")
+    args = ap.parse_args()
+
+    # Default to single raw file if --raw not specified
+    if not args.raw_paths:
+        args.raw_paths = [str(RAW_DIR / f"{args.exercise}.npz")]
+
+    # Load angle config and sources entry
+    try:
+        angle_defs = load_angle_config(args.exercise)
+    except SystemExit:
+        # Exercise not in angle config - use empty list (e.g., foamroller)
+        angle_defs = []
+        print(f"[angles] no angles configured for '{args.exercise}'")
+
+    sources_entry = load_sources_entry(args.exercise)
+
+    # Process each raw file into a canonical_rep
+    canonical_reps: list[dict] = []
+    for rep_id, raw_path_str in enumerate(args.raw_paths):
+        raw_path = Path(raw_path_str)
+        rep, lm60, vis60 = process_one_raw(
+            raw_path, args, rep_id, angle_defs, sources_entry
+        )
+        canonical_reps.append(rep)
+
+    # Check if we should preserve existing timestamp (content-hash gating)
+    existing_sig = load_existing_signature(args.exercise)
+    preserved_ts = should_preserve_timestamp(
+        canonical_reps[0]["landmarks"],
+        existing_sig,
+    )
+
+    # Build provenance
+    provenance = build_provenance(args.exercise, sources_entry, args.preset)
+    if preserved_ts:
+        provenance["extracted_at"] = preserved_ts
+        print(f"[provenance] content unchanged — preserving existing extracted_at: {preserved_ts}")
+
+    # Build the full signature payload
     payload = {
+        "schema_version": 1,
         "exercise": args.exercise,
-        "period_ms": args.period_ms,
-        "frame_count": FRAME_COUNT,
-        "landmarks": xy_list,
-        "visibility": vis_list,
+        "bilateral": True,  # All 22 current exercises are bilateral
+        "mirror_source": args.mirror_x,
+        "provenance": provenance,
+        "canonical_reps": canonical_reps,
+        "joint_weights": {},  # Empty in v1; reserved for future scoring
     }
 
+    # Write signature JSON
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out_path = OUT_DIR / f"{args.exercise}.json"
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, separators=(",", ":"))
     size_kb = out_path.stat().st_size / 1024
     print(f"[saved] {out_path}  ({size_kb:.1f} KB)")
+
+    # Also emit legacy ROM file for back-compat during transition
+    ROM_DIR.mkdir(parents=True, exist_ok=True)
+    rom_path = ROM_DIR / f"{args.exercise}.json"
+    rom_payload = {
+        "exercise": args.exercise,
+        "angles": canonical_reps[0].get("rom_advisory", {}),
+    }
+    with open(rom_path, "w", encoding="utf-8") as f:
+        json.dump(rom_payload, f, indent=2)
+    print(f"[rom-compat] {rom_path}")
 
 
 if __name__ == "__main__":
