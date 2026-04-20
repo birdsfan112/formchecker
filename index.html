@@ -2932,6 +2932,57 @@ const HOW_TO_KEYFRAMES = {
   ]},
 };
 
+// ===== SIGNATURE SCHEMA HELPERS (Step 5.6) =====
+
+// Parse APP_MEDIAPIPE_VERSION from the @mediapipe/pose script tag at load time.
+// Single source of truth - avoids drift risk from hardcoding.
+const APP_MEDIAPIPE_VERSION = (() => {
+  const scripts = document.querySelectorAll('script[src*="@mediapipe/pose"]');
+  for (const script of scripts) {
+    const match = script.src.match(/@mediapipe\/pose@([^/"]+)/);
+    if (match) return match[1];
+  }
+  console.warn('[signature] Could not parse @mediapipe/pose version from script tag');
+  return null;
+})();
+
+// Validate signature schema and check for version drift. Advisory only - does not block.
+function validateSignature(sig) {
+  if (!sig) return sig;
+
+  // Check schema version
+  if (sig.schema_version !== 1) {
+    console.warn(`[signature] Unexpected schema_version: ${sig.schema_version} (expected 1)`);
+  }
+
+  // Check MediaPipe version drift
+  const sigVersion = sig.provenance?.mediapipe_app_version;
+  if (APP_MEDIAPIPE_VERSION && sigVersion && sigVersion !== APP_MEDIAPIPE_VERSION) {
+    console.warn(
+      `[signature] MediaPipe version mismatch: signature extracted with ${sigVersion}, ` +
+      `app running ${APP_MEDIAPIPE_VERSION}`
+    );
+  }
+
+  return sig;
+}
+
+// Back-compat shim: extract trajectory data from either new nested or old flat format.
+// New format: sig.canonical_reps[0] contains landmarks/visibility/period_ms/frame_count
+// Old format: sig itself contains those fields at the top level
+function getActiveRep(sig) {
+  if (!sig) return null;
+  const reps = sig.canonical_reps;
+  if (reps && reps.length > 0) {
+    return reps[0];
+  }
+  // Back-compat: old flat schema has landmarks/visibility at root
+  if (sig.landmarks && sig.visibility) {
+    return sig;
+  }
+  return null;
+}
+
 // Trajectory cache for the canonical-JSON animation path (Step 5.5).
 // Key states: undefined = not yet attempted, null = loading or missing, object = loaded.
 const trajectoryCache = {};
@@ -2940,7 +2991,7 @@ function loadTrajectory(ex) {
   trajectoryCache[ex] = null; // mark in-flight so we don't refetch
   fetch(`assets/animations/${ex}.json`)
     .then(r => (r.ok ? r.json() : null))
-    .then(data => { trajectoryCache[ex] = data; })
+    .then(data => { trajectoryCache[ex] = validateSignature(data); })
     .catch(() => { trajectoryCache[ex] = null; });
 }
 
@@ -2954,20 +3005,27 @@ function drawHowToSkeleton(w, h, ex) {
   }
 }
 
-function drawHowToSkeletonFromTrajectory(w, h, traj) {
-  const raw = (Date.now() % traj.period_ms) / traj.period_ms;
+function drawHowToSkeletonFromTrajectory(w, h, sig) {
+  // Use getActiveRep for back-compat with both nested and flat schema
+  const rep = getActiveRep(sig);
+  if (!rep || !rep.landmarks || !rep.visibility) return;
+
+  const periodMs = rep.period_ms ?? 3000;
+  const frameCount = rep.frame_count ?? 60;
+
+  const raw = (Date.now() % periodMs) / periodMs;
   // Cubic ease-in-out so playback slows at the loop seam (which is the rest
   // position: hang for pullups, standing for squats). Linear playback "bounces"
   // off the rest position; easing gives a natural pause there.
   const t = raw < 0.5
     ? 4 * raw * raw * raw
     : 1 - Math.pow(-2 * raw + 2, 3) / 2;
-  const fi = t * traj.frame_count;
-  const i = Math.floor(fi) % traj.frame_count;
-  const j = (i + 1) % traj.frame_count;
+  const fi = t * frameCount;
+  const i = Math.floor(fi) % frameCount;
+  const j = (i + 1) % frameCount;
   const f = fi - Math.floor(fi);
-  const lmA = traj.landmarks[i], lmB = traj.landmarks[j];
-  const visA = traj.visibility[i], visB = traj.visibility[j];
+  const lmA = rep.landmarks[i], lmB = rep.landmarks[j];
+  const visA = rep.visibility[i], visB = rep.visibility[j];
   const pts = lmA.map((p, k) => [p[0] + (lmB[k][0] - p[0]) * f, p[1] + (lmB[k][1] - p[1]) * f]);
   const vis = visA.map((v, k) => (v + visB[k]) * 0.5);
 
@@ -4633,6 +4691,99 @@ function getSvgKey(drawStyle, drawVariant) {
   return drawStyle || 'standing';
 }
 
+// ===== PICKER SILHOUETTE FROM SIGNATURE (Step 5.6) =====
+// Cache for rendered silhouettes to avoid re-rendering on each picker open.
+// Keyed by exercise id, value is data URL (image/png).
+const pickerSilhouetteCache = {};
+
+// POSE_CONNECTIONS defines the skeleton edges for rendering.
+// We use a subset that looks good at small scale (70x62 pixels).
+const PICKER_CONNECTIONS = [
+  [11, 12], // shoulders
+  [11, 13], [13, 15], // left arm
+  [12, 14], [14, 16], // right arm
+  [11, 23], [12, 24], // torso
+  [23, 24], // hips
+  [23, 25], [25, 27], // left leg
+  [24, 26], [26, 28], // right leg
+];
+
+// Render a silhouette from signature landmarks onto an offscreen canvas.
+// Returns data URL or null if signature not available.
+function renderPickerSilhouetteFromSignature(ex) {
+  // Check cache first
+  if (pickerSilhouetteCache[ex]) {
+    return pickerSilhouetteCache[ex];
+  }
+
+  // Get signature from trajectory cache
+  const sig = trajectoryCache[ex];
+  if (!sig) return null;
+
+  const rep = getActiveRep(sig);
+  if (!rep || !rep.landmarks || !rep.visibility) return null;
+
+  // Pick frame to render: prefer "top" phase for standing, "hold" for timed, else frame 0
+  let frameIdx = 0;
+  const phases = rep.phases || [];
+  const topPhase = phases.find(p => p.name === 'top');
+  const holdPhase = phases.find(p => p.name === 'hold');
+  const startPhase = phases.find(p => p.name === 'start');
+  if (topPhase) frameIdx = topPhase.frame_idx;
+  else if (holdPhase) frameIdx = holdPhase.frame_idx;
+  else if (startPhase) frameIdx = startPhase.frame_idx;
+
+  // Ensure frameIdx is valid
+  if (frameIdx < 0 || frameIdx >= rep.landmarks.length) frameIdx = 0;
+
+  const lm = rep.landmarks[frameIdx];
+  const vis = rep.visibility[frameIdx];
+
+  // Create offscreen canvas (same dimensions as SVG: 70x62)
+  const canvas = document.createElement('canvas');
+  canvas.width = 70;
+  canvas.height = 62;
+  const ctx = canvas.getContext('2d');
+
+  // Draw on dark background (matches picker card style)
+  ctx.fillStyle = 'rgba(15, 52, 96, 0.3)';
+  ctx.fillRect(0, 0, 70, 62);
+
+  // Scale landmarks to canvas (landmarks are 0-1 normalized)
+  const scale = (pt, w, h) => [pt[0] * w, pt[1] * h];
+
+  // Draw connectors
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  for (const [a, b] of PICKER_CONNECTIONS) {
+    if (vis[a] < 0.3 || vis[b] < 0.3) continue;
+    const [x1, y1] = scale(lm[a], 70, 62);
+    const [x2, y2] = scale(lm[b], 70, 62);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+
+  // Draw joints
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+  for (let k = 0; k < lm.length; k++) {
+    if (vis[k] < 0.3) continue;
+    const [x, y] = scale(lm[k], 70, 62);
+    ctx.beginPath();
+    ctx.arc(x, y, 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Convert to data URL and cache
+  const dataUrl = canvas.toDataURL('image/png');
+  pickerSilhouetteCache[ex] = dataUrl;
+  return dataUrl;
+}
+
 function renderExercisePicker() {
   const grid = document.getElementById('exercise-picker-grid');
   grid.innerHTML = '';
@@ -4641,13 +4792,23 @@ function renderExercisePicker() {
     card.className = 'exercise-card' + (key === state.exercise ? ' selected' : '');
     card.dataset.exercise = key;
 
-    // SVG silhouette — pre-rendered illustration, scales cleanly at any DPI
+    // Silhouette image — try signature-based rendering first, fall back to SVG
     const img = document.createElement('img');
     img.width = 70; img.height = 62;
     img.alt = meta.name;
-    const svgKey = getSvgKey(meta.drawStyle, meta.drawVariant);
-    const svgStr = EXERCISE_SVGS[svgKey] || EXERCISE_SVGS.standing;
-    img.src = 'data:image/svg+xml,' + encodeURIComponent(svgStr);
+
+    // Try to render from signature landmarks
+    const sigDataUrl = renderPickerSilhouetteFromSignature(key);
+    if (sigDataUrl) {
+      img.src = sigDataUrl;
+      img.dataset.silhouetteSource = 'signature';
+    } else {
+      // Fall back to pre-rendered SVG
+      const svgKey = getSvgKey(meta.drawStyle, meta.drawVariant);
+      const svgStr = EXERCISE_SVGS[svgKey] || EXERCISE_SVGS.standing;
+      img.src = 'data:image/svg+xml,' + encodeURIComponent(svgStr);
+      img.dataset.silhouetteSource = 'svg-fallback';
+    }
 
     // Name label
     const label = document.createElement('div');
