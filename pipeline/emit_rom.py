@@ -45,7 +45,40 @@ def load_trajectory(exercise: str) -> dict:
             f"run: python normalize_loop.py --exercise {exercise}"
         )
     with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+        payload = json.load(f)
+    return _unwrap_trajectory(payload)
+
+
+def _unwrap_trajectory(payload: dict) -> dict:
+    """Return a flat {landmarks, visibility, frame_count} dict regardless of schema.
+
+    V1 signature (current): landmarks/visibility live inside canonical_reps[0].
+    Legacy flat schema: landmarks/visibility at top level.
+
+    This script is deprecated (see module docstring) — normalize_loop.py is the
+    canonical emit path. But as long as emit_rom.py is runnable standalone, it
+    must not silently break on regenerated v1 signatures.
+    """
+    if "canonical_reps" in payload:
+        reps = payload["canonical_reps"]
+        if not isinstance(reps, list) or not reps:
+            raise RuntimeError(
+                "signature has canonical_reps but it is empty or malformed; "
+                "re-emit via `python normalize_loop.py --exercise <ex>`"
+            )
+        rep = reps[0]
+        # Include top-level exercise for output labelling, defaulting to what's in the rep.
+        merged = dict(rep)
+        if "exercise" in payload:
+            merged.setdefault("exercise", payload["exercise"])
+        return merged
+    if "landmarks" in payload and "visibility" in payload:
+        # Legacy flat schema — pass through unchanged.
+        return payload
+    raise RuntimeError(
+        "signature has neither canonical_reps nor flat landmarks/visibility; "
+        "the canonical emit path is `python normalize_loop.py --exercise <ex>`"
+    )
 
 
 def load_angle_config(exercise: str) -> list[dict]:
