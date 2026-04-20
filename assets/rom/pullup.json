@@ -2,14 +2,14 @@
   "exercise": "pullup",
   "angles": {
     "elbow": {
-      "min": 116.7,
-      "max": 135.5,
-      "samples": 39
+      "min": 52.0,
+      "max": 130.5,
+      "samples": 43
     },
     "shoulder": {
-      "min": 126.2,
-      "max": 143.8,
-      "samples": 40
+      "min": 14.0,
+      "max": 135.1,
+      "samples": 43
     }
   }
 }
