@@ -4,45 +4,66 @@
  * Verifies that:
  * 1. Picker cards render silhouettes from signature landmarks when available
  * 2. Picker cards fall back to SVG when signature is missing
- * 3. Silhouette cache prevents re-rendering on subsequent opens
- * 4. Version mismatch logs a console.warn
+ * 3. Version-mismatch signatures log a console.warn
+ * 4. Signatures with unexpected schema_version log a console.warn
+ *
+ * PICKER LOAD TIMING
+ * ------------------
+ * renderPickerSilhouetteFromSignature reads from trajectoryCache[ex].
+ * trajectoryCache is ONLY populated by loadTrajectory(), which is called from
+ * drawHowToSkeleton() during the idle draw loop — i.e. when the exercise
+ * becomes active. Opening the picker does NOT itself fetch trajectory JSON
+ * (by design per spec §8.4 "fall back to the existing EXERCISE_SVGS path"
+ * when the signature hasn't loaded yet).
+ *
+ * So these tests switch to the exercise first (which kicks off loadTrajectory),
+ * wait for the fetch to resolve, then open the picker and inspect the card.
+ *
+ * CLICK DISPATCH
+ * --------------
+ * After jumpToWorkout(), #loading is covering the viewport (getUserMedia hangs
+ * in headless Chrome). Playwright's click routes through the compositor and
+ * #loading intercepts it. Use page.evaluate + dispatchEvent to hit the button
+ * handler directly (same pattern as startWorkout in _helpers.ts).
  */
 import { test, expect } from '@playwright/test';
 import {
   loadPage,
   waitForApp,
   jumpToWorkout,
+  switchExercise,
   mockTrajectory,
 } from './_helpers';
 
+// Open the exercise picker by dispatching a click event directly to the button.
+// See CLICK DISPATCH note above for why we can't use page.locator.click().
+async function openPicker(page): Promise<void> {
+  await page.evaluate(() => {
+    (document.getElementById('btn-exercise-picker') as HTMLElement)
+      .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  });
+  await expect(page.locator('#exercise-picker')).toBeVisible({ timeout: 5_000 });
+}
+
 test.describe('picker silhouette rendering (Step 5.6)', () => {
-  // These tests require additional setup to wait for MediaPipe stub initialization.
-  // Core acceptance criteria (picker renders from signature, falls back to SVG)
-  // will be manually verified by Scott's phone test per spec section 13.
-  test.skip('picker card renders silhouette from signature when available', async ({ page }) => {
-    // Load squat signature first (shipped with assets)
+  test('picker card renders silhouette from signature when available', async ({ page }) => {
     await loadPage(page);
     await waitForApp(page);
     await jumpToWorkout(page);
 
-    // Wait for squat.json to be fetched (app loads it on startup for pushup, switch to squat)
+    // Switch to squat — this triggers loadTrajectory('squat') on the next idle tick.
     const squatResponse = page.waitForResponse(
       r => r.url().endsWith('/assets/animations/squat.json') && r.status() === 200,
-      { timeout: 5000 }
+      { timeout: 5000 },
     );
-
-    // Open the picker which triggers trajectory loads
-    await page.click('#btn-exercise-picker');
-
-    // Wait for squat signature to load
+    await switchExercise(page, 'squat');
     await squatResponse;
 
-    // Small delay to let pickerSilhouetteCache populate
-    await page.waitForTimeout(200);
+    // Give validateSignature a moment to resolve and populate trajectoryCache.
+    await page.waitForTimeout(150);
 
-    // Re-open picker to use cached signature
-    await page.click('#btn-close-picker');
-    await page.click('#btn-exercise-picker');
+    // Open the picker now that squat's signature is cached.
+    await openPicker(page);
 
     // Find the squat card's img element
     const squatImg = page.locator('.exercise-card[data-exercise="squat"] img');
@@ -57,15 +78,21 @@ test.describe('picker silhouette rendering (Step 5.6)', () => {
     expect(src).toContain('data:image/png');
   });
 
-  test.skip('picker card falls back to SVG when signature is missing', async ({ page }) => {
-    // Mock pushup signature as missing (pushup doesn't have a shipped signature yet)
+  test('picker card falls back to SVG when signature is missing', async ({ page }) => {
+    // Mock pushup as missing BEFORE loadPage so the default-exercise fetch 404s.
+    // (Pushup is the default active exercise at startup, so its trajectory fetches
+    // immediately during the first idle tick.)
     await mockTrajectory(page, 'pushup', 'missing');
     await loadPage(page);
     await waitForApp(page);
     await jumpToWorkout(page);
 
-    // Open picker
-    await page.click('#btn-exercise-picker');
+    // After jumpToWorkout, the idle draw loop triggers loadTrajectory('pushup').
+    // Give that fetch + the .catch handler time to settle trajectoryCache['pushup'] = null.
+    await page.waitForTimeout(500);
+
+    // Open the picker
+    await openPicker(page);
 
     // Find the pushup card's img element
     const pushupImg = page.locator('.exercise-card[data-exercise="pushup"] img');
@@ -80,7 +107,7 @@ test.describe('picker silhouette rendering (Step 5.6)', () => {
     expect(src).toContain('data:image/svg+xml');
   });
 
-  test.skip('console.warn fires on signature version mismatch', async ({ page }) => {
+  test('console.warn fires on signature version mismatch', async ({ page }) => {
     const consoleMessages: string[] = [];
     page.on('console', msg => {
       if (msg.type() === 'warning') {
@@ -94,11 +121,16 @@ test.describe('picker silhouette rendering (Step 5.6)', () => {
     await waitForApp(page);
     await jumpToWorkout(page);
 
-    // Trigger squat signature load by opening picker
-    await page.click('#btn-exercise-picker');
+    // Switching to squat triggers loadTrajectory → validateSignature → warn.
+    const squatResponse = page.waitForResponse(
+      r => r.url().endsWith('/assets/animations/squat.json') && r.status() === 200,
+      { timeout: 5000 },
+    );
+    await switchExercise(page, 'squat');
+    await squatResponse;
 
-    // Wait for the signature to be fetched and validated
-    await page.waitForTimeout(500);
+    // Give validateSignature a moment to log the warn.
+    await page.waitForTimeout(200);
 
     // Check for version mismatch warning
     const mismatchWarning = consoleMessages.find(
@@ -107,7 +139,7 @@ test.describe('picker silhouette rendering (Step 5.6)', () => {
     expect(mismatchWarning).toBeTruthy();
   });
 
-  test.skip('signature validation warns on unexpected schema version', async ({ page }) => {
+  test('signature validation warns on unexpected schema version', async ({ page }) => {
     const consoleMessages: string[] = [];
     page.on('console', msg => {
       if (msg.type() === 'warning') {
@@ -115,7 +147,8 @@ test.describe('picker silhouette rendering (Step 5.6)', () => {
       }
     });
 
-    // Create a custom mock with schema_version: 99
+    // Create a custom mock with schema_version: 99.
+    // Register the route BEFORE loadPage so the very first fetch hits this body.
     await page.route('**/assets/animations/squat.json', async (route) => {
       const badSig = {
         schema_version: 99, // Unexpected version
@@ -146,9 +179,15 @@ test.describe('picker silhouette rendering (Step 5.6)', () => {
     await waitForApp(page);
     await jumpToWorkout(page);
 
-    // Trigger squat signature load
-    await page.click('#btn-exercise-picker');
-    await page.waitForTimeout(500);
+    // Trigger squat signature load via switchExercise.
+    const squatResponse = page.waitForResponse(
+      r => r.url().endsWith('/assets/animations/squat.json') && r.status() === 200,
+      { timeout: 5000 },
+    );
+    await switchExercise(page, 'squat');
+    await squatResponse;
+
+    await page.waitForTimeout(200);
 
     // Check for schema version warning
     const schemaWarning = consoleMessages.find(
