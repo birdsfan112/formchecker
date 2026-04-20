@@ -236,6 +236,19 @@ def auto_detect_cycle(landmarks: np.ndarray) -> tuple[int, int]:
         sys.exit("clip too short to detect a cycle")
     best_lag = min_lag + int(np.argmax(ac[min_lag:max_lag]))
 
+    # If argmax fell back to the lower bound, autocorrelation has no clear peak —
+    # often the case for front-view exercises where pelvis y is not the dominant
+    # motion signal (e.g. pullup, deadhang, archhang, scapularpull). The resulting
+    # "cycle" is a spurious ~9-frame window; warn the user to consider manual
+    # overrides rather than silently shipping bad output.
+    if best_lag == min_lag:
+        print(
+            f"[warn] detected cycle lag at floor ({min_lag} frames); this often "
+            f"means no clear rep was detected. Consider --start-frame/--end-frame "
+            f"overrides.",
+            file=sys.stderr,
+        )
+
     window = min(2 * best_lag, n)
     start = int(np.argmin(signal[:window]))  # most-standing frame
 
