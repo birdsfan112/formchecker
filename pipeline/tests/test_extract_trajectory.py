@@ -198,6 +198,9 @@ class TestShippedSourcesYaml:
         assert isinstance(cfg, dict)
         for exercise, entry in cfg.items():
             assert isinstance(entry, dict), f"{exercise} entry is not a dict"
-            for key in ("url", "provider", "trim", "view"):
+            # Accept both legacy `url` and new `urls` format
+            has_url = "url" in entry or "urls" in entry
+            assert has_url, f"{exercise} missing field 'url' or 'urls'"
+            for key in ("provider", "trim", "view"):
                 assert key in entry, f"{exercise} missing field {key!r}"
             assert len(entry["trim"]) == 2, f"{exercise} trim is not length-2"

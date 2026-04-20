@@ -2,33 +2,35 @@
 # Scott curates this once. Pipeline reads from it.
 #
 # Fields per exercise:
-#   url       — clip URL (Pexels, Pixabay, or YouTube) or local file path under pipeline/local/
+#   urls      — list of clip URLs (Pexels, Pixabay, YouTube) or local file paths under pipeline/local/
+#               v1 uses only the first URL; Step 5.7 adds multi-canonical support.
 #   provider  — "pexels" | "pixabay" | "youtube" | "local" | "self"
 #   trim      — [start_sec, end_sec] range covering ~1 clean rep/cycle
 #   view      — "side" | "front" (informational; matches expected camera angle)
 #   notes     — free-form; include license credit if required
+#   phases_override — optional list of {name, frame_idx} to override auto-detected phases
 #
-# Leave url blank to flag as "needs sourcing". Pipeline will skip and log.
+# Leave urls empty to flag as "needs sourcing". Pipeline will skip and log.
 
-squat:             { url: "https://www.pexels.com/video/woman-doing-a-squat-exercise-5025965/", provider: "pexels", trim: [0, 0], view: "side",  notes: "smoke-test source" }
-lunge:             { url: "", provider: "", trim: [0, 0], view: "side",  notes: "" }
-pistol:            { url: "", provider: "", trim: [0, 0], view: "side",  notes: "" }
-dip:               { url: "", provider: "", trim: [0, 0], view: "front", notes: "" }
-lsit:              { url: "", provider: "", trim: [0, 0], view: "side",  notes: "hold pose; short clip OK" }
-shoulderdislocate: { url: "", provider: "", trim: [0, 0], view: "front", notes: "" }
-wristwarmup:       { url: "", provider: "", trim: [0, 0], view: "front", notes: "self-film likely" }
-bandpullapart:     { url: "", provider: "", trim: [0, 0], view: "front", notes: "" }
-pushup:            { url: "", provider: "", trim: [0, 0], view: "side",  notes: "" }
-pike:              { url: "", provider: "", trim: [0, 0], view: "side",  notes: "pike push-up" }
-plank:             { url: "", provider: "", trim: [0, 0], view: "side",  notes: "static hold; slight sway OK" }
-row:               { url: "", provider: "", trim: [0, 0], view: "side",  notes: "inverted/bodyweight row" }
-glutebridge:       { url: "", provider: "", trim: [0, 0], view: "side",  notes: "" }
-foamroller:        { url: "", provider: "", trim: [0, 0], view: "side",  notes: "upper-back roll" }
-pullup:            { url: "https://www.pexels.com/video/a-man-doing-pull-ups-exercise-8691729/", provider: "pexels", trim: [0, 0], view: "front", notes: "" }
-deadhang:          { url: "", provider: "", trim: [0, 0], view: "front", notes: "static hold" }
-legraise:          { url: "", provider: "", trim: [0, 0], view: "side",  notes: "hanging or floor" }
-archhang:          { url: "", provider: "", trim: [0, 0], view: "front", notes: "" }
-scapularpull:      { url: "", provider: "", trim: [0, 0], view: "front", notes: "" }
-hipflexor:         { url: "", provider: "", trim: [0, 0], view: "side",  notes: "kneeling lunge stretch" }
-catcow:            { url: "", provider: "", trim: [0, 0], view: "side",  notes: "quadruped; 1 cycle" }
-birddog:           { url: "", provider: "", trim: [0, 0], view: "side",  notes: "quadruped; 1 cycle" }
+squat:             { urls: ["https://www.pexels.com/video/woman-doing-a-squat-exercise-5025965/"], provider: "pexels", trim: [0, 0], view: "side",  notes: "smoke-test source" }
+lunge:             { urls: [], provider: "", trim: [0, 0], view: "side",  notes: "" }
+pistol:            { urls: [], provider: "", trim: [0, 0], view: "side",  notes: "" }
+dip:               { urls: [], provider: "", trim: [0, 0], view: "front", notes: "" }
+lsit:              { urls: [], provider: "", trim: [0, 0], view: "side",  notes: "hold pose; short clip OK" }
+shoulderdislocate: { urls: [], provider: "", trim: [0, 0], view: "front", notes: "" }
+wristwarmup:       { urls: [], provider: "", trim: [0, 0], view: "front", notes: "self-film likely" }
+bandpullapart:     { urls: [], provider: "", trim: [0, 0], view: "front", notes: "" }
+pushup:            { urls: [], provider: "", trim: [0, 0], view: "side",  notes: "" }
+pike:              { urls: [], provider: "", trim: [0, 0], view: "side",  notes: "pike push-up" }
+plank:             { urls: [], provider: "", trim: [0, 0], view: "side",  notes: "static hold; slight sway OK" }
+row:               { urls: [], provider: "", trim: [0, 0], view: "side",  notes: "inverted/bodyweight row" }
+glutebridge:       { urls: [], provider: "", trim: [0, 0], view: "side",  notes: "" }
+foamroller:        { urls: [], provider: "", trim: [0, 0], view: "side",  notes: "upper-back roll" }
+pullup:            { urls: ["https://www.pexels.com/video/a-man-doing-pull-ups-exercise-8691729/"], provider: "pexels", trim: [0, 0], view: "front", notes: "" }
+deadhang:          { urls: [], provider: "", trim: [0, 0], view: "front", notes: "static hold" }
+legraise:          { urls: [], provider: "", trim: [0, 0], view: "side",  notes: "hanging or floor" }
+archhang:          { urls: [], provider: "", trim: [0, 0], view: "front", notes: "" }
+scapularpull:      { urls: [], provider: "", trim: [0, 0], view: "front", notes: "" }
+hipflexor:         { urls: [], provider: "", trim: [0, 0], view: "side",  notes: "kneeling lunge stretch" }
+catcow:            { urls: [], provider: "", trim: [0, 0], view: "side",  notes: "quadruped; 1 cycle" }
+birddog:           { urls: [], provider: "", trim: [0, 0], view: "side",  notes: "quadruped; 1 cycle" }

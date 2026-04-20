@@ -1,4 +1,11 @@
-"""Compute per-joint range-of-motion from a canonical trajectory JSON.
+"""DEPRECATED — ROM lives in assets/animations/<ex>.json under canonical_reps[i].rom_advisory.
+
+This script is kept only to preserve assets/rom/*.json during transition.
+See docs/specs/exercise-signature-schema.md Commit D for sunset plan.
+
+The rom_advisory data in signatures is ADVISORY ONLY. Per-user ROM from
+live warmup calibration (analyzeWarmup/applyAllCalibrationResults in index.html)
+always takes precedence over per-clip ROM at scoring time.
 
 Usage:
     python emit_rom.py --exercise squat
@@ -61,7 +68,12 @@ def angle_deg(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float:
     return float(np.degrees(np.arccos(cos_t)))
 
 
-def compute_rom(trajectory: dict, angle_defs: list[dict]) -> dict:
+def compute_rom_advisory(trajectory: dict, angle_defs: list[dict]) -> dict:
+    """Compute ROM from trajectory landmarks. Returns dict keyed by angle name.
+
+    ADVISORY ONLY: This is what the reference clip's performer did, not what
+    the current user should do. Live warmup calibration beats this at scoring time.
+    """
     landmarks = np.asarray(trajectory["landmarks"], dtype=np.float32)   # (60, 33, 2)
     visibility = np.asarray(trajectory["visibility"], dtype=np.float32)  # (60, 33)
     n_frames = landmarks.shape[0]
@@ -93,6 +105,10 @@ def compute_rom(trajectory: dict, angle_defs: list[dict]) -> dict:
     return out
 
 
+# Back-compat alias: old code may still import compute_rom
+compute_rom = compute_rom_advisory
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--exercise", required=True)
@@ -105,7 +121,7 @@ def main() -> None:
         print(f"[rom] no angles configured for '{args.exercise}' — emitting empty")
         rom = {}
     else:
-        rom = compute_rom(trajectory, angle_defs)
+        rom = compute_rom_advisory(trajectory, angle_defs)
 
     payload = {"exercise": args.exercise, "angles": rom}
     ROM_DIR.mkdir(parents=True, exist_ok=True)
