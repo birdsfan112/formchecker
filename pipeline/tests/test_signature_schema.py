@@ -17,6 +17,7 @@ PIPELINE_DIR = Path(__file__).resolve().parent.parent
 if str(PIPELINE_DIR) not in sys.path:
     sys.path.insert(0, str(PIPELINE_DIR))
 
+import normalize_loop as nl
 from normalize_loop import (
     compute_angle_timeseries,
     auto_detect_phases,
@@ -379,3 +380,119 @@ class TestMultiRaw:
 
         canonical_reps = [rep1, rep2]
         assert len(canonical_reps) == 2
+
+
+# ---------- Multi-raw CLI integration test ------------------------------------
+
+def _synthetic_squat_npz(path: Path, seed: int = 0, n_frames: int = 60) -> None:
+    """Write a synthetic squat-like raw .npz to `path`.
+
+    Matches the shape load_raw expects: landmarks (T, 33, 3) + fps scalar.
+    Pelvis y oscillates sinusoidally so auto_detect_cycle finds a peak.
+    """
+    rng = np.random.default_rng(seed)
+    arr = np.zeros((n_frames, 33, 3), dtype=np.float32)
+    arr[:, :, 0] = 0.5
+    arr[:, :, 1] = 0.5
+    arr[:, :, 2] = 1.0  # visibility
+
+    t = np.linspace(0, 2 * np.pi, n_frames)
+    pelvis_y = 0.55 + 0.15 * np.sin(t)
+    nose_y = 0.15 + 0.10 * np.sin(t)
+
+    # Tiny per-seed jitter so content hashes differ between raws
+    jitter = 0.002 * rng.standard_normal(n_frames).astype(np.float32)
+
+    # Ankles pinned
+    arr[:, nl.L_ANKLE] = np.stack(
+        [np.full(n_frames, 0.45), np.full(n_frames, 0.9), np.ones(n_frames)], axis=-1
+    )
+    arr[:, nl.R_ANKLE] = np.stack(
+        [np.full(n_frames, 0.55), np.full(n_frames, 0.9), np.ones(n_frames)], axis=-1
+    )
+    # Hips oscillate
+    arr[:, nl.L_HIP] = np.stack(
+        [np.full(n_frames, 0.47), pelvis_y + jitter, np.ones(n_frames)], axis=-1
+    )
+    arr[:, nl.R_HIP] = np.stack(
+        [np.full(n_frames, 0.53), pelvis_y + jitter, np.ones(n_frames)], axis=-1
+    )
+    arr[:, nl.NOSE] = np.stack(
+        [np.full(n_frames, 0.50), nose_y, np.ones(n_frames)], axis=-1
+    )
+    # Shoulders (L-left convention: x_L < x_R)
+    arr[:, nl.L_SHOULDER] = np.stack(
+        [np.full(n_frames, 0.45), np.full(n_frames, 0.3), np.ones(n_frames)], axis=-1
+    )
+    arr[:, nl.R_SHOULDER] = np.stack(
+        [np.full(n_frames, 0.55), np.full(n_frames, 0.3), np.ones(n_frames)], axis=-1
+    )
+    # Knees between hip and ankle
+    arr[:, 25] = np.stack(
+        [np.full(n_frames, 0.46), (pelvis_y + 0.9) / 2, np.ones(n_frames)], axis=-1
+    )
+    arr[:, 26] = np.stack(
+        [np.full(n_frames, 0.54), (pelvis_y + 0.9) / 2, np.ones(n_frames)], axis=-1
+    )
+
+    np.savez_compressed(path, landmarks=arr, fps=np.float32(30.0))
+
+
+class TestMultiRawCLI:
+    def test_two_raws_via_main_produce_two_reps_with_provenance(
+        self, tmp_path, monkeypatch
+    ):
+        """Invoke normalize_loop.main() with --raw A --raw B, load the produced
+        JSON, and verify structure end-to-end (not just the build_canonical_rep
+        inner function).
+        """
+        # Build two synthetic raw .npz fixtures
+        raw_a = tmp_path / "raw_a.npz"
+        raw_b = tmp_path / "raw_b.npz"
+        _synthetic_squat_npz(raw_a, seed=1)
+        _synthetic_squat_npz(raw_b, seed=2)
+
+        # Redirect output dirs to tmp so we don't clobber shipped artifacts
+        out_dir = tmp_path / "animations"
+        rom_dir = tmp_path / "rom"
+        monkeypatch.setattr(nl, "OUT_DIR", out_dir)
+        monkeypatch.setattr(nl, "ROM_DIR", rom_dir)
+
+        # Patch argv and call main().
+        # Manual --start-frame/--end-frame is used to bypass auto_detect_cycle on
+        # this 60-frame synthetic fixture (autocorrelation falls back to min_lag
+        # because a single sin-wave period spans the full clip — no multi-period
+        # peak for it to lock onto).
+        argv = [
+            "normalize_loop.py",
+            "--exercise", "squat",
+            "--raw", str(raw_a),
+            "--raw", str(raw_b),
+            "--start-frame", "0",
+            "--end-frame", "60",
+        ]
+        monkeypatch.setattr(sys, "argv", argv)
+
+        nl.main()
+
+        # Load produced signature
+        out_path = out_dir / "squat.json"
+        assert out_path.exists(), f"signature not written to {out_path}"
+        with open(out_path, "r", encoding="utf-8") as f:
+            sig = json.load(f)
+
+        # Structural assertions
+        assert sig["schema_version"] == 1, "schema_version should be 1"
+        reps = sig["canonical_reps"]
+        assert len(reps) == 2, f"expected 2 canonical_reps, got {len(reps)}"
+        assert reps[0]["rep_id"] == 0
+        assert reps[1]["rep_id"] == 1
+
+        # Provenance populated
+        prov = sig["provenance"]
+        assert prov.get("mediapipe_pipeline_api"), "provenance.mediapipe_pipeline_api empty"
+        assert prov.get("mediapipe_app_version"), "provenance.mediapipe_app_version empty"
+        assert prov.get("extracted_at"), "provenance.extracted_at empty"
+        assert prov.get("pipeline_preset") == "standing", (
+            "provenance.pipeline_preset should echo --preset default"
+        )
