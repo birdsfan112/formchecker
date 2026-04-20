@@ -122,18 +122,28 @@ test.describe('how-to animation loading — trajectory path', () => {
     const f1 = await getGuideCanvasFingerprint(page);
     expect(f1).not.toBe('');
 
-    // 400 ms ≈ 13% of the 3000 ms trajectory period — well past the ease-in-out
-    // inflection, so a 16x16 fingerprint will differ. idleGuideTick is 65 ms,
-    // so roughly 6 fresh frames land in this gap.
-    await page.waitForTimeout(400);
+    // Sample three fingerprints over a 1500 ms window (half of the 3000 ms
+    // trajectory period). idleGuideTick is ~65 ms, so ~11 fresh frames land
+    // in each gap. Threshold of 2 differing nibbles catches real-motion
+    // liveness while max-pairwise(f1,f2,f3) tolerates bad phase alignment —
+    // if one pair happens to straddle the eased-rest seam, the other two
+    // pairs still span enough of the ease-in-out curve to differ.
+    await page.waitForTimeout(750);
     const f2 = await getGuideCanvasFingerprint(page);
     expect(f2).not.toBe('');
-    // Hamming-distance comparator (≥ 1 differing nibbles) is the spec's
+
+    await page.waitForTimeout(750);
+    const f3 = await getGuideCanvasFingerprint(page);
+    expect(f3).not.toBe('');
+
+    // Hamming-distance comparator (≥ 2 differing nibbles) is the spec's
     // §6 Test 3 "Iterate" fallback — resilient to tiny sampling jitter from
     // a slow Python webserver under concurrent workers.
-    // Lowered from 2 to 1 after Step 5.6 signature schema update — the eased
-    // animation near rest position may have smaller frame-to-frame differences.
-    expect(fingerprintsDiffer(f1, f2, 1)).toBe(true);
+    const anyPairDiffers =
+      fingerprintsDiffer(f1, f2, 2) ||
+      fingerprintsDiffer(f1, f3, 2) ||
+      fingerprintsDiffer(f2, f3, 2);
+    expect(anyPairDiffers).toBe(true);
   });
 
   test('missing trajectory JSON does not crash the app (falls back to keyframes)', async ({ page }) => {
