@@ -4691,126 +4691,6 @@ function getSvgKey(drawStyle, drawVariant) {
   return drawStyle || 'standing';
 }
 
-// ===== PICKER SILHOUETTE FROM SIGNATURE (Step 5.6) =====
-// Cache for rendered silhouettes to avoid re-rendering on each picker open.
-// Keyed by exercise id, value is data URL (image/png).
-const pickerSilhouetteCache = {};
-
-// POSE_CONNECTIONS defines the skeleton edges for rendering.
-// We use a subset that looks good at small scale (70x62 pixels).
-const PICKER_CONNECTIONS = [
-  [11, 12], // shoulders
-  [11, 13], [13, 15], // left arm
-  [12, 14], [14, 16], // right arm
-  [11, 23], [12, 24], // torso
-  [23, 24], // hips
-  [23, 25], [25, 27], // left leg
-  [24, 26], [26, 28], // right leg
-];
-
-// Synthesize missing distal landmarks (elbow, wrist, knee, ankle) from visible
-// proximal parents. Keeps picker silhouettes full-body even when source clips
-// crop out legs or MediaPipe reports low visibility on a limb chain.
-function completeSkeletonForPicker(lm, vis) {
-  const pos = lm.map(p => [p[0], p[1]]);
-  const drawable = vis.map(v => v >= 0.3);
-  const chain = [
-    { child: 25, parent: 23, dy: 0.18 }, // L knee <- L hip
-    { child: 26, parent: 24, dy: 0.18 }, // R knee <- R hip
-    { child: 27, parent: 25, dy: 0.18 }, // L ankle <- L knee
-    { child: 28, parent: 26, dy: 0.18 }, // R ankle <- R knee
-    { child: 13, parent: 11, dy: 0.12 }, // L elbow <- L shoulder
-    { child: 14, parent: 12, dy: 0.12 }, // R elbow <- R shoulder
-    { child: 15, parent: 13, dy: 0.12 }, // L wrist <- L elbow
-    { child: 16, parent: 14, dy: 0.12 }, // R wrist <- R elbow
-  ];
-  for (const { child, parent, dy } of chain) {
-    if (!drawable[child] && drawable[parent]) {
-      pos[child] = [pos[parent][0], Math.min(1, pos[parent][1] + dy)];
-      drawable[child] = true;
-    }
-  }
-  return { pos, drawable };
-}
-
-// Render a silhouette from signature landmarks onto an offscreen canvas.
-// Returns data URL or null if signature not available.
-function renderPickerSilhouetteFromSignature(ex) {
-  // Check cache first
-  if (pickerSilhouetteCache[ex]) {
-    return pickerSilhouetteCache[ex];
-  }
-
-  // Get signature from trajectory cache
-  const sig = trajectoryCache[ex];
-  if (!sig) return null;
-
-  const rep = getActiveRep(sig);
-  if (!rep || !rep.landmarks || !rep.visibility) return null;
-
-  // Prefer "bottom" (mid-action pose — most recognizable silhouette) over "top"
-  // (rest position). Falls back through middle/hold/top/start if bottom missing.
-  let frameIdx = 0;
-  const phases = rep.phases || [];
-  const byName = (name) => phases.find(p => p.name === name);
-  const preferred = byName('bottom') || byName('middle') || byName('hold') || byName('top') || byName('start');
-  if (preferred) frameIdx = preferred.frame_idx;
-
-  // Ensure frameIdx is valid
-  if (frameIdx < 0 || frameIdx >= rep.landmarks.length) frameIdx = 0;
-
-  const { pos: lm, drawable } = completeSkeletonForPicker(rep.landmarks[frameIdx], rep.visibility[frameIdx]);
-
-  // Create offscreen canvas (same dimensions as SVG: 70x62)
-  const canvas = document.createElement('canvas');
-  canvas.width = 70;
-  canvas.height = 62;
-  const ctx = canvas.getContext('2d');
-
-  // Draw on dark background (matches picker card style)
-  ctx.fillStyle = 'rgba(15, 52, 96, 0.3)';
-  ctx.fillRect(0, 0, 70, 62);
-
-  // Scale landmarks to canvas (landmarks are 0-1 normalized)
-  const scale = (pt, w, h) => [pt[0] * w, pt[1] * h];
-
-  // Draw connectors
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
-  ctx.lineWidth = 2;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-
-  for (const [a, b] of PICKER_CONNECTIONS) {
-    if (!drawable[a] || !drawable[b]) continue;
-    const [x1, y1] = scale(lm[a], 70, 62);
-    const [x2, y2] = scale(lm[b], 70, 62);
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
-  }
-
-  // Draw joints (only for landmarks that appear in PICKER_CONNECTIONS)
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-  const drawnIndices = new Set();
-  for (const [a, b] of PICKER_CONNECTIONS) {
-    drawnIndices.add(a);
-    drawnIndices.add(b);
-  }
-  for (const k of drawnIndices) {
-    if (!drawable[k]) continue;
-    const [x, y] = scale(lm[k], 70, 62);
-    ctx.beginPath();
-    ctx.arc(x, y, 2, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // Convert to data URL and cache
-  const dataUrl = canvas.toDataURL('image/png');
-  pickerSilhouetteCache[ex] = dataUrl;
-  return dataUrl;
-}
-
 function renderExercisePicker() {
   const grid = document.getElementById('exercise-picker-grid');
   grid.innerHTML = '';
@@ -4819,23 +4699,16 @@ function renderExercisePicker() {
     card.className = 'exercise-card' + (key === state.exercise ? ' selected' : '');
     card.dataset.exercise = key;
 
-    // Silhouette image — try signature-based rendering first, fall back to SVG
+    // Silhouette image — uses pre-authored SVG keyed on (drawStyle, drawVariant).
+    // Signature-derived silhouettes were attempted in Step 5.6 but reverted after
+    // phone review: front-view crouched poses don't read as recognizable exercises
+    // at 70x62px. Signatures still drive the how-to animation; picker stays SVG.
     const img = document.createElement('img');
     img.width = 70; img.height = 62;
     img.alt = meta.name;
-
-    // Try to render from signature landmarks
-    const sigDataUrl = renderPickerSilhouetteFromSignature(key);
-    if (sigDataUrl) {
-      img.src = sigDataUrl;
-      img.dataset.silhouetteSource = 'signature';
-    } else {
-      // Fall back to pre-rendered SVG
-      const svgKey = getSvgKey(meta.drawStyle, meta.drawVariant);
-      const svgStr = EXERCISE_SVGS[svgKey] || EXERCISE_SVGS.standing;
-      img.src = 'data:image/svg+xml,' + encodeURIComponent(svgStr);
-      img.dataset.silhouetteSource = 'svg-fallback';
-    }
+    const svgKey = getSvgKey(meta.drawStyle, meta.drawVariant);
+    const svgStr = EXERCISE_SVGS[svgKey] || EXERCISE_SVGS.standing;
+    img.src = 'data:image/svg+xml,' + encodeURIComponent(svgStr);
 
     // Name label
     const label = document.createElement('div');

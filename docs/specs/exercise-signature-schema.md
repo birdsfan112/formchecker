@@ -11,6 +11,8 @@
 
 ## 1. Goal and Motivation
 
+> **2026-04-20 update — picker silhouette consolidation REVERTED after phone review.** Runtime-Canvas picker silhouette was shipped and reverted same-day. Root cause: at 70x62px, front-view crouched poses (squat bottom, pullup chin-over-bar) don't read as iconic exercise silhouettes — side-view SVGs carry the motion signature that the eye recognizes. Schema kept intact; picker stays on `EXERCISE_SVGS` + `getSvgKey`. Signature still drives how-to animation, ROM, phase markers, and future scoring. Sections 7.2, 12.5, and 16 describe what was built then removed — preserved below for archival.
+
 Consolidate per-exercise asset data that today lives in two files (`assets/animations/<ex>.json`, `assets/rom/<ex>.json`) plus hardcoded picker silhouettes inside `index.html` (`EXERCISE_SVGS`, `getSvgKey`), into a single canonical "exercise signature" file at `assets/animations/<ex>.json`. Same path, additive fields.
 
 A signature is **everything a consumer needs to know about an exercise that was derived from a reference clip**: reference pose trajectory, per-joint angle timeseries, ROM, phase markers, MediaPipe version provenance. It is data, not algorithms.
