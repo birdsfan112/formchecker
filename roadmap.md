@@ -81,6 +81,10 @@
      Archive older entries to docs/roadmap-archive.md (see Archive Pointer below).
      Multiple sessions on the same date can be consolidated into one entry. -->
 
+### 2026-04-24 — Roadmap compaction
+
+**Compaction:** trimmed 6 entries (2026-04-20, 2026-04-19, 2026-04-18, 2026-04-16, 2026-04-12, 2026-04-11 — all trims ≤40% content-removed; 2026-04-11 + 2026-04-16 were paragraph reflows preserving all content). No coalesce (no same-day groups). No archive (only 6 entries, under 15-most-recent rule). Session Log: 169 → 125 lines. Total file: 259 → 214 lines.
+
 ### 2026-04-20 — Step 5.6 Unified Exercise Signature Schema v1 shipped
 
 Four-phase dev loop run by 5-agent team (2× Explore for Investigate, planner for Calibrate, implementer for Implement + retry, code-reviewer for Check + re-check). All agents Opus. Triggered by one-thing-inquiry: surveyed whether clips could be mined for more than animation; concluded yes — single-file signature consolidating trajectory + ROM + phase markers + angle timeseries + MediaPipe provenance + picker frame.
@@ -98,28 +102,18 @@ Four-phase dev loop run by 5-agent team (2× Explore for Investigate, planner fo
 
 **Post-deploy phone review + signature-picker revert (same-day)**
 
-Scott phone-reviewed live site after merge. Four issues surfaced:
+Scott phone-reviewed live site. Fixes applied (`6b969da`): squat regen had dropped `--mirror-x`; pullup `--start-frame 50 --end-frame 160` captured pre-rep hanging, not reps — real reps at frames 180-290 (`--preset hanging_front --start-frame 180 --end-frame 290`). Picker silhouettes from signature read as "dots + line" / missing legs at 70x62px due to low-vis landmarks (L_elbow vis=0.03, L_ankle vis=0.02); first-pass fix `3e713fc` (bottom-phase preference + `completeSkeletonForPicker` limb synthesis) still didn't produce recognizable shapes.
 
-1. **Squat facing wrong direction** — regeneration had dropped `--mirror-x`. Fixed by regenerating with `--mirror-x` (commit `6b969da`).
-2. **Pullup no ROM** — implementer's manual `--start-frame 50 --end-frame 160` captured the pre-rep hanging segment, not an actual rep. Real reps in raw clip at frames 180-290 (hanging -> chin-over-bar at frame 230 -> hanging). Regenerated with `--preset hanging_front --start-frame 180 --end-frame 290` (commit `6b969da`). Nose-to-wrist gap now swings +0.124 -> -0.038 -> +0.124.
-3. **Squat picker "dots + single line"** — at standing/top-phase, L_elbow vis=0.03 + L_wrist vis=0.13 caused 3 of 12 connections to skip. Partial skeleton read as dots + line at 70x62px. First-pass fix (commit `3e713fc`): switched picker to prefer `bottom` phase (mid-action, more recognizable) + added `completeSkeletonForPicker` limb-synthesis helper for missing legs/arms.
-4. **Pullup picker missing legs** — L_knee vis=0.23, L_ankle vis=0.02 (legs off-frame in source clip). First-pass fix same as #3 (synthesize legs below hips at 0.18 offset).
-5. **Picker doesn't update until second tap** — cache-timing issue; `trajectoryCache[ex]` only populates when exercise becomes active. Never fixed — revert killed the problem.
+**Decision: revert picker to SVG. Signature drives animation + ROM + future scoring. Picker stays on pre-authored SVGs.** Front-view crouched poses at 70x62px are fundamentally not iconic — side-view silhouettes (one leg forward, knees bent) are what the eye reads as "squat." Can't tune away with better rendering.
 
-Post-fix #3/#4 phone review: "new shapes, but still not recognizable as human." Diagnosis: front-view crouched poses at 70x62px are fundamentally not iconic — side-view silhouettes (one leg forward, knees bent) are what the eye recognizes as "squat." We're fighting human perception. Can't tune away with better rendering.
+- Revert deleted `renderPickerSilhouetteFromSignature`, `completeSkeletonForPicker`, `pickerSilhouetteCache`, `PICKER_CONNECTIONS` + `tests/playwright/exercises/picker-silhouette.spec.ts`. Playwright 48 → 44. Signature schema unchanged.
+- Logged `SVG picker audit` as Backlog item 4.
 
-**Decision: revert picker to SVG. Signature drives animation + ROM + future scoring. Picker stays on pre-authored SVGs.**
+**Lesson:** Single-source-of-truth can cost UX when source data isn't fit for the rendering target. Front-view pose landmarks are right for live form-coaching, wrong for a small iconic thumbnail. Two source shapes for two rendering targets is OK.
 
-- Revert commit `[next]`: deleted `renderPickerSilhouetteFromSignature`, `completeSkeletonForPicker`, `pickerSilhouetteCache`, `PICKER_CONNECTIONS` from index.html. Deleted `tests/playwright/exercises/picker-silhouette.spec.ts` (all 4 tests were about the signature-picker path). Playwright count drops 48 -> 44 (back to pre-5.6 count).
-- Signature schema unchanged — future scoring/animation still use the rich data. Picker is a separate UI concern where iconicity > accuracy.
-- Logged `SVG picker audit` as Backlog item 4: Scott to identify the 3-4 exercises whose current SVGs don't represent the exercise well; fix via new drawVariant + SVG or imagegen-generated bespoke silhouettes.
-- Spec updated with "Picker reverted" note under §7 consumer changes.
+**Memory captured:** `feedback_data_consolidation_consumer_fit.md` — per-consumer fitness check before consolidation; motion/pose data → good for motion-adjacent, poor for iconic imagery.
 
-**Lesson:** Single-source-of-truth is an elegance that can cost UX if the source data isn't fit for the rendering target. Front-view pose landmarks are the right data for live form-coaching (where the user IS front-view) and wrong data for a small iconic thumbnail. Two source shapes for two rendering targets is OK.
-
-**Memory captured:** `feedback_data_consolidation_consumer_fit.md` — per-consumer fitness check before consolidation, mineable vs. poor-fit source mapping (motion/pose data → good for motion-adjacent, poor for iconic imagery), how to apply during one-thing inquiry.
-
-**Compaction:** coalesced 1 group (−1 line), trimmed 1 entry (2026-04-18, −58 lines, ~60%), pruned Current Sprint (−28 lines: dropped resolved Step 1, complete Steps 3/4, superseded Step 5; collapsed Step 5.5 completed items; removed picker items killed by 2026-04-20 revert). Session Log: 197 → 166 lines. Current Sprint: 51 → 23 lines. Total file: 314 → 254 lines. Still 54 over 200-line cap — remaining bulk is in Session Log but entry count is only 8 (under 15) so Phase 3 archive doesn't apply; trim of other entries was Scott-declined.
+**Compaction (prior, 2026-04-20):** coalesced 1 group, trimmed 2026-04-18 by 58 lines (~60%), pruned Current Sprint by 28 lines. Session Log: 197 → 166 lines. Total: 314 → 254 lines.
 
 **Picker audit spec (Backlog 4)**
 
@@ -127,121 +121,82 @@ Scott identified the 5 wrong pickers: dips, inverted rows, glute bridge, hip fle
 
 ### 2026-04-19 — Playwright `animation-loading.spec.ts` shipped (Step 5.5 regression guard)
 
-Three-agent Plan/Implement/Check run. Plan agent authored the spec on 2026-04-18 (`docs/specs/formchecker-animation-loading-spec.md`, merged as `11bd542`). Implement agent landed the test file + helpers today on `claude/clever-lederberg-1241ce` (`bf523bf`). Check agent verified, hardened for CI concurrency, and merged as `2ce6240`.
+Three-agent Plan/Implement/Check run; spec `docs/specs/formchecker-animation-loading-spec.md` (`11bd542`), implement (`bf523bf`), flake hardening (`aef9267`), merge (`2ce6240`).
 
-- **Files added:** `tests/playwright/exercises/animation-loading.spec.ts` (197 lines, 6 tests) and 3 new exports in `tests/playwright/exercises/_helpers.ts` — `guideCanvasHasPixels`, `getGuideCanvasFingerprint`, `mockTrajectory`, plus the `fingerprintsDiffer` Hamming-distance helper added during flake hardening.
-- **Tests locked in:** (1) squat.json is fetched + parseable when squat is active; (2) `#guide-canvas` has drawn pixels after trajectory load; (3) canvas fingerprint changes across 400 ms during idle; (4) missing JSON (404) → keyframe fallback still draws + app stays healthy; (5) malformed JSON → same; (6) empty JSON (`"null"`) → same. Failure-mode tests all assert `page.on('pageerror')` stayed empty.
-- **Isolated run:** 6/6 passing first try. **Full-suite runs surfaced 2 flake points** under 2-worker Python http.server concurrency: (a) Test 1's 2 s `waitForResponse` timeout was too tight — bumped to 5 s; (b) Test 3's exact-inequality fingerprint comparison failed on near-identical frames when `idleGuideTick` RAFs slipped. Applied the spec-authorised §6 Test 3 "Iterate" fallback: 16×16 → 32×32 downsample + Hamming-distance comparator (`fingerprintsDiffer`, ≥2 differing nibbles). Hardening committed as `aef9267`.
-- **Verification:** 3 consecutive full-suite runs post-hardening = 44/44 passing (38 baseline + 6 new). Baseline on main (pre-merge) also confirmed clean at 38/38. No `index.html` changes, no `window.__*` exposure — purely DOM-observable via `getImageData` + `waitForResponse` + route interception.
-- **Merge chain:** `11bd542` (spec) → `bf523bf` (implement) → `aef9267` (flake harden) → `2ce6240` (merge to main, pushed). GitHub Pages will inherit no behavior change — this is pure test addition.
-- **Sources curated this session:** still 2 of 22. Session was pure tooling.
-- **Next session:** Scott curates remaining 20 URLs OR tries plank (first static-hold test on the pipeline). Same breadcrumb as the 2026-04-18 entry.
+- **Tests locked in** (6 in `tests/playwright/exercises/animation-loading.spec.ts` + 4 `_helpers.ts` exports): squat.json fetched/parseable; `#guide-canvas` has drawn pixels; fingerprint changes across 400 ms during idle; missing/malformed/empty JSON all fall back to keyframe + no `pageerror`.
+- **Flake hardening** (under 2-worker http.server concurrency): Test 1 `waitForResponse` 2 s → 5 s; Test 3 exact-inequality → Hamming-distance comparator on 32×32 downsample (`fingerprintsDiffer`, ≥2 differing nibbles, per spec §6 "Iterate" fallback).
+- **Verification:** 3 consecutive full-suite runs = 44/44 passing (38 baseline + 6 new). No `index.html` changes, no `window.__*` — purely DOM-observable.
+- **Next session:** Scott curates remaining 20 URLs OR tries plank (first static-hold test).
 
 ### 2026-04-18 — Pullup animation finalized + pipeline test harness + normalize_loop bug fixes
 
-Multi-sprint day — paradigm decision shipped, pipeline scaffolding Steps 1-4 complete, aesthetic tuning shipped for squat, pullup sprint ran through 5 iterations, test harness + 3 surgical bug fixes merged.
+Multi-sprint day — paradigm decision shipped, pipeline Steps 1-4 complete, squat aesthetic tuning shipped, pullup ran 5 iterations, test harness + 3 surgical bug fixes merged.
 
 **Paradigm decision**
 
-21 of 22 how-to animations failed on anatomy/physics (only pull-ups acceptable). Shipped `docs/specs/animation-paradigm-evaluation.md` + `docs/specs/animation-pipeline-implementation.md`. **Scott's 5 decisions:** YouTube OK as source (coordinates, not pixels); minimalist silhouette picker via `imagegen`; 60-frame loops; self-film decided per-exercise after first pipeline run; ROM baselines as bonus output of same pass.
+21 of 22 how-to animations failed on anatomy/physics (only pull-ups acceptable). Shipped `animation-paradigm-evaluation.md` + `animation-pipeline-implementation.md`. **Scott's 5 decisions:** YouTube OK as source (coordinates, not pixels); minimalist silhouette picker via `imagegen`; 60-frame loops; self-film decided per-exercise after first pipeline run; ROM baselines as bonus output of same pass.
 
 **Pipeline Steps 1-4 shipped**
 
-- `pipeline/` scaffolded: `requirements.txt`, `README.md`, `sources.yaml`, `picker_prompts.yaml`, `exercise_angles.yaml` (all 22 as stubs).
-- `extract_trajectory.py` smoke-tested on Pexels squat → 395 frames, 100% detection, mean vis 0.809.
-- **Spec deviation:** MediaPipe 0.10.33 on Py 3.13 removed `mp.solutions.pose` → migrated to Tasks API (`PoseLandmarker` + `pose_landmarker_heavy.task`). Pexels fronts Cloudflare so yt-dlp needs `curl-cffi` impersonation (`yt-dlp[curl-cffi]`).
+- `pipeline/` scaffolded with all 22 exercise stubs; `extract_trajectory.py` smoke-tested on Pexels squat (395 frames, 100% detection, mean vis 0.809).
+- **Spec deviation:** MediaPipe 0.10.33 on Py 3.13 removed `mp.solutions.pose` → migrated to Tasks API (`PoseLandmarker` + `pose_landmarker_heavy.task`). Pexels fronts Cloudflare so yt-dlp needs `curl-cffi` impersonation.
 - `normalize_loop.py` (pelvis-y autocorr + 60-frame resample + 3-frame MA + seam blend) and `emit_rom.py` (vis<0.6 skip) shipped. Squat: 395→60 frames, seam 0.0488→0.0000; knee ROM 38°→173.5°.
-- **Two drifts worth Scott's curation guidance:** JSON 35.7 KB vs spec's <25 KB target (float32→tolist float64 inflation; fixed via string-round but still over); spec's [70°, 180°] squat knee sanity range doesn't tolerate ATG clips. Both source-clip dependent — curate "normal" reps, not extremes.
-- Roadmap compaction: moved 9 oldest entries (2026-04-04 → 2026-04-11) to `docs/roadmap-archive.md`.
+- **Two drifts worth Scott's curation guidance:** JSON 35.7 KB vs spec's <25 KB (float32→tolist inflation); spec's [70°, 180°] squat knee range doesn't tolerate ATG clips. Curate "normal" reps, not extremes.
 
 **Aesthetic preview + tuning (ship-one-before-batch)**
 
-One Thing Inquiry mid-session: ship squat preview to phone BEFORE Scott curates 21 more URLs. Aesthetic issues bake into the normalize pipeline, so catching them on one clip = parameter fixes, not full batch rerun.
+Ship squat preview to phone BEFORE Scott curates 21 more URLs — aesthetic issues bake into the normalize pipeline, so catching them on one clip = parameter fixes, not full batch rerun. App-side wiring (`fd03e81`): `trajectoryCache` + `loadTrajectory(ex)` + split `drawHowToSkeleton` into `-FromTrajectory`/`-FromKeyframes`. 4 phone-review fixes (`0e84697`): `--mirror-x`; `PERIOD_MS_DEFAULT` 2000→3000; `anchor_feet()`; `canonicalize_to_outline()`.
 
-- App-side wiring (`fd03e81`): `trajectoryCache` + `loadTrajectory(ex)` + `drawHowToSkeleton` split into `-FromTrajectory` (new) and `-FromKeyframes` (fallback).
-- 4 phone-review fixes (`0e84697`, all pipeline-parameter, generalize across exercises): `--mirror-x`; `PERIOD_MS_DEFAULT` 2000→3000; `anchor_feet()` (ankle Y → 0.81); `canonicalize_to_outline()` (uniform scale+shift, nose→0.09, ankle→0.81, hip→0.50).
-- **Cache bug (`12e4346`):** `fetch(url, { cache: 'force-cache' })` serves stale cached copy *without* revalidation on explicit reload. Removed option; GitHub Pages default `max-age=600` now respects busted URL params.
-- Memory: `feedback_aesthetic_ship_one_first.md`.
+- **Cache bug (`12e4346`):** `fetch(url, { cache: 'force-cache' })` serves stale cached copy *without* revalidation on explicit reload. Removed option; GitHub Pages default `max-age=600` now respects busted URL params. Memory: `feedback_aesthetic_ship_one_first.md`.
 
 **Pullup sprint — first front-view/hanging test**
 
 Pullup surfaced 4 pipeline issues + 1 app-side bug. All parameter fixes; batch inherits.
 
-- **Presets (`0285a28`):** `canonicalize_to_outline` + `anchor_feet` hardcoded ankles-to-floor; pullup needs wrists-to-bar. Generalized into `--preset` system with `standing` + `hanging_front`. Used hips (not ankles) as `hanging_front`'s `far_ids` because hanging clips cut off legs (ankle vis 0.018, knee 0.092).
-- **Dark-room animation freeze (`a9382f6`) — pre-existing app bug exposed by lights-off test:** `drawGuide()` only ran from MediaPipe's `onResults` callback, which stalls when no pose detected. Added independent ~15fps RAF loop for idle/countdown/warmup states. Not pipeline-specific.
-- **L/R label swaps (`c199170`):** 27/98 pullup frames and 45/395 squat frames had MediaPipe swapping left/right labels (common for front-ish arm-over-head views). `correct_lr_swaps()` Stage 1 uses majority sign of `L_shoulder.x - R_shoulder.x`, swaps all 14 mirror pairs in disagreeing frames.
-- **X-anchor missing (`02a4192`):** `anchor_per_frame` was y-only, letting wrist-mid-x drift with body sway. Fix: 2D rigid translation. Post-fix wrist-mid range = 0.0000.
-- **Linear playback bounces at rest (`0778fd1`):** cubic ease-in-out on period fraction. Slow at loop seam (rest), fast through rep peak. Keyframe fallback already uses cosine oscillation, naturally eased.
+- **Presets (`0285a28`):** `canonicalize_to_outline` + `anchor_feet` hardcoded ankles-to-floor; pullup needs wrists-to-bar. Generalized into `--preset` system (`standing` + `hanging_front`). Used hips (not ankles) as `hanging_front`'s `far_ids` because hanging clips cut off legs (ankle vis 0.018).
+- **Dark-room animation freeze (`a9382f6`) — pre-existing app bug:** `drawGuide()` only ran from MediaPipe's `onResults` callback, which stalls when no pose detected. Added independent ~15fps RAF loop for idle/countdown/warmup states.
+- **L/R label swaps (`c199170`):** MediaPipe swapped left/right labels in 27/98 pullup frames + 45/395 squat frames (common for front-ish arm-over-head). `correct_lr_swaps()` Stage 1: majority sign of `L_shoulder.x - R_shoulder.x`, swaps all 14 mirror pairs.
+- **X-anchor missing (`02a4192`):** `anchor_per_frame` was y-only. Fix: 2D rigid translation. **Linear playback bounces at rest (`0778fd1`):** cubic ease-in-out on period fraction — slow at loop seam, fast through rep peak.
 
 **Pullup animation finalized — anatomical-constraint stack added to hanging_front preset**
 
-Five-iteration phone-review cycle for residual flip/drift. Root cause (diagnosed via landmark data, not visual symptoms — first hypothesis of label swaps was wrong): MediaPipe shoulder/wrist span *collapses* when arms occlude head overhead.
+Five-iteration phone-review cycle. Root cause (diagnosed via landmark data, not visual symptoms — first hypothesis of label swaps was wrong): MediaPipe shoulder/wrist span *collapses* when arms occlude head overhead.
 
-- **Width-lock (`a6e3b16`, extended `e5d82c0`):** `enforce_lateral_width()` clamps each L/R pair's x to its median half-span — anatomically correct for pullup (shoulders/elbows/wrists/hips don't change horizontal width).
-- **Per-pair LR correction Stage 2 (`f8585ec`):** Stage 1 whole-frame swap missed pair-specific MediaPipe label flips (7 elbow + 6 wrist + 6-8 finger, correctly-labeled shoulders). Stage 2 uses each pair's own majority sign + magnitude threshold 0.03.
-- **Finger rigid-bind (`f8585ec`):** `lock_fingers_to_wrist()` replaces each finger with `wrist + median(dx, dy)` for grip-on-bar exercises. Hands gripping a bar don't move relative to wrist.
-- **Y-sync (`bcf20df`):** `enforce_y_sync()` forces bilateral pairs to share per-frame mean y. Fixes "one arm leading" jitter.
-- **Post-lock smoothing (`20c286a`):** `preset.post_smooth_window=7` cleans residual y noise after locks. Pullup seam diff 0.25 → 0.15.
-- **Live scoring impact:** Verified pullup form-check uses bilateral averages + `Math.abs()` on swing check, so symmetric L↔R swaps don't affect scoring. **Pipeline LR fixes are visual-only; live scoring is robust by design.**
-- Memory: `feedback_animation_anatomical_constraints.md`.
+- **Width-lock (`a6e3b16`, `e5d82c0`):** `enforce_lateral_width()` clamps each L/R pair's x to its median half-span. **Per-pair LR Stage 2 + finger rigid-bind (`f8585ec`):** Stage 1 missed pair-specific label flips (7 elbow + 6 wrist + 6-8 finger); Stage 2 uses per-pair majority sign + threshold 0.03. `lock_fingers_to_wrist()` replaces each finger with `wrist + median(dx, dy)` for grip-on-bar exercises.
+- **Y-sync + post-lock smoothing (`bcf20df`, `20c286a`):** `enforce_y_sync()` forces bilateral pairs to share per-frame mean y; `post_smooth_window=7` cleans residual noise. Seam diff 0.25 → 0.15.
+- **Live scoring impact:** Pullup form-check uses bilateral averages + `Math.abs()` on swing check — pipeline LR fixes are visual-only; live scoring is robust by design. Memory: `feedback_animation_anatomical_constraints.md`.
 
 **Pipeline test harness (`cee9997`)**
 
-- `pipeline/tests/` — `conftest.py` + 3 test files, 62 tests against post-pullup-iteration `normalize_loop.py`. Covers every pure function in normalize/rom + YAML schemas. Full MediaPipe/OpenCV `extract()` not covered (needs real video fixture).
+- `pipeline/tests/` — `conftest.py` + 3 test files, 62 tests against normalize/rom pure functions + YAML schemas. `extract()` not covered (needs real video fixture).
 - Must use `pipeline/.venv` (cv2/mediapipe aren't on system Python): `cd pipeline && .venv/Scripts/python -m pytest tests`.
 
 **`normalize_loop.py` surgical bug fixes — 3-agent Plan→Implement→Check (merged `18a74c9`)**
 
-Spec: `docs/specs/normalize-loop-bug-fixes-spec.md` (`903e6a5`). Three one-file edits, +7/−1 lines, three hunks.
+Spec: `docs/specs/normalize-loop-bug-fixes-spec.md`. Three one-file edits, +7/−1 lines. Bug 1: `enforce_lateral_width` `span_before` used `(max|x| − min|x|) · 2` which collapses sign when L/R sign is stable — replaced with signed-half range. Bugs 2a/2b: NaN guards in `correct_lr_swaps` + `pelvis_y_signal` kill `RuntimeWarning: All-NaN slice encountered`. 73 tests passing, warnings 6 → 5.
 
-- **Bug 1 — `enforce_lateral_width` log stat (`3b09e4f`):** `span_before` used `(max|x| − min|x|) · 2` which collapses sign when L/R sign is stable. Replaced with signed-half range. Stored in stats dict; not yet surfaced in `[width-lock]` log line.
-- **Bug 2a — `correct_lr_swaps` all-NaN guard (`f642a87`):** 3-line early-return kills `RuntimeWarning: All-NaN slice encountered` on empty trajectories.
-- **Bug 2b — `pelvis_y_signal` all-NaN guard (`d4e1b77`):** same-shape guard with same `sys.exit` string as `mask.sum() < 10` path (grep tooling preserved).
-- 73 tests passing, warning count 6 → 5. Session closure: all 3 fixes + harness live on main via `18a74c9` + `f2ddc1c`.
-
-**Next session:** (1) Scott curates remaining 20 URLs OR moves to plank (first static-hold test). (2) Validate normalize_loop fixes in real-world use on batch run.
+**Next session:** (1) Scott curates remaining 20 URLs OR moves to plank (first static-hold test). (2) Validate normalize_loop fixes on batch run.
 
 ### 2026-04-16 — architecture-map.md moved to docs/specs/ (audit fix)
 
-- `docs/architecture-map.md` → `docs/specs/architecture-map.md` via `git mv`
-- Updated references in `CLAUDE.md` (2 places) and `docs/specs/visual-polish-sprint.md` (1 place)
-- Historical mentions in `docs/roadmap-archive.md` left unchanged (session log history)
+`docs/architecture-map.md` → `docs/specs/architecture-map.md` via `git mv`. Updated refs in `CLAUDE.md` + `docs/specs/visual-polish-sprint.md`. Archive mentions left unchanged.
 
 ---
 
 ### 2026-04-12 — Step 4 spec update + Step 5 SVG silhouettes + how-to animation + insecure-context camera fix
 
-**Step 4 spec update + Step 5 SVG silhouettes**
+**Step 4 + Step 5 SVG silhouettes:** `visual-polish-sprint.md` expanded 13 → 22 exercises with PNG-vs-canvas decision table. Fixed blank picker cards (`drawMiniSilhouette()` missing `kneeling` + `quadruped` cases). Library research: nothing on GitHub covers all 22 with clean license; niche moves (arch hang, scapular pulls, L-sit, band pull-aparts, mobility) missing from all free sets. Decision: SVG via imagegen skill — 7 unique SVGs in `assets/silhouettes/` cover all 22 via drawStyle+drawVariant. `EXERCISE_SVGS` + `getSvgKey()` embedded; `renderExercisePicker()` uses `<img src="data:image/svg+xml,...">` instead of canvas.
 
-- **Step 4:** `docs/specs/visual-polish-sprint.md` expanded from 13 → 22 exercises, grouped by drawStyle, added PNG-vs-canvas decision table.
-- **Blank picker card bug fixed:** `drawMiniSilhouette()` was missing `kneeling` + `quadruped` cases — Hip Flexor Stretch, Cat-Cow, Bird-Dog showed blank tiles.
-- **Library research:** Searched GitHub + web for open-source fitness silhouette sets. Finding: nothing covers all 22 exercises with a clean (non-ShareAlike) license. Niche exercises (arch hang, scapular pulls, L-sit, band pull-aparts, mobility work) missing from all free sets.
-- **Step 5 decision path:** PNG with no API keys → SVG fallback (imagegen skill). Generated 7 unique SVGs in `assets/silhouettes/` covering all 22 exercises via drawStyle+drawVariant.
-- **SVG integration:** `EXERCISE_SVGS` JS constant + `getSvgKey()` embedded in index.html. `renderExercisePicker()` now uses `<img src="data:image/svg+xml,...">` instead of `<canvas>` + `drawMiniSilhouette()`. All 22 picker cards now show pose-specific illustrations.
+**Step 5 how-to animation:** `HOW_TO_KEYFRAMES` — 22 exercises × 2 keyframes in normalized [0..1] coords. `drawHowToSkeleton(w, h, ex)` lerps via `(1 - cos(t·2π)) / 2` driven by `Date.now()`, blue stick skeleton on `guideCtx`, idle-gated at 7.5fps (no separate RAF). Flakiness: full Playwright suite occasionally shows 2 failures on first run due to port collision when running sequentially; second run passes clean.
 
-**Step 5 how-to animation**
-
-- **How-to animation shipped:** `HOW_TO_KEYFRAMES` constant — 22 exercises × 2 keyframes each, all in normalized [0..1] canvas coords. `drawHowToSkeleton(w, h, ex)` lerps between frames using `(1 - cos(t·2π)) / 2` oscillation driven by `Date.now()`, draws blue (`rgba(96,165,250,0.88)`) stick skeleton + joint dots on `guideCtx`.
-- **Integration:** Single call at end of `drawGuide()` gated on `state.workoutState === 'idle'`. Runs on existing 7.5fps idle throttle — no separate RAF loop needed. Blue color visually distinct from white static silhouette.
-- **Exercise coverage:** Standing (squat, lunge, pistol, dip, lsit, shoulderdislocate, wristwarmup, bandpullapart), horizontal pushup (pushup, pike), horizontal plank (plank, row, glutebridge, foamroller), hanging front-view (pullup, deadhang, legraise, archhang, scapularpull), kneeling (hipflexor), quadruped (catcow, birddog).
-- **Flakiness note:** Full Playwright suite occasionally shows 2 failures on first run due to port collision when running sequentially after another run. Second run always passes clean. Not caused by code changes.
-
-**Insecure-context camera error fix**
-
-- **Root cause:** `getUserMedia` requires HTTPS or localhost. Opening `index.html` directly as `file://` is not a secure context in Chrome; `--disable-web-security` bypasses CORS but does NOT grant secure-context status. No check existed — the app tried `getUserMedia` and received a cryptic `NotAllowedError`.
-- **Fix 1 (prevention):** Added `window.isSecureContext` check at the top of `startCamera()`, before any `getUserMedia` call. If false, shows a friendly `<h2>Setup Required</h2>` message with step-by-step instructions: double-click `start.bat` → choose option 1 → open `http://localhost:8080`.
-- **Fix 2 (diagnosis):** Improved `catch` block to branch on `err.name`: `NotAllowedError` → permission denied guidance; `NotFoundError` → no camera found; `NotReadableError` → camera in use by another app; fallback → generic message. Previously all errors showed the same generic text.
-- **Tests:** 289 unit + 38 Playwright = 327 total, 0 failing.
+**Insecure-context camera fix:** `getUserMedia` requires HTTPS/localhost. Opening `index.html` as `file://` in Chrome isn't a secure context; `--disable-web-security` bypasses CORS but does NOT grant secure-context status — cryptic `NotAllowedError` resulted. Added `window.isSecureContext` check at top of `startCamera()` → shows `<h2>Setup Required</h2>` with `start.bat` → option 1 → `http://localhost:8080`. `catch` block now branches on `err.name` (`NotAllowedError`/`NotFoundError`/`NotReadableError`). 289 unit + 38 Playwright = 327, 0 failing.
 
 **Next session:** Phone-test on iOS Safari: SVG picker cards + blue how-to animation. If both look good, Step 5 is done — move to Step 2 phone testing of all 22 exercises.
 
 ### 2026-04-11 — Playwright landmark injection expanded: glutebridge, pullup, legraise (38 tests)
 
-- **glutebridge.spec.ts** — floor + rep-based + `invertedPolarity`: only exercise combining all three. Hip angle geometry verified (collinear = 180° bridged, knee-up = 90° flat). 2 tests.
-- **pullup.spec.ts** — `downGate` (chin-over-bar gate): only exercise with this constraint. Two paths tested: gate blocks phase when chin below hands; gate allows rep when chin clears. 3 tests.
-- **legraise.spec.ts** — hanging + rep-based + hip angle: simplest hanging rep path, no downGate. 2 tests.
-- **Net: +4 tests** (7 written, 3 replaced existing placeholder registry checks). No regressions. 38/38 passing.
-- **Remaining:** 13 placeholder specs still need Y4M recordings to expand.
+- **glutebridge.spec.ts** (floor + rep-based + `invertedPolarity`, only exercise combining all three; collinear=180° bridged, knee-up=90° flat); **pullup.spec.ts** (`downGate` chin-over-bar — blocks phase when chin below hands, allows rep when chin clears); **legraise.spec.ts** (hanging + rep-based hip angle, simplest hanging rep).
+- Net +4 tests (7 written, 3 replaced placeholders). 38/38 passing. 13 placeholder specs still need Y4M recordings.
 
 > Earlier sessions archived in `docs/roadmap-archive.md`
 
