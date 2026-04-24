@@ -137,6 +137,112 @@ Three-agent Plan/Implement/Check run. Plan agent authored the spec on 2026-04-18
 - **Sources curated this session:** still 2 of 22. Session was pure tooling.
 - **Next session:** Scott curates remaining 20 URLs OR tries plank (first static-hold test on the pipeline). Same breadcrumb as the 2026-04-18 entry.
 
+### 2026-04-18 — Pullup animation finalized + pipeline test harness + normalize_loop bug fixes
+
+Multi-sprint day — paradigm decision shipped, pipeline scaffolding Steps 1-4 complete, aesthetic tuning shipped for squat, pullup sprint ran through 5 iterations, test harness + 3 surgical bug fixes merged.
+
+**Paradigm decision**
+
+21 of 22 how-to animations failed on anatomy/physics (only pull-ups acceptable). Shipped `docs/specs/animation-paradigm-evaluation.md` + `docs/specs/animation-pipeline-implementation.md`. **Scott's 5 decisions:** YouTube OK as source (coordinates, not pixels); minimalist silhouette picker via `imagegen`; 60-frame loops; self-film decided per-exercise after first pipeline run; ROM baselines as bonus output of same pass.
+
+**Pipeline Steps 1-4 shipped**
+
+- `pipeline/` scaffolded: `requirements.txt`, `README.md`, `sources.yaml`, `picker_prompts.yaml`, `exercise_angles.yaml` (all 22 as stubs).
+- `extract_trajectory.py` smoke-tested on Pexels squat → 395 frames, 100% detection, mean vis 0.809.
+- **Spec deviation:** MediaPipe 0.10.33 on Py 3.13 removed `mp.solutions.pose` → migrated to Tasks API (`PoseLandmarker` + `pose_landmarker_heavy.task`). Pexels fronts Cloudflare so yt-dlp needs `curl-cffi` impersonation (`yt-dlp[curl-cffi]`).
+- `normalize_loop.py` (pelvis-y autocorr + 60-frame resample + 3-frame MA + seam blend) and `emit_rom.py` (vis<0.6 skip) shipped. Squat: 395→60 frames, seam 0.0488→0.0000; knee ROM 38°→173.5°.
+- **Two drifts worth Scott's curation guidance:** JSON 35.7 KB vs spec's <25 KB target (float32→tolist float64 inflation; fixed via string-round but still over); spec's [70°, 180°] squat knee sanity range doesn't tolerate ATG clips. Both source-clip dependent — curate "normal" reps, not extremes.
+- Roadmap compaction: moved 9 oldest entries (2026-04-04 → 2026-04-11) to `docs/roadmap-archive.md`.
+
+**Aesthetic preview + tuning (ship-one-before-batch)**
+
+One Thing Inquiry mid-session: ship squat preview to phone BEFORE Scott curates 21 more URLs. Aesthetic issues bake into the normalize pipeline, so catching them on one clip = parameter fixes, not full batch rerun.
+
+- App-side wiring (`fd03e81`): `trajectoryCache` + `loadTrajectory(ex)` + `drawHowToSkeleton` split into `-FromTrajectory` (new) and `-FromKeyframes` (fallback).
+- 4 phone-review fixes (`0e84697`, all pipeline-parameter, generalize across exercises): `--mirror-x`; `PERIOD_MS_DEFAULT` 2000→3000; `anchor_feet()` (ankle Y → 0.81); `canonicalize_to_outline()` (uniform scale+shift, nose→0.09, ankle→0.81, hip→0.50).
+- **Cache bug (`12e4346`):** `fetch(url, { cache: 'force-cache' })` serves stale cached copy *without* revalidation on explicit reload. Removed option; GitHub Pages default `max-age=600` now respects busted URL params.
+- Memory: `feedback_aesthetic_ship_one_first.md`.
+
+**Pullup sprint — first front-view/hanging test**
+
+Pullup surfaced 4 pipeline issues + 1 app-side bug. All parameter fixes; batch inherits.
+
+- **Presets (`0285a28`):** `canonicalize_to_outline` + `anchor_feet` hardcoded ankles-to-floor; pullup needs wrists-to-bar. Generalized into `--preset` system with `standing` + `hanging_front`. Used hips (not ankles) as `hanging_front`'s `far_ids` because hanging clips cut off legs (ankle vis 0.018, knee 0.092).
+- **Dark-room animation freeze (`a9382f6`) — pre-existing app bug exposed by lights-off test:** `drawGuide()` only ran from MediaPipe's `onResults` callback, which stalls when no pose detected. Added independent ~15fps RAF loop for idle/countdown/warmup states. Not pipeline-specific.
+- **L/R label swaps (`c199170`):** 27/98 pullup frames and 45/395 squat frames had MediaPipe swapping left/right labels (common for front-ish arm-over-head views). `correct_lr_swaps()` Stage 1 uses majority sign of `L_shoulder.x - R_shoulder.x`, swaps all 14 mirror pairs in disagreeing frames.
+- **X-anchor missing (`02a4192`):** `anchor_per_frame` was y-only, letting wrist-mid-x drift with body sway. Fix: 2D rigid translation. Post-fix wrist-mid range = 0.0000.
+- **Linear playback bounces at rest (`0778fd1`):** cubic ease-in-out on period fraction. Slow at loop seam (rest), fast through rep peak. Keyframe fallback already uses cosine oscillation, naturally eased.
+
+**Pullup animation finalized — anatomical-constraint stack added to hanging_front preset**
+
+Five-iteration phone-review cycle for residual flip/drift. Root cause (diagnosed via landmark data, not visual symptoms — first hypothesis of label swaps was wrong): MediaPipe shoulder/wrist span *collapses* when arms occlude head overhead.
+
+- **Width-lock (`a6e3b16`, extended `e5d82c0`):** `enforce_lateral_width()` clamps each L/R pair's x to its median half-span — anatomically correct for pullup (shoulders/elbows/wrists/hips don't change horizontal width).
+- **Per-pair LR correction Stage 2 (`f8585ec`):** Stage 1 whole-frame swap missed pair-specific MediaPipe label flips (7 elbow + 6 wrist + 6-8 finger, correctly-labeled shoulders). Stage 2 uses each pair's own majority sign + magnitude threshold 0.03.
+- **Finger rigid-bind (`f8585ec`):** `lock_fingers_to_wrist()` replaces each finger with `wrist + median(dx, dy)` for grip-on-bar exercises. Hands gripping a bar don't move relative to wrist.
+- **Y-sync (`bcf20df`):** `enforce_y_sync()` forces bilateral pairs to share per-frame mean y. Fixes "one arm leading" jitter.
+- **Post-lock smoothing (`20c286a`):** `preset.post_smooth_window=7` cleans residual y noise after locks. Pullup seam diff 0.25 → 0.15.
+- **Live scoring impact:** Verified pullup form-check uses bilateral averages + `Math.abs()` on swing check, so symmetric L↔R swaps don't affect scoring. **Pipeline LR fixes are visual-only; live scoring is robust by design.**
+- Memory: `feedback_animation_anatomical_constraints.md`.
+
+**Pipeline test harness (`cee9997`)**
+
+- `pipeline/tests/` — `conftest.py` + 3 test files, 62 tests against post-pullup-iteration `normalize_loop.py`. Covers every pure function in normalize/rom + YAML schemas. Full MediaPipe/OpenCV `extract()` not covered (needs real video fixture).
+- Must use `pipeline/.venv` (cv2/mediapipe aren't on system Python): `cd pipeline && .venv/Scripts/python -m pytest tests`.
+
+**`normalize_loop.py` surgical bug fixes — 3-agent Plan→Implement→Check (merged `18a74c9`)**
+
+Spec: `docs/specs/normalize-loop-bug-fixes-spec.md` (`903e6a5`). Three one-file edits, +7/−1 lines, three hunks.
+
+- **Bug 1 — `enforce_lateral_width` log stat (`3b09e4f`):** `span_before` used `(max|x| − min|x|) · 2` which collapses sign when L/R sign is stable. Replaced with signed-half range. Stored in stats dict; not yet surfaced in `[width-lock]` log line.
+- **Bug 2a — `correct_lr_swaps` all-NaN guard (`f642a87`):** 3-line early-return kills `RuntimeWarning: All-NaN slice encountered` on empty trajectories.
+- **Bug 2b — `pelvis_y_signal` all-NaN guard (`d4e1b77`):** same-shape guard with same `sys.exit` string as `mask.sum() < 10` path (grep tooling preserved).
+- 73 tests passing, warning count 6 → 5. Session closure: all 3 fixes + harness live on main via `18a74c9` + `f2ddc1c`.
+
+**Next session:** (1) Scott curates remaining 20 URLs OR moves to plank (first static-hold test). (2) Validate normalize_loop fixes in real-world use on batch run.
+
+### 2026-04-16 — architecture-map.md moved to docs/specs/ (audit fix)
+
+- `docs/architecture-map.md` → `docs/specs/architecture-map.md` via `git mv`
+- Updated references in `CLAUDE.md` (2 places) and `docs/specs/visual-polish-sprint.md` (1 place)
+- Historical mentions in `docs/roadmap-archive.md` left unchanged (session log history)
+
+---
+
+### 2026-04-12 — Step 4 spec update + Step 5 SVG silhouettes + how-to animation + insecure-context camera fix
+
+**Step 4 spec update + Step 5 SVG silhouettes**
+
+- **Step 4:** `docs/specs/visual-polish-sprint.md` expanded from 13 → 22 exercises, grouped by drawStyle, added PNG-vs-canvas decision table.
+- **Blank picker card bug fixed:** `drawMiniSilhouette()` was missing `kneeling` + `quadruped` cases — Hip Flexor Stretch, Cat-Cow, Bird-Dog showed blank tiles.
+- **Library research:** Searched GitHub + web for open-source fitness silhouette sets. Finding: nothing covers all 22 exercises with a clean (non-ShareAlike) license. Niche exercises (arch hang, scapular pulls, L-sit, band pull-aparts, mobility work) missing from all free sets.
+- **Step 5 decision path:** PNG with no API keys → SVG fallback (imagegen skill). Generated 7 unique SVGs in `assets/silhouettes/` covering all 22 exercises via drawStyle+drawVariant.
+- **SVG integration:** `EXERCISE_SVGS` JS constant + `getSvgKey()` embedded in index.html. `renderExercisePicker()` now uses `<img src="data:image/svg+xml,...">` instead of `<canvas>` + `drawMiniSilhouette()`. All 22 picker cards now show pose-specific illustrations.
+
+**Step 5 how-to animation**
+
+- **How-to animation shipped:** `HOW_TO_KEYFRAMES` constant — 22 exercises × 2 keyframes each, all in normalized [0..1] canvas coords. `drawHowToSkeleton(w, h, ex)` lerps between frames using `(1 - cos(t·2π)) / 2` oscillation driven by `Date.now()`, draws blue (`rgba(96,165,250,0.88)`) stick skeleton + joint dots on `guideCtx`.
+- **Integration:** Single call at end of `drawGuide()` gated on `state.workoutState === 'idle'`. Runs on existing 7.5fps idle throttle — no separate RAF loop needed. Blue color visually distinct from white static silhouette.
+- **Exercise coverage:** Standing (squat, lunge, pistol, dip, lsit, shoulderdislocate, wristwarmup, bandpullapart), horizontal pushup (pushup, pike), horizontal plank (plank, row, glutebridge, foamroller), hanging front-view (pullup, deadhang, legraise, archhang, scapularpull), kneeling (hipflexor), quadruped (catcow, birddog).
+- **Flakiness note:** Full Playwright suite occasionally shows 2 failures on first run due to port collision when running sequentially after another run. Second run always passes clean. Not caused by code changes.
+
+**Insecure-context camera error fix**
+
+- **Root cause:** `getUserMedia` requires HTTPS or localhost. Opening `index.html` directly as `file://` is not a secure context in Chrome; `--disable-web-security` bypasses CORS but does NOT grant secure-context status. No check existed — the app tried `getUserMedia` and received a cryptic `NotAllowedError`.
+- **Fix 1 (prevention):** Added `window.isSecureContext` check at the top of `startCamera()`, before any `getUserMedia` call. If false, shows a friendly `<h2>Setup Required</h2>` message with step-by-step instructions: double-click `start.bat` → choose option 1 → open `http://localhost:8080`.
+- **Fix 2 (diagnosis):** Improved `catch` block to branch on `err.name`: `NotAllowedError` → permission denied guidance; `NotFoundError` → no camera found; `NotReadableError` → camera in use by another app; fallback → generic message. Previously all errors showed the same generic text.
+- **Tests:** 289 unit + 38 Playwright = 327 total, 0 failing.
+
+**Next session:** Phone-test on iOS Safari: SVG picker cards + blue how-to animation. If both look good, Step 5 is done — move to Step 2 phone testing of all 22 exercises.
+
+### 2026-04-11 — Playwright landmark injection expanded: glutebridge, pullup, legraise (38 tests)
+
+- **glutebridge.spec.ts** — floor + rep-based + `invertedPolarity`: only exercise combining all three. Hip angle geometry verified (collinear = 180° bridged, knee-up = 90° flat). 2 tests.
+- **pullup.spec.ts** — `downGate` (chin-over-bar gate): only exercise with this constraint. Two paths tested: gate blocks phase when chin below hands; gate allows rep when chin clears. 3 tests.
+- **legraise.spec.ts** — hanging + rep-based + hip angle: simplest hanging rep path, no downGate. 2 tests.
+- **Net: +4 tests** (7 written, 3 replaced existing placeholder registry checks). No regressions. 38/38 passing.
+- **Remaining:** 13 placeholder specs still need Y4M recordings to expand.
+
 > Earlier sessions archived in `docs/roadmap-archive.md`
 
 ## Reference Docs
