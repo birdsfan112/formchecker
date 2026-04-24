@@ -33,6 +33,14 @@ the things that tripped you up once and shouldn't trip you up again.
 
 ---
 
+### 2026-04-24 — Archived from CLAUDE.md during compaction
+
+**ngrok needs HTTP upstream, not HTTPS.** When ngrok proxies to a local HTTPS server, it gets confused. Point ngrok at the HTTP port (8080) and let ngrok handle TLS termination.
+
+**Phone screen recordings are the best debug tool.** When tuning thresholds that show debug overlays, have Scott screen-record on his phone rather than memorizing numbers at 6 feet. Extract frames with ffmpeg (`fps=1/5` gives one frame per 5 seconds) and read the debug text from still images. More reliable than verbal reports. (Full workflow: `docs/debug-video-workflow.md`.)
+
+---
+
 [Add new entries above this line, newest first]
 
 ---
