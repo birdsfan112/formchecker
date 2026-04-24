@@ -3,7 +3,7 @@
 |-------|-------|
 | Priority | active |
 | Phase | Implement |
-| Updated | 2026-04-20 |
+| Updated | 2026-04-24 |
 | Summary | Step 5.6 Unified Exercise Signature Schema v1 shipped to main 2026-04-20. Consolidates per-exercise data into one file at `assets/animations/<ex>.json`: trajectory + ROM advisory + phase markers + angle timeseries + MediaPipe provenance + future hedges (`canonical_reps[]`, `phases[]`, `joint_weights: {}`). Squat + pullup phone-approved for animation (squat with `--mirror-x`, pullup with correct frames 180-290). **Picker silhouette from signature was tried and reverted same-day** — front-view crouched poses don't read as iconic exercises at 70x62px; picker stays on pre-authored SVGs. Signature drives animation + ROM + future scoring; picker is SVG. Tests: 107 pytest, 44 Playwright, 289 node. Spec: `docs/specs/exercise-signature-schema.md`. |
 | Needs Scott | (1) Curate remaining 20 clip URLs in `pipeline/sources.yaml` (~2 hrs). Note each clip's facing direction. (2) Consider whether the plank/static-hold case warrants its own preset before curating statics. |
 | Autonomous | Add horizontal/kneeling/quadruped presets once Scott curates an example clip of each drawStyle. `generate_picker.py` (imagegen skill). Retire `HOW_TO_KEYFRAMES` + `EXERCISE_SVGS` once batch lands. |
@@ -84,6 +84,10 @@
 ### 2026-04-24 — Roadmap compaction
 
 **Compaction:** trimmed 6 entries (2026-04-20, 2026-04-19, 2026-04-18, 2026-04-16, 2026-04-12, 2026-04-11 — all trims ≤40% content-removed; 2026-04-11 + 2026-04-16 were paragraph reflows preserving all content). No coalesce (no same-day groups). No archive (only 6 entries, under 15-most-recent rule). Session Log: 169 → 125 lines. Total file: 259 → 214 lines.
+
+**Earlier botched attempt reverted (same day)**
+
+First compaction pass (commit `7344dab`) over-trimmed — reverted in `e57ea7b` before the corrected pass above. Clean restore, no content lost. Next session: continue on Step 5.5 — Scott curates remaining 20 clip URLs in `pipeline/sources.yaml`.
 
 ### 2026-04-20 — Step 5.6 Unified Exercise Signature Schema v1 shipped
 
