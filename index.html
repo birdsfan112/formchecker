@@ -1235,6 +1235,7 @@ const dipConfig = {
 
   silhouette: {
     drawStyle: 'standing',
+    drawVariant: 'dip',
   },
 
   analysis: {
@@ -4678,10 +4679,18 @@ const EXERCISE_SVGS = {
   quadruped: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 110"><g stroke="rgba(255,255,255,0.85)" stroke-linecap="round" stroke-linejoin="round" fill="none"><line x1="8" y1="92" x2="192" y2="92" stroke="rgba(255,255,255,0.45)" stroke-width="2"/><circle cx="38" cy="50" r="10" fill="rgba(255,255,255,0.18)" stroke-width="2.5"/><path d="M 29 47 L 22 50 L 29 53 Z" fill="rgba(255,255,255,0.85)" stroke="none"/><path d="M 58 38 L 138 42 L 138 58 L 58 54 Z" fill="rgba(255,255,255,0.18)" stroke-width="2.5"/><path d="M 58 46 Q 56 68 54 92 L 64 92 Q 65 68 66 46 Z" fill="rgba(255,255,255,0.18)" stroke-width="2"/><path d="M 138 50 Q 140 68 142 92 L 152 92 Q 151 68 148 50 Z" fill="rgba(255,255,255,0.18)" stroke-width="2"/><circle cx="59" cy="92" r="4" fill="rgba(255,255,255,0.60)" stroke="none"/><circle cx="147" cy="92" r="4" fill="rgba(255,255,255,0.60)" stroke="none"/></g></svg>`,
 
   'quadruped-birddog': `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 110"><g stroke="rgba(255,255,255,0.85)" stroke-linecap="round" stroke-linejoin="round" fill="none"><line x1="8" y1="92" x2="192" y2="92" stroke="rgba(255,255,255,0.45)" stroke-width="2"/><circle cx="42" cy="50" r="10" fill="rgba(255,255,255,0.18)" stroke-width="2.5"/><path d="M 33 47 L 26 50 L 33 53 Z" fill="rgba(255,255,255,0.85)" stroke="none"/><path d="M 62 38 L 138 42 L 138 58 L 62 54 Z" fill="rgba(255,255,255,0.18)" stroke-width="2.5"/><path d="M 62 46 L 18 44 L 18 50 L 62 52 Z" fill="rgba(255,255,255,0.18)" stroke-width="2"/><path d="M 62 50 Q 64 70 66 92 L 74 92 Q 73 70 70 50 Z" fill="rgba(255,255,255,0.18)" stroke-width="2"/><path d="M 138 46 L 182 44 L 182 50 L 138 52 Z" fill="rgba(255,255,255,0.18)" stroke-width="2"/><path d="M 138 50 Q 136 70 134 92 L 142 92 Q 143 70 146 50 Z" fill="rgba(255,255,255,0.18)" stroke-width="2"/><circle cx="70" cy="92" r="4" fill="rgba(255,255,255,0.60)" stroke="none"/><circle cx="138" cy="92" r="4" fill="rgba(255,255,255,0.60)" stroke="none"/></g></svg>`,
+
+  // Bespoke per-exercise silhouettes (2026-04-24 picker SVG audit fix).
+  // Side-3/4 view, bottom of rep, facing right. Z-bend on near arm = dip signature.
+  dip: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 130 150"><g stroke="rgba(255,255,255,0.85)" stroke-linecap="round" stroke-linejoin="round" fill="none"><line x1="22" y1="20" x2="106" y2="20" stroke="rgba(255,255,255,0.40)" stroke-width="3"/><line x1="14" y1="34" x2="114" y2="34" stroke-width="4"/><circle cx="58" cy="52" r="10" fill="rgba(255,255,255,0.18)" stroke-width="2.5"/><path d="M 67 49 L 73 52 L 67 55 Z" fill="rgba(255,255,255,0.85)" stroke="none"/><path d="M 62 62 Q 68 80 64 102 L 64 114 L 50 114 Q 47 92 53 62 Z" fill="rgba(255,255,255,0.18)" stroke-width="2.5"/><path d="M 60 62 L 48 48 L 52 34" stroke-width="2.6"/><circle cx="52" cy="34" r="2.8" fill="rgba(255,255,255,0.85)" stroke="none"/><path d="M 60 64 L 64 38 L 64 20" stroke-width="2" stroke-opacity="0.55"/><circle cx="64" cy="20" r="2.2" fill="rgba(255,255,255,0.55)" stroke="none"/><path d="M 54 114 Q 56 126 46 132" stroke-width="2.4"/><path d="M 58 114 Q 60 124 50 130" stroke-width="2" stroke-opacity="0.65"/></g></svg>`,
 };
 
 // Returns the EXERCISE_SVGS key for a given drawStyle + drawVariant pair.
 function getSvgKey(drawStyle, drawVariant) {
+  // Bespoke per-exercise silhouettes (2026-04-24 picker SVG audit fix).
+  // drawVariant takes precedence so live-outline drawStyle stays untouched.
+  if (drawVariant === 'dip') return 'dip';
+
   if (drawStyle === 'horizontal') {
     return drawVariant === 'pushup' ? 'horizontal-pushup' : 'horizontal-plank';
   }

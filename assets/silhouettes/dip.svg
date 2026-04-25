@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 130 150" width="130" height="150">
+  <!-- Side-3/4 view dip at BOTTOM of rep, facing right. Two parallel bars visible
+       (near = foreground, full opacity; far = background, offset up + lower opacity
+       to suggest depth). Z-shape bent elbow on near arm is the key signature that
+       distinguishes dip from pull-up/hang. Used for: dip. -->
+  <g stroke="rgba(255,255,255,0.85)" stroke-linecap="round" stroke-linejoin="round" fill="none">
+
+    <!-- Far parallel bar (background, depth cue) -->
+    <line x1="22" y1="20" x2="106" y2="20"
+          stroke="rgba(255,255,255,0.40)" stroke-width="3"/>
+
+    <!-- Near parallel bar (foreground, prominent) -->
+    <line x1="14" y1="34" x2="114" y2="34"
+          stroke="rgba(255,255,255,0.85)" stroke-width="4"/>
+
+    <!-- Head — sunk to bar level at bottom of rep, faces right -->
+    <circle cx="58" cy="52" r="10" fill="rgba(255,255,255,0.18)" stroke-width="2.5"/>
+
+    <!-- Nose bump — points right (side-view facing direction marker) -->
+    <path d="M 67 49 L 73 52 L 67 55 Z"
+          fill="rgba(255,255,255,0.85)" stroke="none"/>
+
+    <!-- Torso — slight forward lean, suspended below near bar -->
+    <path d="
+      M 62 62
+      Q 68 80 64 102
+      L 64 114
+      L 50 114
+      Q 47 92 53 62
+      Z"
+      fill="rgba(255,255,255,0.18)" stroke-width="2.5"/>
+
+    <!-- Near arm — bent ~90° at elbow. Shoulder (60,62) → elbow back-up (48,48)
+         → wrist on near bar (52,34). Z-shape = dip-bottom signature. -->
+    <path d="M 60 62 L 48 48 L 52 34" stroke-width="2.6"/>
+
+    <!-- Hand grip on near bar -->
+    <circle cx="52" cy="34" r="2.8" fill="rgba(255,255,255,0.85)" stroke="none"/>
+
+    <!-- Far arm — partially behind body going to far bar (lower opacity = depth) -->
+    <path d="M 60 64 L 64 38 L 64 20" stroke-width="2" stroke-opacity="0.55"/>
+
+    <!-- Hand grip on far bar -->
+    <circle cx="64" cy="20" r="2.2" fill="rgba(255,255,255,0.55)" stroke="none"/>
+
+    <!-- Legs — bent at knees, ankles pulled back behind body (tucked posture) -->
+    <path d="M 54 114 Q 56 126 46 132" stroke-width="2.4"/>
+    <path d="M 58 114 Q 60 124 50 130" stroke-width="2" stroke-opacity="0.65"/>
+
+  </g>
+</svg>
