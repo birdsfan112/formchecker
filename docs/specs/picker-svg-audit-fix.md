@@ -1,6 +1,8 @@
 # Picker SVG Audit — 5 Wrong Exercises
 
-**Status:** Spec (2026-04-20). Execution deferred to next session.
+**Status:** SUPERSEDED (2026-04-24) by `picker-png-rebuild.md`. The hand-coded SVG approach was attempted for dips in calibration commit `a0215d7`; phone review showed the geometric-stick-figure style can't hit picker iconicity at 70×62. New approach: replace all 22 silhouettes with Gemini-generated solid-white PNGs. Do not work from this spec.
+
+**Original status:** Spec (2026-04-20). Execution deferred to next session.
 
 **Background:** `EXERCISE_SVGS` (in `index.html`) has 7 shared shapes covering all 22 exercises via `drawStyle` + `drawVariant` (see `getSvgKey`). Five exercises fall through to the wrong shape and don't read as the exercise they represent. Scott's phone-review 2026-04-20 identified them.
 
