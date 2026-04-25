@@ -4,9 +4,9 @@
 | Priority | active |
 | Phase | Implement |
 | Updated | 2026-04-24 |
-| Summary | Step 5.6 Unified Exercise Signature Schema v1 shipped to main 2026-04-20. Consolidates per-exercise data into one file at `assets/animations/<ex>.json`: trajectory + ROM advisory + phase markers + angle timeseries + MediaPipe provenance + future hedges (`canonical_reps[]`, `phases[]`, `joint_weights: {}`). Squat + pullup phone-approved for animation (squat with `--mirror-x`, pullup with correct frames 180-290). **Picker silhouette from signature was tried and reverted same-day** — front-view crouched poses don't read as iconic exercises at 70x62px; picker stays on pre-authored SVGs. Signature drives animation + ROM + future scoring; picker is SVG. Tests: 107 pytest, 44 Playwright, 289 node. Spec: `docs/specs/exercise-signature-schema.md`. |
-| Needs Scott | (1) Curate remaining 20 clip URLs in `pipeline/sources.yaml` (~2 hrs). Note each clip's facing direction. (2) Consider whether the plank/static-hold case warrants its own preset before curating statics. |
-| Autonomous | Add horizontal/kneeling/quadruped presets once Scott curates an example clip of each drawStyle. `generate_picker.py` (imagegen skill). Retire `HOW_TO_KEYFRAMES` + `EXERCISE_SVGS` once batch lands. |
+| Summary | Step 5.6 Unified Exercise Signature Schema v1 shipped to main 2026-04-20. Consolidates per-exercise data into one file at `assets/animations/<ex>.json`: trajectory + ROM advisory + phase markers + angle timeseries + MediaPipe provenance + future hedges (`canonical_reps[]`, `phases[]`, `joint_weights: {}`). Squat + pullup phone-approved for animation (squat with `--mirror-x`, pullup with correct frames 180-290). **Picker silhouette path revised 2026-04-24** to all-22 PNG rebuild via Gemini per `docs/specs/picker-png-rebuild.md` (supersedes `picker-svg-audit-fix.md`); SVG calibration commit `a0215d7` held in tree as placeholder. Tests: 107 pytest, 44 Playwright, 289 node. Spec: `docs/specs/exercise-signature-schema.md`. |
+| Needs Scott | (1) Curate remaining 20 clip URLs in `pipeline/sources.yaml` (~2 hrs). Note each clip's facing direction. (2) Consider whether the plank/static-hold case warrants its own preset before curating statics. (3) Generate 22 picker PNGs in Gemini per `docs/specs/picker-png-rebuild.md`, drop in `assets/silhouettes/<id>.png`. |
+| Autonomous | Add horizontal/kneeling/quadruped presets once Scott curates an example clip of each drawStyle. Wire up the picker PNG batch (drop `EXERCISE_SVGS`/`getSvgKey`, swap render path, archive old SVGs) once Scott drops the 22 PNGs. Retire `HOW_TO_KEYFRAMES` once animation batch lands. |
 | Blockers | None |
 
 <!-- CHIEF OF STAFF NOTE: The Status block above is read by the daily review. Keep every field current.
@@ -25,6 +25,15 @@
 - [x] Arch hangs / scapular pulls (timed hanging exercises, 14-15 in registry)
 - [x] Mobility/PT batch — shoulder dislocates, hip flexor stretch, wrist warm-up, band pull-aparts, foam roller, cat-cow, bird-dog (exercises 16-22)
 - [ ] Phone test all 22 exercises — use `docs/exercise-testing-protocol.md`
+
+### Picker PNG rebuild (spec'd 2026-04-24)
+*Per `docs/specs/picker-png-rebuild.md`. Replaces all 22 picker silhouettes with Gemini-generated solid-white PNGs (transparent bg, anatomical contour lines). Supersedes `picker-svg-audit-fix.md` after the dip-calibration commit `a0215d7` showed the hand-coded geometric SVG style can't hit iconicity at 70×62.*
+
+- [x] Spec written (`df3661f`); old SVG-audit spec marked SUPERSEDED
+- [ ] Scott: generate 22 PNGs in Gemini per spec, drop in `assets/silhouettes/<id>.png`
+- [ ] Wire-up (autonomous post-PNGs): drop `EXERCISE_SVGS` + `getSvgKey`, swap picker render path to `<img src="assets/silhouettes/${id}.png">`, add `object-fit: contain` CSS, archive `assets/silhouettes/*.svg`, drop `drawVariant: 'dip'` from `dipConfig`, delete `SVG_PIPELINE_NOTES.md`
+- [ ] Phone review all 22 cards (squint test at picker size)
+- [ ] Deploy to `main`
 
 ### Step 5.5 — Automated asset pipeline (approved 2026-04-17)
 *Per `docs/specs/animation-pipeline-implementation.md`. Paradigm rationale in `docs/specs/animation-paradigm-evaluation.md`. Source → MediaPipe Pose → canonical trajectory JSON → animation + ROM baseline. Picker path updated 2026-04-20: picker stays on pre-authored SVGs (see Backlog 4); pipeline no longer generates picker assets. Signature schema v1 (Step 5.6) shipped on top of this pipeline 2026-04-20 — see `docs/specs/exercise-signature-schema.md`.*
@@ -48,9 +57,8 @@
    - `hipsTooHigh` (push-up): check `avgBack > 195` is unreachable because `angle()` clamps output to [0, 180]. Dead code in both old and new versions. Redesign using supplement angle, or remove entirely if pike push-ups covers this shape.
    - Audit all other exercises for the same two patterns once the framework migration is complete.
 3. **Dip orientation nudge** — the old dip analyzer wrote `angleHint.textContent = 'Face the camera for best tracking'` every frame when `shoulderSpan < 0.10`. Dropped during framework migration (2026-04-10) to avoid adding a per-frame-side-effect hook to the framework. Restore via a small framework `onFrame(lm)` extension, or inline it into dip's trackingJoint as a side effect.
-4. **SVG picker audit** (spec'd 2026-04-20 — `docs/specs/picker-svg-audit-fix.md`) — 5 of 22 exercises have picker silhouettes that don't read as the exercise: **dips, inverted rows, glute bridge, hip flexor stretch, foam roller** (all fall through the 7 shared shapes in `EXERCISE_SVGS`/`getSvgKey` to the wrong pose). Approach: bespoke single-color silhouette SVG per exercise via `imagegen` skill, angle chosen per-exercise for iconicity (mix of side/3-4). Extend `getSvgKey` with exercise-id routing; update 5 configs with bespoke `drawVariant`. Live-outline code path unchanged (only the picker uses `drawVariant`). Next session: generate one (foam roller or dip), ship, phone-review, then batch the other 4.
-5. **Step 5.7 — Multi-canonical enrichment** (after all 22 Step 5.6 signatures ship). Extend schema from 1 canonical rep per exercise to 3-5. Scott curates additional URLs per exercise in `sources.yaml` (already structured as list in 5.6); pipeline extracts, phase-aligns via DTW or top-of-rep sync, filters quality, populates `canonical_reps[]`. Unlocks: (a) MediaPipe k-NN classifier pattern for similarity scoring, (b) body-proportion matching during warmup (pick the canonical that looks most like the user), (c) ROM *bands* rather than ROM *points*, (d) golden-form bias removal. Mostly Python-side — consumer code unchanged if 5.6 schema is correct.
-6. **Post-set / post-workout feedback layer** (Phase 5.x, new sprint after 5.7). Current live coaching is real-time only; users get no post-rep, post-set, or post-workout analysis. Features:
+4. **Step 5.7 — Multi-canonical enrichment** (after all 22 Step 5.6 signatures ship). Extend schema from 1 canonical rep per exercise to 3-5. Scott curates additional URLs per exercise in `sources.yaml` (already structured as list in 5.6); pipeline extracts, phase-aligns via DTW or top-of-rep sync, filters quality, populates `canonical_reps[]`. Unlocks: (a) MediaPipe k-NN classifier pattern for similarity scoring, (b) body-proportion matching during warmup (pick the canonical that looks most like the user), (c) ROM *bands* rather than ROM *points*, (d) golden-form bias removal. Mostly Python-side — consumer code unchanged if 5.6 schema is correct.
+5. **Post-set / post-workout feedback layer** (Phase 5.x, new sprint after 5.7). Current live coaching is real-time only; users get no post-rep, post-set, or post-workout analysis. Features:
    - Rep-by-rep quality scores (leverages signature's `phase_frames` + `angle_timeseries`)
    - Post-set summary with specific form issues ("knee bottomed at 110° vs canonical 90°")
    - Post-workout dashboard: total reps, form trends, weakest points across exercises
@@ -73,7 +81,8 @@
 | 2026-Q1 | Data-driven exerciseRegistry | Merged exerciseMeta + exercises — adding an exercise is now one object + one `<option>` | Accepted |
 | 2026-Q1 | Lite MediaPipe model (complexity 0) | Reduced thermal load ~50% on mobile; acceptable accuracy tradeoff for bodyweight exercises | Accepted |
 | 2026-Q1 | Smart calibration covers multiple exercises | Squat ROM → squat + lunge; pushup ROM → pushup + pike + pullup. 6 reps calibrates all 4 rep-based exercises | Accepted |
-| 2026-04-17 | Automated asset pipeline for animations + picker | Replace hand-authored 2-keyframe lerp + 7-shared-SVG picker with MediaPipe-extraction pipeline. YouTube allowed as source (coordinates not pixels). 60-frame loops. Minimalist silhouette picker via `imagegen`. ROM baseline as bonus output. | Accepted |
+| 2026-04-17 | Automated asset pipeline for animations + picker | Replace hand-authored 2-keyframe lerp + 7-shared-SVG picker with MediaPipe-extraction pipeline. YouTube allowed as source (coordinates not pixels). 60-frame loops. Minimalist silhouette picker via `imagegen`. ROM baseline as bonus output. | Accepted (animation); picker portion superseded 2026-04-24 |
+| 2026-04-24 | Picker silhouette format flip: SVG → Gemini PNG (all 22) | Hand-coded geometric SVG worked for 17 cards but couldn't hit iconicity at 70×62 for the 5 audit-target exercises (dips, inverted rows, glute bridge, hip flexor, foam roller). Gemini-generated PNG reference for dips read instantly. Replacing only the 5 in the new style would leave a mixed picker; redoing all 22 keeps grid coherence. PNG files at `assets/silhouettes/<id>.png`, drop `EXERCISE_SVGS`/`getSvgKey`. Spec: `docs/specs/picker-png-rebuild.md`. | Accepted |
 
 ## Session Log
 
@@ -88,6 +97,20 @@
 **Earlier botched attempt reverted (same day)**
 
 First compaction pass (commit `7344dab`) over-trimmed — reverted in `e57ea7b` before the corrected pass above. Clean restore, no content lost. Next session: continue on Step 5.5 — Scott curates remaining 20 clip URLs in `pipeline/sources.yaml`.
+
+**Picker silhouette rev: SVG → PNG (calibration + spec flip)**
+
+Started executing Backlog 4 (`picker-svg-audit-fix.md`) with dips as the calibration target. Hand-coded geometric SVG (commit `a0215d7`): side-3/4 view with two parallel bars, Z-bend bent elbow at bottom of rep. Source at `assets/silhouettes/dip.svg`, inlined in `EXERCISE_SVGS`, routed via new `drawVariant: 'dip'` branch in `getSvgKey`. Aesthetic params + per-exercise notes for the planned 4-exercise fan-out captured in `docs/specs/SVG_PIPELINE_NOTES.md`. Held off pushing pending phone review.
+
+Scott countered with a Gemini-generated reference image of a dip — solid white silhouette with thin black anatomical contour lines, two parallel bars in perspective, top of rep with knees tucked. Read instantly at thumbnail size; the hand-coded SVG was a pile of sticks at 70×62. Honest reassessment: the geometric-stick-figure aesthetic that scaled fine for the 17 already-acceptable cards can't hit iconicity for the ones with equipment + dynamic poses.
+
+**Decision: scope flip to all-22 PNG rebuild via Gemini.** Replacing only the 5 audit targets in the new style would leave a visually mixed picker (5 polished + 17 stick-figure). Going coherent means redoing all 22.
+
+New spec `docs/specs/picker-png-rebuild.md` (commit `df3661f`) — asset spec (1024×1024 transparent PNG, solid white fill + dark contour lines, ≤60 KB each), Gemini prompt template with four bracketed substitutions, per-exercise table for all 22 (position, view angle, equipment, key shape cue), distinguishing-pairs callouts (glutebridge/foamroller, catcow/birddog, deadhang/archhang/scapularpull, pullup/legraise), wire-up plan to drop `EXERCISE_SVGS` + `getSvgKey` for `<img src="assets/silhouettes/${id}.png">` keyed on exercise id. `picker-svg-audit-fix.md` marked SUPERSEDED. Calibration artifacts (`dip.svg`, inline SVG entry, `SVG_PIPELINE_NOTES.md`, `drawVariant: 'dip'`) stay in tree as placeholder; wire-up phase removes them post-batch.
+
+**Skill deviation:** skipped imagegen skill's "ask user about API keys" step and went straight to SVG fallback — should have surfaced the choice (Scott had Gemini access all along). Worth a Claude System backlog item to add Gemini to imagegen's provider list.
+
+**Next session:** Scott generates 22 PNGs in Gemini per the spec, drops them in `assets/silhouettes/`. Then wire-up: remove `EXERCISE_SVGS`/`getSvgKey`, swap render path, add `object-fit: contain` CSS, archive old SVG sources, drop `drawVariant: 'dip'`, delete `SVG_PIPELINE_NOTES.md`, phone review, deploy.
 
 ### 2026-04-20 — Step 5.6 Unified Exercise Signature Schema v1 shipped
 
@@ -214,5 +237,6 @@ Spec: `docs/specs/normalize-loop-bug-fixes-spec.md`. Three one-file edits, +7/�
 - [`docs/specs/visual-polish-sprint.md`](docs/specs/visual-polish-sprint.md) — visual polish sprint (Step 5, superseded)
 - [`docs/specs/animation-paradigm-evaluation.md`](docs/specs/animation-paradigm-evaluation.md) — Step 5.5 paradigm decision doc
 - [`docs/specs/animation-pipeline-implementation.md`](docs/specs/animation-pipeline-implementation.md) — Step 5.5 implementation spec
-- [`docs/specs/picker-svg-audit-fix.md`](docs/specs/picker-svg-audit-fix.md) — Backlog 4 spec (5 wrong pickers)
+- [`docs/specs/picker-png-rebuild.md`](docs/specs/picker-png-rebuild.md) — picker silhouette PNG rebuild spec (active 2026-04-24)
+- [`docs/specs/picker-svg-audit-fix.md`](docs/specs/picker-svg-audit-fix.md) — original 5-picker SVG audit spec (SUPERSEDED 2026-04-24 by picker-png-rebuild.md)
 - [`docs/roadmap-archive.md`](docs/roadmap-archive.md) — earlier session history
