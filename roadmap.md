@@ -4,7 +4,7 @@
 | Priority | active |
 | Phase | Implement |
 | Updated | 2026-04-26 |
-| Summary | Step 5.6 Unified Exercise Signature Schema v1 shipped to main 2026-04-20. Consolidates per-exercise data into one file at `assets/animations/<ex>.json`: trajectory + ROM advisory + phase markers + angle timeseries + MediaPipe provenance + future hedges (`canonical_reps[]`, `phases[]`, `joint_weights: {}`). Squat + pullup phone-approved for animation (squat with `--mirror-x`, pullup with correct frames 180-290). **Picker silhouette path revised 2026-04-24** to all-22 PNG rebuild per `docs/specs/picker-png-rebuild.md` (supersedes `picker-svg-audit-fix.md`); SVG calibration commit `a0215d7` held in tree as placeholder. **Generation pivoted 2026-04-26** to manual web-UI workflow (ChatGPT/Gemini/DALL-E) after Pollinations Flux failed the calibration test on dip (4 attempts, all wrong pose — concept gap on calisthenics-specific moves) and free icon libraries showed insufficient coverage. 22 ready-to-paste prompts in `docs/specs/picker-png-prompts.md`. Tests: 107 pytest, 44 Playwright, 289 node. Spec: `docs/specs/exercise-signature-schema.md`. |
+| Summary | Roadmap archaeology pass 2026-04-26 (later in day): re-scoped Step-2 phone-test umbrella into a per-exercise checklist (9 of 22 done, 13 remaining); dispatched code-reviewer agent to audit form-cue dead-code (Backlog #2); parked Backlog #3 (dip orientation nudge); re-scoped 2026-04-24 Decision row to reflect manual-web-UI generation pivot. Step 5.6 Unified Exercise Signature Schema v1 shipped to main 2026-04-20. Consolidates per-exercise data into one file at `assets/animations/<ex>.json`: trajectory + ROM advisory + phase markers + angle timeseries + MediaPipe provenance + future hedges (`canonical_reps[]`, `phases[]`, `joint_weights: {}`). Squat + pullup phone-approved for animation (squat with `--mirror-x`, pullup with correct frames 180-290). **Picker silhouette path revised 2026-04-24** to all-22 PNG rebuild per `docs/specs/picker-png-rebuild.md` (supersedes `picker-svg-audit-fix.md`); SVG calibration commit `a0215d7` held in tree as placeholder. **Generation pivoted 2026-04-26** to manual web-UI workflow (ChatGPT/Gemini/DALL-E) after Pollinations Flux failed the calibration test on dip (4 attempts, all wrong pose — concept gap on calisthenics-specific moves) and free icon libraries showed insufficient coverage. 22 ready-to-paste prompts in `docs/specs/picker-png-prompts.md`. Tests: 107 pytest, 44 Playwright, 289 node. Spec: `docs/specs/exercise-signature-schema.md`. |
 | Needs Scott | (1) Curate remaining 20 clip URLs in `pipeline/sources.yaml` (~2 hrs). Note each clip's facing direction. (2) Consider whether the plank/static-hold case warrants its own preset before curating statics. (3) Generate 22 picker PNGs manually using prompts in `docs/specs/picker-png-prompts.md` (paste into ChatGPT/Gemini/DALL-E web UI), drop in `assets/silhouettes/<id>.png`. Generate `dip` first as the style anchor. |
 | Autonomous | Add horizontal/kneeling/quadruped presets once Scott curates an example clip of each drawStyle. Wire up the picker PNG batch (drop `EXERCISE_SVGS`/`getSvgKey`, swap render path, archive old SVGs) once Scott drops the 22 PNGs. Retire `HOW_TO_KEYFRAMES` once animation batch lands. |
 | Blockers | None |
@@ -22,9 +22,23 @@
 ### Step 2 — Scott: Phone test all 22 exercises
 *Use `docs/exercise-testing-protocol.md` — 9-step checklist per exercise.*
 
-- [x] Arch hangs / scapular pulls (timed hanging exercises, 14-15 in registry)
-- [x] Mobility/PT batch — shoulder dislocates, hip flexor stretch, wrist warm-up, band pull-aparts, foam roller, cat-cow, bird-dog (exercises 16-22)
-- [ ] Phone test all 22 exercises — use `docs/exercise-testing-protocol.md`
+*Re-scoped 2026-04-26: umbrella line replaced with per-exercise checklist for the 13 untested. Scott checks each off as phone-tested. Per-exercise testing uncovers cue regressions that batch testing misses.*
+
+- [x] Arch hangs / scapular pulls (timed hanging, 14-15 in registry)
+- [x] Mobility/PT batch — shoulder dislocates, hip flexor stretch, wrist warm-up, band pull-aparts, foam roller, cat-cow, bird-dog (16-22)
+- [ ] Pushup
+- [ ] Squat
+- [ ] Pullup
+- [ ] Lunge
+- [ ] Plank
+- [ ] Pike push-ups
+- [ ] Dips
+- [ ] Dead hang
+- [ ] Leg raises
+- [ ] Inverted rows
+- [ ] L-sit
+- [ ] Pistol squat
+- [ ] Glute bridge
 
 ### Picker PNG rebuild (spec'd 2026-04-24, generation pivoted 2026-04-26)
 *Per `docs/specs/picker-png-rebuild.md`. Replaces all 22 picker silhouettes with solid-white PNGs (transparent bg, anatomical contour lines). Supersedes `picker-svg-audit-fix.md` after the dip-calibration commit `a0215d7` showed the hand-coded geometric SVG style can't hit iconicity at 70×62. Generation method pivoted 2026-04-26 from API-batch to manual web-UI after Pollinations Flux failed the dip calibration (4 attempts, wrong pose) and free icon libraries proved insufficient.*
@@ -54,11 +68,8 @@
      If an item needs a full spec, write the spec in docs/specs/ and link to it here. -->
 
 1. **Phase 6 — Monetization & Distribution** — PWA install prompt, landing page, freemium model, user accounts, social sharing, app store wrapper (Capacitor/Ionic)
-2. **Form-cue audit (post-framework)** — two known dormant cues surfaced during the push-up framework migration (2026-04-10):
-   - `goDeeper` (push-up, and likely pike/dip too): in the new framework `goingDown` is only tracked in the 'up' phase, so the existing check `phase === 'down' && goingDown && elbow > elbow_down + 12` is unreachable. It was also effectively dead in the old hand-coded version (only fired on bounce patterns). Redesign to fire when the 'down'-phase valley is shallower than the calibrated bottom by X°.
-   - `hipsTooHigh` (push-up): check `avgBack > 195` is unreachable because `angle()` clamps output to [0, 180]. Dead code in both old and new versions. Redesign using supplement angle, or remove entirely if pike push-ups covers this shape.
-   - Audit all other exercises for the same two patterns once the framework migration is complete.
-3. **Dip orientation nudge** — the old dip analyzer wrote `angleHint.textContent = 'Face the camera for best tracking'` every frame when `shoulderSpan < 0.10`. Dropped during framework migration (2026-04-10) to avoid adding a per-frame-side-effect hook to the framework. Restore via a small framework `onFrame(lm)` extension, or inline it into dip's trackingJoint as a side effect.
+2. **Form-cue audit (post-framework)** — ✅ **Audit complete 2026-04-26** — see `docs/specs/form-cue-audit-2026-04-26.md`. Code-reviewer agent surveyed all 33 cues across 22 exercises. Result: **7 UNREACHABLE** (`goDeeper` × 5 — pushup/squat/lunge/pike/dip; `hipsTooHigh` × 2 — pushup/plank), **3 SUSPECT** (glutebridge `driveHigher`, pullup `chinOverBar`, lunge `torsoLean`), **23 REACHABLE clean.** Both seed-hypothesis patterns confirmed; all UNREACHABLE cues fall into them. **Next step:** Scott picks which UNREACHABLE cues to redesign (Y-coordinate check for `hipsTooHigh` family, phase-flip for `goDeeper` family) vs. delete; SUSPECT cues need phone-test verification before code change.
+3. **Dip orientation nudge** — 🅿️ **Parked 2026-04-26.** Old dip analyzer wrote `angleHint.textContent = 'Face the camera for best tracking'` every frame when `shoulderSpan < 0.10`. Dropped during framework migration (2026-04-10) to avoid adding a per-frame-side-effect hook to the framework. Restore via a small framework `onFrame(lm)` extension, or inline into dip's trackingJoint as a side effect. Re-open trigger: dip-specific tracking issue surfaces during phone-test (Sprint Step 2).
 4. **Step 5.7 — Multi-canonical enrichment** (after all 22 Step 5.6 signatures ship). Extend schema from 1 canonical rep per exercise to 3-5. Scott curates additional URLs per exercise in `sources.yaml` (already structured as list in 5.6); pipeline extracts, phase-aligns via DTW or top-of-rep sync, filters quality, populates `canonical_reps[]`. Unlocks: (a) MediaPipe k-NN classifier pattern for similarity scoring, (b) body-proportion matching during warmup (pick the canonical that looks most like the user), (c) ROM *bands* rather than ROM *points*, (d) golden-form bias removal. Mostly Python-side — consumer code unchanged if 5.6 schema is correct.
 5. **Post-set / post-workout feedback layer** (Phase 5.x, new sprint after 5.7). Current live coaching is real-time only; users get no post-rep, post-set, or post-workout analysis. Features:
    - Rep-by-rep quality scores (leverages signature's `phase_frames` + `angle_timeseries`)
@@ -78,7 +89,7 @@
 11. **Playwright pushup spec passes vacuously — TODO admits no real assertions yet.** `tests/playwright/exercises/pushup.spec.ts:6–25` contains `// TODO: Record a Y4M video and save to ... Then expand this placeholder` and currently asserts nothing meaningful. CI prints "✓ pushup tests passed" but pushup detection is untested. PRs touching pushup logic look safe and aren't. **Fix:** mark with `test.skip()` or `test.todo()` so CI surfaces the incomplete coverage rather than blessing it. Bigger fix: actually record the Y4M and write the assertions.
 12. **Warmup calibration thresholds `< 165` and `firstPeak - 15` lack rationale.** `index.html:2008` gates "is this a real bend" on two magic numbers. Why 165° (rough vertical-ish)? Why 15° delta (jitter filter)? No comment. **Fix:** inline comment naming both — `// Require joint bend ≥15° from initial extension (jitter filter; tighter than this misses slow movers) AND min angle <165° (excludes near-vertical poses that aren't real bends)`. Same shape as #7; resolves to the same fix at scale.
 
-*Source: cross-project grossness audit run 2026-04-26 (see also Smart TV Calendar Backlog 15–18, ProBonofy Backlog 16–20, LegalGuard Backlog 4–8, and Claude System Backlog 28–29). Audit lens captured as `~/.claude/skills/gross-code-auditor/SKILL.md`.*
+*Source: cross-project grossness audit run 2026-04-26 (see also Smart TV Calendar Backlog 15–18, ProBonofy Backlog 12–16, LegalGuard Backlog 3–7, and Claude System Backlog 28–29). Audit lens captured as `~/.claude/skills/gross-code-auditor/SKILL.md`.*
 
 ## Decisions
 
@@ -96,13 +107,26 @@
 | 2026-Q1 | Lite MediaPipe model (complexity 0) | Reduced thermal load ~50% on mobile; acceptable accuracy tradeoff for bodyweight exercises | Accepted |
 | 2026-Q1 | Smart calibration covers multiple exercises | Squat ROM → squat + lunge; pushup ROM → pushup + pike + pullup. 6 reps calibrates all 4 rep-based exercises | Accepted |
 | 2026-04-17 | Automated asset pipeline for animations + picker | Replace hand-authored 2-keyframe lerp + 7-shared-SVG picker with MediaPipe-extraction pipeline. YouTube allowed as source (coordinates not pixels). 60-frame loops. Minimalist silhouette picker via `imagegen`. ROM baseline as bonus output. | Accepted (animation); picker portion superseded 2026-04-24 |
-| 2026-04-24 | Picker silhouette format flip: SVG → Gemini PNG (all 22) | Hand-coded geometric SVG worked for 17 cards but couldn't hit iconicity at 70×62 for the 5 audit-target exercises (dips, inverted rows, glute bridge, hip flexor, foam roller). Gemini-generated PNG reference for dips read instantly. Replacing only the 5 in the new style would leave a mixed picker; redoing all 22 keeps grid coherence. PNG files at `assets/silhouettes/<id>.png`, drop `EXERCISE_SVGS`/`getSvgKey`. Spec: `docs/specs/picker-png-rebuild.md`. | Accepted |
+| 2026-04-24 | Picker silhouette format flip: SVG → manual web-UI PNG (all 22) | Hand-coded geometric SVG worked for 17 cards but couldn't hit iconicity at 70×62 for the 5 audit-target exercises (dips, inverted rows, glute bridge, hip flexor, foam roller). Replacing only the 5 in the new style would leave a mixed picker; redoing all 22 keeps grid coherence. **Generation method pivoted 2026-04-26** from API-batch to manual web-UI workflow (ChatGPT/Gemini/DALL-E) after Pollinations Flux failed dip calibration (4 attempts, wrong pose) and free icon libraries showed insufficient coverage. PNG files at `assets/silhouettes/<id>.png`, drop `EXERCISE_SVGS`/`getSvgKey`. Specs: `docs/specs/picker-png-rebuild.md` + `docs/specs/picker-png-prompts.md`. | Accepted |
 
 ## Session Log
 
 <!-- Reverse-chronological. Most recent entry first. Cap at ~15 entries.
      Archive older entries to docs/roadmap-archive.md (see Archive Pointer below).
      Multiple sessions on the same date can be consolidated into one entry. -->
+
+### 2026-04-26 — Roadmap archaeology pass + form-cue audit
+
+Ran `roadmap-archaeologist` skill. FormChecker surfaced 4 items, all 4 acted on:
+
+- **Sprint umbrella re-scoped** — "Phone test all 22 exercises" replaced with a per-exercise checklist for the 13 untested (pushup, squat, pullup, lunge, plank, pike, dip, deadhang, legraise, row, lsit, pistol, glutebridge). The umbrella had been open since 2026-04-09 with sub-progress (arch hangs ✅, mobility/PT batch ✅) but no granular tracking on the rest. Per-exercise checkboxes will surface real progress.
+- **Backlog #2 (Form-cue audit) — done via subagent.** Code-reviewer agent dispatched in background, audited all 33 cues across 22 exercises in ~2 min. Findings written to `docs/specs/form-cue-audit-2026-04-26.md`: **7 UNREACHABLE** (5× `goDeeper` siblings — pushup/squat/lunge/pike/dip; 2× `hipsTooHigh` siblings — pushup/plank), **3 SUSPECT** (glutebridge `driveHigher`, pullup `chinOverBar`, lunge `torsoLean`), **23 REACHABLE clean.** Both seed-hypothesis patterns from the 2026-04-10 backlog item confirmed; all UNREACHABLE cues fall into them. Implementation queued as follow-up — Scott picks redesign vs. delete per cue.
+- **Backlog #3 (Dip orientation nudge) — parked.** No engagement since 2026-04-10 origin. Re-open trigger: dip-specific tracking issue surfaces on phone-test.
+- **Decisions table — 2026-04-24 picker-format-flip row re-scoped.** Title updated SVG → Gemini PNG → SVG → manual web-UI PNG; context now captures the 2026-04-26 generation-method pivot (Pollinations Flux failed dip calibration, free icon libraries inadequate, manual web-UI workflow chosen with 22 ready-to-paste prompts in `docs/specs/picker-png-prompts.md`). Decision still holds (PNG over SVG); only the generation method changed.
+
+Cross-project footer references updated to ProBonofy 12-16 + LegalGuard 3-7 (both renumbered earlier today by their own archaeology passes).
+
+Pattern observation: FormChecker's drift shape is **"sprint-adjacent backlog rot"** — items added at the moment a sprint closes (form-cue audit + dip nudge both added 2026-04-10 alongside the framework migration close) then orphaned because the next sprint pivoted elsewhere. Pattern fix: when adding an item alongside a sprint close, give it an explicit deadline OR park it.
 
 ### 2026-04-24 — Roadmap compaction
 
