@@ -37,3 +37,36 @@ Verified all `calibration.<id>` reads target the cue's owning exercise — no cr
 **33 cues across 22 exercises. 7 UNREACHABLE, 3 SUSPECT, 23 REACHABLE.**
 
 The five `goDeeper` cues plus two `hipsTooHigh` cues account for 100% of the structurally dead cues — both patterns exactly match the dormant-pattern hypothesis seeded in the audit brief.
+
+---
+
+## RESOLUTION (same-day, 2026-04-26)
+
+All 7 UNREACHABLE cues fixed and shipped. SUSPECT cues left for phone-test verification.
+
+### Framework signature extended
+
+`buildRepAnalyzer` now passes `goingUp` and `phaseExtremum` to form-check `check()` callbacks (and to dynamic `cue.message` callbacks). Existing checks ignore the extra args (JS positional). `buildTestRepAnalyzer` and `buildTestRepAnalyzerEx` test harnesses updated to match.
+
+### `goDeeper` redesigned (5 exercises)
+
+The audit recommendation suggested `phase === 'down' && angleNow > calibration_bottom + 12`. **That direction is wrong.** Trace: `phaseExtremum` in `'down'` phase tracks the valley, set on entry to `angleNow` (already `< bottomThreshold`) and only ever decreased. So `phaseExtremum` is always `≤ bottomThreshold`, never `> bottomThreshold + 12`. And firing on `angleNow > bottom + 12` in 'down' phase incorrectly fires on the rising portion of *clean* deep reps too.
+
+**Implemented:** `phase === 'down' && goingUp && phaseExtremum > (calibration_bottom - 12)`. Reads as: "post-bottom rising, AND deepest point reached stayed within 12° of the depth threshold (= shallow rep)." Boundary semantics:
+- Pushup `elbow_down=100`: cue fires when `phaseExtremum > 88`. Deep rep (e.g., elbow at 80°) → 80 > 88 false → silent. Shallow rep (elbow only got to 95°) → 95 > 88 true → "Go deeper" fires.
+- Same shape for squat (`knee_down-12=88`), lunge (`knee_down-12=98`), pike/dip (`elbow_down-12=78`).
+
+### `hipsTooHigh` removed (2 exercises)
+
+Both pushup and plank `hipsTooHigh` cues deleted entirely. Rationale: the dead-code direction (`avgBack > 195` against `angle()` clamp `[0, 180]`) is unreachable; replacing with a working Y-shape check would change real coaching behavior. For the dropped-hips direction, `pushup.hipSag` and `plank.hipSagSevere` already cover it. Pike-shape during a regular pushup can be added later as a *new* feature if phone-testing surfaces the need; pike push-ups have their own canonical `pike.hipsHigh` cue.
+
+### Tests
+
+- 5 stale tests that documented the dead behavior were rewritten or replaced with anti-regression tests confirming the cues stay removed.
+- New tests cover the fixed boundary semantics (phaseExtremum=88 exactly → no fire; 89 → fires; deep rep at 80 → no fire; rising in 'down' fires only when goingUp=true).
+- 3 squat tests adjusted to push to 'down' at 80° (deep enough that goDeeper can't false-positive against kneeCave/torsoLean priority).
+- Result: 289/289 node tests + 44/44 Playwright tests pass.
+
+### SUSPECT cues — left as-is
+
+`glutebridge.driveHigher`, `pullup.chinOverBar`, `lunge.torsoLean` — flagged for phone-test before any code change. These involve magic-number thresholds that may or may not be load-bearing; can't tell from static analysis.

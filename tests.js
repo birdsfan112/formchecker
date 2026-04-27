@@ -2816,13 +2816,13 @@ function buildTestRepAnalyzer(configId, configAnalysis, cal, deps) {
 
     const angleNow = trackingJoint(lm);
 
-    let goingDown = false;
+    let goingDown = false, goingUp = false;
     if (phase === 'up') {
       if (phaseExtremum === null || angleNow > phaseExtremum) phaseExtremum = angleNow;
       if (angleNow < phaseExtremum - JITTER) goingDown = true;
     } else {
       if (phaseExtremum === null || angleNow < phaseExtremum) phaseExtremum = angleNow;
-      // goingUp not needed for push-up regression tests
+      if (angleNow > phaseExtremum + JITTER) goingUp = true;
     }
 
     let repCounted = false;
@@ -2839,13 +2839,13 @@ function buildTestRepAnalyzer(configId, configAnalysis, cal, deps) {
     let feedback = null;
     for (const check of formChecks || []) {
       let checkFailed = false;
-      try { checkFailed = check.check(lm, angleNow, phase, goingDown); }
+      try { checkFailed = check.check(lm, angleNow, phase, goingDown, goingUp, phaseExtremum); }
       catch (e) { checkFailed = false; }
       if (checkFailed) {
         score -= check.scoreDeduction;
         if (!feedback && check.cue && check.cue.message) {
           feedback = (typeof check.cue.message === 'function')
-            ? check.cue.message(lm, angleNow, phase, goingDown)
+            ? check.cue.message(lm, angleNow, phase, goingDown, goingUp, phaseExtremum)
             : check.cue.message;
           const cueKey = check.cue.key || `${configId}-form`;
           if (check.cue.cooldown && deps.cueShouldFire(cueKey, check.cue.cooldown)) {
@@ -2890,19 +2890,11 @@ function makePushupConfigForTests(testCal) {
         cue: { message: () => 'Tighten your core', cooldown: 15000 },
       },
       {
-        id: 'hipsTooHigh',
-        check(lm) {
-          const leftBack  = angle(lm[11], lm[23], lm[27]);
-          const rightBack = angle(lm[12], lm[24], lm[28]);
-          return (leftBack + rightBack) / 2 > 195;
-        },
-        scoreDeduction: 20,
-        cue: { message: 'Hips too high — straighten your body', cooldown: 15000 },
-      },
-      {
         id: 'goDeeper',
-        check(lm, angleNow, phase, goingDown) {
-          return phase === 'down' && goingDown && angleNow > (testCal.elbow_down + 12);
+        // Fixed 2026-04-26: fires when post-bottom rising in 'down' phase AND
+        // deepest point reached (phaseExtremum) stayed within 12° of threshold.
+        check(lm, angleNow, phase, goingDown, goingUp, phaseExtremum) {
+          return phase === 'down' && goingUp && phaseExtremum > (testCal.elbow_down - 12);
         },
         scoreDeduction: 15,
         cue: { message: 'Go deeper', cooldown: 15000 },
@@ -3002,193 +2994,118 @@ test('pushup framework: hip sag deducts 30 and shows Tighten your core', () => {
   assertEquals(result.feedback, 'Tighten your core', 'Hip sag feedback should be Tighten your core');
 });
 
-// 4. Hips too high cue: the hipsTooHigh check uses avgBack > 195, but the angle()
-//    helper (using atan2 + abs + 360-fold) always returns values in [0, 180].
-//    A back angle > 195 is geometrically unreachable with this angle() implementation.
-//    This test documents that the hipsTooHigh check is dead code as currently written.
-//    We test the formCheck.check() directly with a mocked angleNow to confirm the
-//    score deduction and message are wired correctly, even though real landmarks
-//    cannot trigger it. The underlying issue is a separate bug (see BUG REPORT below).
-test('pushup framework: hipsTooHigh check fires correctly when avgBack >195 (direct unit test)', () => {
+// 4. hipsTooHigh removed 2026-04-26 — was dead code (avgBack > 195 unreachable
+//    against angle() clamp [0, 180]). Pike-shape during a regular pushup is rare
+//    and the cue never actually fired; pike push-ups have their own canonical
+//    `pike.hipsHigh` cue. Anti-regression: confirm cue is gone from the config.
+test('pushup framework: hipsTooHigh cue is removed (anti-regression for re-introduction)', () => {
   const config = makePushupConfigForTests(PUSHUP_DEFAULT_CAL);
-  const hipsTooHighCheck = config.formChecks[1];
-
-  // The check function computes avgBack from landmarks; to exceed 195 with angle() is
-  // impossible (angle() max = 180). We verify the threshold comparison directly by
-  // inspecting the formCheck logic with a synthetic setup that bypasses the angle cap.
-  // Use the check function directly with a dummy lm that would return avgBack > 195
-  // if angle() could produce it. Since it cannot, the check always returns false.
-  const lm = makePushupLandmarks({ elbowAngle: 120, backAngle: 170 });
-  // Confirm: angle() can't produce > 180, so avgBack will be <= 180 < 195 → check returns false
-  const computedBack = (angle(lm[11], lm[23], lm[27]) + angle(lm[12], lm[24], lm[28])) / 2;
-  assert(computedBack <= 180, `angle() max is 180; got ${computedBack.toFixed(2)}`);
-  assertBool(hipsTooHighCheck.check(lm), false, 'hipsTooHigh check is unreachable with real landmarks');
-
-  // Confirm the threshold and deduction are correctly wired in the config
-  assertEquals(hipsTooHighCheck.scoreDeduction, 20, 'hipsTooHigh scoreDeduction should be 20');
-  assertEquals(hipsTooHighCheck.cue.message, 'Hips too high — straighten your body', 'hipsTooHigh message matches prior code');
+  const ids = config.formChecks.map(c => c.id);
+  assert(!ids.includes('hipsTooHigh'), `pushup formChecks should NOT contain hipsTooHigh, got: [${ids.join(', ')}]`);
 });
 
-// 5. goDeeper fires correctly: simulate a slow descent in 'down' phase where the
-//    phase-local extremum direction tracking has cleared the 3° threshold, and
-//    elbow is still at 120° (> 112 = elbow_down 100 + 12). avgBack = 170 (no other cue).
-//    Expected: score 85, feedback "Go deeper".
-test('pushup framework: goDeeper fires when descending in down phase with elbow >112°', () => {
+// 5. goDeeper FIRES on a shallow rep (post-bottom rising in 'down' phase).
+//    Setup: enter 'down' at 99° (just below threshold 100, phaseExtremum = 99), then
+//    feed an ascending frame at 105° — phase still 'down' (< topThreshold 150), goingUp
+//    becomes true (105 > 99+3=102). Check: phaseExtremum (99) > elbow_down - 12 (88) →
+//    99 > 88 → TRUE → cue fires. Expected: score 85, feedback "Go deeper".
+test('pushup framework: goDeeper fires on a shallow rep when post-bottom rising', () => {
   const cal = { ...PUSHUP_DEFAULT_CAL };
   const config = makePushupConfigForTests(cal);
   const deps = makePushupDeps();
   const analyzer = buildTestRepAnalyzer('pushup', config, cal, deps);
 
-  // First push phase to 'down' by feeding a frame below 100°
-  analyzer.analyze(makePushupLandmarks({ elbowAngle: 90, backAngle: 170 }));
-  // In 'down' phase, phaseExtremum is set to 90 on transition.
-  // Feed a frame that briefly ascends to establish a valley-then-up peak pattern,
-  // so that when we descend again the 3° threshold is cleared.
-  // Simpler: reset and carefully seed phaseExtremum.
-  // Strategy: transition to down at 95, then the next frame at 120 sets phaseExtremum=95
-  // (since 120 > 95, it does NOT update the valley — valley stays at 95 from transition).
-  // Wait — in 'down' phase, phaseExtremum tracks the VALLEY (minimum). The JITTER check
-  // is: angleNow > phaseExtremum + JITTER → goingUp.
-  // For goingDown to fire we need to be in 'up' phase. Let's re-read the logic.
-  //
-  // In 'up' phase: phaseExtremum = peak (max). goingDown = angleNow < phaseExtremum - JITTER.
-  // So goingDown fires only when phase is 'up'. But goDeeper requires phase === 'down'.
-  //
-  // The phase flip to 'down' happens AFTER the direction check. So on the frame that
-  // crosses <100 (phase still 'up'), goingDown could be true. Then phase flips to 'down'.
-  // On that same frame, formChecks see phase === 'down' AND goingDown === true.
-  //
-  // So to test goDeeper: stay in 'up' phase, build up a phaseExtremum, then descend
-  // through the 3° gap so goingDown fires on the same frame that crosses <100 → down.
-  // But we need elbow > 112 at time of flip — contradiction (must be < 100 to flip).
-  //
-  // Actually: the frame that flips phase has angleNow < bottomThreshold (100).
-  // That's < 100 which is also < 112, so goDeeper (elbow > 112) would NOT fire on the flip frame.
-  //
-  // After the flip, we're in 'down' phase. goingDown is computed from 'up' branch above BEFORE
-  // the phase transition block. So goingDown stays true from the PREVIOUS 'up' phase on the
-  // flip frame. But on the NEXT frame we're in 'down' phase — goingDown is reset to false
-  // (it's computed fresh each frame from the phase-at-start-of-frame).
-  //
-  // Conclusion: goDeeper fires on the exact flip frame (phase goes up→down, goingDown=true
-  // from the up-phase extremum tracking, angleNow < 100 which is < 112, so elbow > 112 is FALSE).
-  // goDeeper CANNOT fire on the flip frame.
-  //
-  // On subsequent frames in 'down' phase: goingDown is always false (it's only computed in
-  // 'up' branch). goDeeper requires goingDown=true. So goDeeper NEVER fires with the framework?
-  //
-  // That would be a bug. Let me re-read buildRepAnalyzer lines 1343-1349 carefully.
+  // Frame 1: peak at 160° (phase 'up', phaseExtremum = 160)
+  analyzer.analyze(makePushupLandmarks({ elbowAngle: 160, backAngle: 170 }));
+  // Frame 2: cross 99° (still 'up' descending → flips to 'down', phaseExtremum = 99)
+  analyzer.analyze(makePushupLandmarks({ elbowAngle: 99, backAngle: 170 }));
+  // Frame 3: ascend to 105° (phase 'down', goingUp=true since 105 > 99+3, phaseExtremum stays 99)
+  const result = analyzer.analyze(makePushupLandmarks({ elbowAngle: 105, backAngle: 170 }));
 
-  // Re-check: in the ELSE branch (phase === 'down'), goingUp is computed. goingDown stays false.
-  // So goingDown is ALWAYS false when phase === 'down'. goDeeper requires phase==='down' && goingDown.
-  // This means goDeeper can NEVER fire in the framework as written!
-  //
-  // This is the bug to report, not paper over. We'll write the test as "goDeeper never fires"
-  // to document the current behavior, then flag the bug clearly.
-
-  // Feed: start up, build extremum at 160, descend past 3° gap, cross 100 → flip to down.
-  // On the flip frame: angleNow < 100 → elbow > 112 is false → goDeeper does not fire.
-  // After flip: goingDown is always false → goDeeper never fires.
-  analyzer.reset();
-  analyzer.analyze(makePushupLandmarks({ elbowAngle: 160, backAngle: 170 })); // set peak at 160
-  analyzer.analyze(makePushupLandmarks({ elbowAngle: 155, backAngle: 170 })); // 5° below peak → goingDown=true
-  analyzer.analyze(makePushupLandmarks({ elbowAngle: 120, backAngle: 170 })); // 40° below peak, still 'up' (>100), goingDown=true, but phase still 'up' → goDeeper check: phase!=='down' → skip
-  const result = analyzer.analyze(makePushupLandmarks({ elbowAngle: 99, backAngle: 170 }));
-  // This frame: phase still 'up' entering → goingDown=true (99 < 160-3) → phase flips to 'down'
-  // goDeeper check: phase==='down' && goingDown=true && 99 > 112 → FALSE (99 is not > 112)
-  assertEquals(result.score, 100, 'goDeeper should not fire when angleNow(99) <= 112 on phase-flip frame');
-  assertEquals(result.feedback, null, 'No form feedback on clean down transition');
+  assertEquals(result.feedback, 'Go deeper', 'Shallow rep should fire Go deeper cue');
+  assertEquals(result.score, 85, 'goDeeper deducts 15 from 100 → score 85');
 });
 
-// 6. goDeeper does NOT fire when not going down (no 3° descent cleared).
-//    Same angles (phase 'down', elbow 120) but analyzer was just transitioned to 'down'
-//    with no prior descent in 'up' phase to set goingDown.
-test('pushup framework: goDeeper does not fire when goingDown is false', () => {
+// 6. goDeeper does NOT fire on a deep clean rep.
+//    Setup: enter 'down' at 80° (deep, phaseExtremum = 80), then ascend to 95° (still
+//    in 'down' since < 150). Check: phaseExtremum (80) > elbow_down - 12 (88) →
+//    80 > 88 is FALSE → cue does not fire. Score 100.
+test('pushup framework: goDeeper does NOT fire on a deep clean rep', () => {
   const cal = { ...PUSHUP_DEFAULT_CAL };
   const config = makePushupConfigForTests(cal);
   const deps = makePushupDeps();
   const analyzer = buildTestRepAnalyzer('pushup', config, cal, deps);
 
-  // Transition to 'down' directly (elbow < 100)
-  analyzer.analyze(makePushupLandmarks({ elbowAngle: 90, backAngle: 170 }));
+  // Frame 1: peak at 160° in 'up'
+  analyzer.analyze(makePushupLandmarks({ elbowAngle: 160, backAngle: 170 }));
+  // Frame 2: descend to 80° (flips to 'down', phaseExtremum = 80)
+  analyzer.analyze(makePushupLandmarks({ elbowAngle: 80, backAngle: 170 }));
+  // Frame 3: ascend to 95° in 'down' (goingUp=true since 95 > 80+3, phaseExtremum stays 80)
+  const result = analyzer.analyze(makePushupLandmarks({ elbowAngle: 95, backAngle: 170 }));
 
-  // Now in 'down' phase. Feed a frame at 120° — goingDown is false (in 'down' phase
-  // goingDown is never set to true; only goingUp is tracked in that branch).
-  const lm = makePushupLandmarks({ elbowAngle: 120, backAngle: 170 });
-  const result = analyzer.analyze(lm);
-
-  assertEquals(result.score, 100, 'goDeeper should not fire when goingDown is false in down phase');
-  assertEquals(result.feedback, null, 'No feedback when goingDown is false');
+  assertEquals(result.score, 100, 'Deep clean rep should not fire goDeeper');
+  assertEquals(result.feedback, null, 'No feedback on deep clean rep');
 });
 
-// 7. hipSag beats goDeeper priority: avgBack=140, elbow=120, going down.
-//    hipSag fires first (score -30), goDeeper also fires (score -15).
-//    Feedback shown = "Tighten your core" (hipSag wins priority). Total score = 55.
+// 7. hipSag beats goDeeper priority on a shallow rep with hip sag, score = 55.
+//    Setup: shallow rep (phaseExtremum 99) AND avgBack 140 → BOTH cues fire. hipSag
+//    wins feedback priority (first failing check), but both deduct: 100-30-15 = 55.
+//    With the goDeeper fix landed, this combined score is now reachable.
 test('pushup framework: hipSag wins feedback priority over goDeeper, score = 55', () => {
   const cal = { ...PUSHUP_DEFAULT_CAL };
   const config = makePushupConfigForTests(cal);
   const deps = makePushupDeps();
   const analyzer = buildTestRepAnalyzer('pushup', config, cal, deps);
 
-  // To trigger BOTH hipSag AND goDeeper simultaneously we need:
-  //   phase === 'down', goingDown === true, elbow > 112, avgBack < 145.
-  // As established above, goingDown is always false in 'down' phase. So goDeeper
-  // cannot fire. The combined score of 55 (100-30-15) cannot be reached in the current
-  // framework. Instead, hipSag alone deducts 30 → score 70.
-  // We test that hipSag still wins priority (score 70 here, documenting the gap).
+  // Build a shallow rep with sagging hips
+  analyzer.analyze(makePushupLandmarks({ elbowAngle: 160, backAngle: 170 })); // peak
+  analyzer.analyze(makePushupLandmarks({ elbowAngle: 99, backAngle: 170 }));  // flip to 'down', phaseExtremum=99
+  const result = analyzer.analyze(makePushupLandmarks({ elbowAngle: 105, backAngle: 140 })); // post-bottom rising + hip sag
 
-  // Phase 'up', feed with hip sag → score 70, feedback "Tighten your core"
-  const lm = makePushupLandmarks({ elbowAngle: 120, backAngle: 140 });
-  const result = analyzer.analyze(lm);
   assertEquals(result.feedback, 'Tighten your core', 'hipSag should win feedback priority');
-  assert(result.score <= 70, `hipSag should deduct at least 30 → score ≤ 70, got ${result.score}`);
+  assertEquals(result.score, 55, 'hipSag (-30) + goDeeper (-15) = 55');
 });
 
-// 8. Good form: avgBack=175, avgElbow=90 in 'down' phase.
-//    elbow 90 is not > 112 so goDeeper does not fire; no back faults. Score 100.
+// 8. Good form: deep rep (elbow 80°), back 175, no faults. Score 100.
 test('pushup framework: good form gives score 100 with no feedback', () => {
   const cal = { ...PUSHUP_DEFAULT_CAL };
   const config = makePushupConfigForTests(cal);
   const deps = makePushupDeps();
   const analyzer = buildTestRepAnalyzer('pushup', config, cal, deps);
 
-  // Transition to 'down' phase (deep elbow)
-  analyzer.analyze(makePushupLandmarks({ elbowAngle: 90, backAngle: 175 }));
+  // Trajectory: peak → deep bottom → post-bottom rise. All clean.
+  analyzer.analyze(makePushupLandmarks({ elbowAngle: 160, backAngle: 175 }));
+  analyzer.analyze(makePushupLandmarks({ elbowAngle: 80, backAngle: 175 }));  // phaseExtremum = 80
+  const result = analyzer.analyze(makePushupLandmarks({ elbowAngle: 95, backAngle: 175 })); // rising in 'down', phaseExtremum still 80
 
-  // Verify score on this frame: elbow 90 not > 112, back 175 in range → score 100
-  const lm = makePushupLandmarks({ elbowAngle: 90, backAngle: 175 });
-  const result = analyzer.analyze(lm);
-
-  const computedBack = (angle(lm[11], lm[23], lm[27]) + angle(lm[12], lm[24], lm[28])) / 2;
-  assertCloseTo(computedBack, 175, 1, 'Setup: back angle should be ~175°');
-
-  assertEquals(result.score, 100, 'Good form should give score 100');
-  assertEquals(result.feedback, null, 'Good form should produce no form feedback');
+  assertEquals(result.score, 100, 'Good deep rep should score 100');
+  assertEquals(result.feedback, null, 'Good form should produce no feedback');
 });
 
-// 9. Additional: verify the goDeeper threshold uses elbow_down+12 with default cal.
-//    With elbow_down=100, goDeeper fires when elbow > 112. With elbow=112 exactly
-//    (not strictly greater), it should NOT fire.
-test('pushup framework: goDeeper threshold is elbow_down+12 (exclusive boundary)', () => {
+// 9. goDeeper threshold direction & boundary check (post-fix 2026-04-26):
+//    Cue fires when phaseExtremum > elbow_down - 12 (i.e., deepest reached was within
+//    12° of threshold = shallow rep). With elbow_down=100, boundary is 88.
+test('pushup framework: goDeeper threshold is elbow_down-12 on phaseExtremum (exclusive boundary)', () => {
   const cal = { ...PUSHUP_DEFAULT_CAL };
   const config = makePushupConfigForTests(cal);
-  const deps = makePushupDeps();
-  const analyzer = buildTestRepAnalyzer('pushup', config, cal, deps);
 
-  // We test the threshold logic directly via the formCheck.check() function.
-  // goDeeper.check(lm, angleNow, phase, goingDown) = phase==='down' && goingDown && angleNow > 112
-  const goDeeper = config.formChecks[2];
+  // goDeeper is now formChecks[1] (was [2] before hipsTooHigh removal).
+  const goDeeper = config.formChecks[1];
+  assertEquals(goDeeper.id, 'goDeeper', 'formChecks[1] should be goDeeper after hipsTooHigh removal');
 
-  const dummyLm = makePushupLandmarks({ elbowAngle: 112, backAngle: 170 });
+  const dummyLm = makePushupLandmarks({ elbowAngle: 100, backAngle: 170 });
 
-  // angleNow=112, phase='down', goingDown=true → 112 > 112 is FALSE → should not fire
-  assertBool(goDeeper.check(dummyLm, 112, 'down', true), false, 'elbow exactly at threshold (112) should not trigger goDeeper');
-
-  // angleNow=113, phase='down', goingDown=true → 113 > 112 is TRUE → should fire
-  assertBool(goDeeper.check(dummyLm, 113, 'down', true), true, 'elbow just above threshold (113) should trigger goDeeper');
-
-  // angleNow=113, phase='up', goingDown=true → phase is 'up' → should not fire
-  assertBool(goDeeper.check(dummyLm, 113, 'up', true), false, 'goDeeper should not fire when phase is up');
+  // Signature: check(lm, angleNow, phase, goingDown, goingUp, phaseExtremum)
+  // phaseExtremum = 88 exactly → 88 > 88 FALSE → does not fire (boundary is exclusive)
+  assertBool(goDeeper.check(dummyLm, 100, 'down', false, true, 88), false, 'phaseExtremum exactly at boundary (88) should NOT trigger goDeeper');
+  // phaseExtremum = 89 → 89 > 88 TRUE → fires (shallow rep)
+  assertBool(goDeeper.check(dummyLm, 100, 'down', false, true, 89), true, 'phaseExtremum just above boundary (89) SHOULD trigger goDeeper');
+  // phaseExtremum = 80 (deep) → 80 > 88 FALSE → does not fire
+  assertBool(goDeeper.check(dummyLm, 100, 'down', false, true, 80), false, 'Deep rep (phaseExtremum 80) should NOT trigger goDeeper');
+  // phaseExtremum = 95 (shallow) but goingUp=false (still descending) → does not fire
+  assertBool(goDeeper.check(dummyLm, 100, 'down', false, false, 95), false, 'goDeeper should not fire while still descending (goingUp false)');
+  // phaseExtremum = 95 (shallow) but phase 'up' → does not fire
+  assertBool(goDeeper.check(dummyLm, 100, 'up', false, true, 95), false, 'goDeeper should not fire when phase is up');
 });
 
 // 10. Verify that the calibrationDefaults match the expected push-up thresholds.
@@ -3198,27 +3115,25 @@ test('pushup framework: calibrationDefaults use 100° bottom and 150° top thres
   assertEquals(config.calibrationDefaults.elbow_up,   150, 'Default top threshold should be 150°');
 });
 
-// ===== BUG REPORT: Two unreachable checks in the push-up framework migration =====
+// ===== BUG REPORT (RESOLVED 2026-04-26): two unreachable checks in the push-up framework =====
 //
-// BUG 1 — goDeeper unreachable:
-//   goDeeper check requires: phase === 'down' AND goingDown === true AND angleNow > 112.
-//   In buildRepAnalyzer (index.html ~line 1343), goingDown is computed ONLY in the 'up'
-//   phase branch. Once phase transitions to 'down', goingDown is always false on
-//   subsequent frames. The only frame where goingDown could be true while phase becomes
-//   'down' is the exact phase-flip frame (angleNow < bottomThreshold = 100), but on
-//   that frame angleNow < 100 which is also < 112, so the elbow > 112 condition is false.
-//   Result: goDeeper can NEVER fire for push-ups in the current framework.
-//   The prior hand-coded analyzer used frame-to-frame delta throughout the entire descent.
-//   Suggested fix: track goingDown separately during 'down' phase (e.g., compare to valley
-//   extremum with the same 3° JITTER, or retain a separate descent flag seeded on entry).
+// BUG 1 — goDeeper unreachable [FIXED 2026-04-26]:
+//   Original check: phase === 'down' AND goingDown === true AND angleNow > 112. In
+//   buildRepAnalyzer, goingDown is computed ONLY in the 'up' phase branch — once phase
+//   transitions to 'down', goingDown is always false. Result: goDeeper could NEVER fire.
+//   Resolution: extended check signature to (lm, angleNow, phase, goingDown, goingUp,
+//   phaseExtremum) and rewrote check as `phase === 'down' && goingUp && phaseExtremum >
+//   (elbow_down - 12)`. Now fires when post-bottom rising AND deepest point reached
+//   stayed within 12° of the depth threshold (i.e., a shallow rep). Also fixed in:
+//   squat, lunge, pike, dip (same pattern, same fix).
 //
-// BUG 2 — hipsTooHigh unreachable:
-//   hipsTooHigh fires when avgBack > 195. The angle() helper (atan2 + abs + 360-fold)
-//   always returns values in [0, 180]. A value > 195 is geometrically impossible.
-//   The same check existed in the prior hand-coded analyzer and was similarly dead code.
-//   This was a latent bug carried over into the framework migration.
-//   Suggested fix: if "pike" body shape is meaningful, use a different representation
-//   (e.g., compute the supplement: 360 - rawAngle before the fold, or use a signed angle).
+// BUG 2 — hipsTooHigh unreachable [FIXED 2026-04-26]:
+//   Original: avgBack > 195 against angle() clamp [0, 180] — geometrically impossible.
+//   Resolution: cue removed entirely from pushup AND plank configs. Pike-shape during
+//   regular pushup is rare and was never actually fired; pike push-ups have their own
+//   canonical `pike.hipsHigh` cue (Y-coordinate based). Plank's `hipSagSevere` already
+//   covers the dropped-hips direction; pike-up during plank is not a critical concern.
+//   Anti-regression tests added to confirm the cues stay removed.
 
 // ===== EXERCISE FRAMEWORK REGRESSION TESTS — BATCH 1-4 MIGRATIONS =====
 //
@@ -3249,12 +3164,13 @@ function buildTestRepAnalyzerEx(configId, configAnalysis, cal, deps, opts) {
     const topThreshold    = cal[calibrationKeys.top];
     const angleNow = trackingJoint(lm);
 
-    let goingDown = false;
+    let goingDown = false, goingUp = false;
     if (phase === 'up') {
       if (phaseExtremum === null || angleNow > phaseExtremum) phaseExtremum = angleNow;
       if (angleNow < phaseExtremum - JITTER) goingDown = true;
     } else {
       if (phaseExtremum === null || angleNow < phaseExtremum) phaseExtremum = angleNow;
+      if (angleNow > phaseExtremum + JITTER) goingUp = true;
     }
 
     let repCounted = false;
@@ -3277,13 +3193,13 @@ function buildTestRepAnalyzerEx(configId, configAnalysis, cal, deps, opts) {
     let feedback = null;
     for (const check of formChecks || []) {
       let checkFailed = false;
-      try { checkFailed = check.check(lm, angleNow, phase, goingDown); }
+      try { checkFailed = check.check(lm, angleNow, phase, goingDown, goingUp, phaseExtremum); }
       catch (e) { checkFailed = false; }
       if (checkFailed) {
         score -= check.scoreDeduction;
         if (!feedback && check.cue && check.cue.message) {
           feedback = (typeof check.cue.message === 'function')
-            ? check.cue.message(lm, angleNow, phase, goingDown)
+            ? check.cue.message(lm, angleNow, phase, goingDown, goingUp, phaseExtremum)
             : check.cue.message;
         }
       }
@@ -3411,8 +3327,9 @@ function makeSquatConfig(testCal) {
     formChecks: [
       {
         id: 'goDeeper',
-        check(lm, angleNow, phase, goingDown) {
-          return phase === 'down' && goingDown && angleNow > (testCal.knee_down + 12);
+        // Fixed 2026-04-26: deepest-point shallow-rep semantics.
+        check(lm, angleNow, phase, goingDown, goingUp, phaseExtremum) {
+          return phase === 'down' && goingUp && phaseExtremum > (testCal.knee_down - 12);
         },
         scoreDeduction: 20,
         cue: { message: 'Go deeper', cooldown: 15000 },
@@ -3477,10 +3394,12 @@ test('squat framework: rep counted when phase transitions back up above 160°', 
 test('squat framework: kneeCave fires in front view when knees narrower than ankles', () => {
   const cal = { ...SQUAT_DEFAULT_CAL };
   const analyzer = buildTestRepAnalyzerEx('squat', makeSquatConfig(cal), cal, makeDeps());
-  // Get into 'down' phase first
-  analyzer.analyze(makeKneeAngleLandmarks(90));
+  // Push to 'down' with a DEEP rep (80° = below knee_down-12 = 88°) so goDeeper cannot
+  // fire on the test frame and contaminate kneeCave's feedback. Deepest-point semantics:
+  // phaseExtremum = 80, 80 > 88 is false → goDeeper stays inactive.
+  analyzer.analyze(makeKneeAngleLandmarks(80));
   // Build custom lm: front view (wide shoulders), knees narrow relative to ankles
-  const lm = makeKneeAngleLandmarks(90);
+  const lm = makeKneeAngleLandmarks(80);
   lm[11] = { x: 0.20, y: 0.2, z: 0, visibility: 1 }; // wide shoulders
   lm[12] = { x: 0.80, y: 0.2, z: 0, visibility: 1 };
   lm[25] = { x: 0.46, y: 0.5, z: 0, visibility: 1 }; // narrow knees
@@ -3495,8 +3414,8 @@ test('squat framework: kneeCave fires in front view when knees narrower than ank
 test('squat framework: kneeCave does not fire in side view (narrow shoulders)', () => {
   const cal = { ...SQUAT_DEFAULT_CAL };
   const analyzer = buildTestRepAnalyzerEx('squat', makeSquatConfig(cal), cal, makeDeps());
-  analyzer.analyze(makeKneeAngleLandmarks(90)); // 'down' phase
-  const lm = makeKneeAngleLandmarks(90);
+  analyzer.analyze(makeKneeAngleLandmarks(80)); // 'down' phase, deep (phaseExtremum=80 < 88)
+  const lm = makeKneeAngleLandmarks(80);
   lm[11] = { x: 0.49, y: 0.2, z: 0, visibility: 1 }; // narrow shoulders = side view
   lm[12] = { x: 0.51, y: 0.2, z: 0, visibility: 1 };
   const r = analyzer.analyze(lm);
@@ -3506,9 +3425,9 @@ test('squat framework: kneeCave does not fire in side view (narrow shoulders)', 
 test('squat framework: torsoLean fires in side view when torso angle < 45°', () => {
   const cal = { ...SQUAT_DEFAULT_CAL };
   const analyzer = buildTestRepAnalyzerEx('squat', makeSquatConfig(cal), cal, makeDeps());
-  analyzer.analyze(makeKneeAngleLandmarks(90)); // 'down' phase
+  analyzer.analyze(makeKneeAngleLandmarks(80)); // 'down' phase, deep (phaseExtremum=80 < 88)
   // Build lm with narrow shoulders (side view) and sharp torso lean
-  const lm = makeKneeAngleLandmarks(90);
+  const lm = makeKneeAngleLandmarks(80);
   lm[11] = { x: 0.49, y: 0.0, z: 0, visibility: 1 }; // side view
   lm[12] = { x: 0.51, y: 0.0, z: 0, visibility: 1 };
   lm[23] = { x: 0.49, y: 0.3, z: 0, visibility: 1 }; // hip below shoulder
@@ -3544,8 +3463,9 @@ function makeLungeConfig(testCal) {
     formChecks: [
       {
         id: 'goDeeper',
-        check(lm, angleNow, phase, goingDown) {
-          return phase === 'down' && goingDown && angleNow > (testCal.knee_down + 12);
+        // Fixed 2026-04-26: deepest-point shallow-rep semantics.
+        check(lm, angleNow, phase, goingDown, goingUp, phaseExtremum) {
+          return phase === 'down' && goingUp && phaseExtremum > (testCal.knee_down - 12);
         },
         scoreDeduction: 15,
         cue: { message: 'Go deeper', cooldown: 15000 },
@@ -3828,8 +3748,9 @@ function makePikeConfig(testCal) {
       },
       {
         id: 'goDeeper',
-        check(lm, angleNow, phase, goingDown) {
-          return phase === 'down' && goingDown && angleNow > (testCal.elbow_down + 12);
+        // Fixed 2026-04-26: deepest-point shallow-rep semantics.
+        check(lm, angleNow, phase, goingDown, goingUp, phaseExtremum) {
+          return phase === 'down' && goingUp && phaseExtremum > (testCal.elbow_down - 12);
         },
         scoreDeduction: 15,
         cue: { message: 'Go deeper', cooldown: 15000 },
@@ -3908,8 +3829,9 @@ function makeDipConfig(testCal) {
     formChecks: [
       {
         id: 'goDeeper',
-        check(lm, angleNow, phase, goingDown) {
-          return phase === 'down' && goingDown && angleNow > (testCal.elbow_down + 12);
+        // Fixed 2026-04-26: deepest-point shallow-rep semantics.
+        check(lm, angleNow, phase, goingDown, goingUp, phaseExtremum) {
+          return phase === 'down' && goingUp && phaseExtremum > (testCal.elbow_down - 12);
         },
         scoreDeduction: 15,
         cue: { message: 'Go deeper', cooldown: 15000 },
@@ -4060,15 +3982,6 @@ function makePlankTimedConfig() {
         scoreDeduction: 10,
         // No cue — silent deduction
       },
-      {
-        id: 'hipsTooHigh',
-        check(lm) {
-          const avg = (angle(lm[11], lm[23], lm[27]) + angle(lm[12], lm[24], lm[28])) / 2;
-          return avg > 195;
-        },
-        scoreDeduction: 20,
-        cue: { message: 'Hips too high — flatten out', cooldown: 20000 },
-      },
     ],
   };
 }
@@ -4093,15 +4006,13 @@ test('plank timed: mild hip sag (145 ≤ avgBack < 155) gives score 90 with no f
   assert(r.feedback === null, 'Mild sag should have no feedback (silent deduction)');
 });
 
-test('plank timed: hipsTooHigh (avgBack > 195) is unreachable — angle() caps at 180°', () => {
-  // angle() always returns [0, 180], so > 195 can never fire. Document this as dead code.
+test('plank timed: hipsTooHigh cue is removed (anti-regression for re-introduction)', () => {
+  // Removed 2026-04-26 — was dead code (avgBack > 195 unreachable against angle()
+  // clamp [0, 180]). hipSagSevere covers the dropped-hips direction; pike-up during
+  // plank is not a critical concern. Anti-regression: confirm cue is gone from config.
   const cfg = makePlankTimedConfig();
-  const analyzer = buildTestTimedAnalyzer(cfg, makeDeps());
-  const lm = makePushupLandmarks({ elbowAngle: 170, backAngle: 170 });
-  const computedBack = (angle(lm[11], lm[23], lm[27]) + angle(lm[12], lm[24], lm[28])) / 2;
-  assert(computedBack <= 180, 'angle() should never exceed 180°');
-  const r = analyzer.analyze(lm);
-  assert(r.feedback !== 'Hips too high — flatten out', 'hipsTooHigh check is unreachable (accepted divergence)');
+  const ids = cfg.formChecks.map(c => c.id);
+  assert(!ids.includes('hipsTooHigh'), `plank formChecks should NOT contain hipsTooHigh, got: [${ids.join(', ')}]`);
 });
 
 test('plank timed: good form (avgBack in 155-180) gives score 100', () => {
