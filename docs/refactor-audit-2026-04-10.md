@@ -86,7 +86,7 @@ return { repCounted: false, score: 100 };                            // (5) no d
 
 **User-visible impact:**
 - `#repCounter` now shows `0:00` → `0:15` etc. on L-sit instead of `0` (old showed raw elapsed seconds as string `"5s"` in the form feedback area).
-- Voice: `speakForce` bypasses parts of the voice-gating stack (see `docs/voice-architecture.md`). Expect the form cue and milestone announcements to be more insistent than before.
+- Voice: `speakForce` bypasses parts of the voice-gating stack (see `docs/specs/voice-architecture.md`). Expect the form cue and milestone announcements to be more insistent than before.
 - Multi-fire safety: if L-sit hits 15s on multiple frames in the same second, the framework will call `speakForce(...)` multiple times. The old `state.spokenThisRep` guard prevented that. Whether this manifests as audible stutter depends on whatever dedupe lives inside `speakForce` and the browser speech queue.
 
 ### D3. bandpullapart — rep counting semantics changed (likely silent bug fix in old)

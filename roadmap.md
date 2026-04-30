@@ -3,7 +3,7 @@
 |-------|-------|
 | Priority | active |
 | Phase | Implement |
-| Updated | 2026-04-26 |
+| Updated | 2026-04-30 |
 | Summary | Roadmap archaeology pass 2026-04-26 (later in day): re-scoped Step-2 phone-test umbrella into a per-exercise checklist (9 of 22 done, 13 remaining); dispatched code-reviewer agent to audit form-cue dead-code (Backlog #2); parked Backlog #3 (dip orientation nudge); re-scoped 2026-04-24 Decision row to reflect manual-web-UI generation pivot. Step 5.6 Unified Exercise Signature Schema v1 shipped to main 2026-04-20. Consolidates per-exercise data into one file at `assets/animations/<ex>.json`: trajectory + ROM advisory + phase markers + angle timeseries + MediaPipe provenance + future hedges (`canonical_reps[]`, `phases[]`, `joint_weights: {}`). Squat + pullup phone-approved for animation (squat with `--mirror-x`, pullup with correct frames 180-290). **Picker silhouette path revised 2026-04-24** to all-22 PNG rebuild per `docs/specs/picker-png-rebuild.md` (supersedes `picker-svg-audit-fix.md`); SVG calibration commit `a0215d7` held in tree as placeholder. **Generation pivoted 2026-04-26** to manual web-UI workflow (ChatGPT/Gemini/DALL-E) after Pollinations Flux failed the calibration test on dip (4 attempts, all wrong pose — concept gap on calisthenics-specific moves) and free icon libraries showed insufficient coverage. 22 ready-to-paste prompts in `docs/specs/picker-png-prompts.md`. Tests: 107 pytest, 44 Playwright, 289 node. Spec: `docs/specs/exercise-signature-schema.md`. |
 | Needs Scott | (1) Curate remaining 20 clip URLs in `pipeline/sources.yaml` (~2 hrs). Note each clip's facing direction. (2) Consider whether the plank/static-hold case warrants its own preset before curating statics. (3) Generate 22 picker PNGs manually using prompts in `docs/specs/picker-png-prompts.md` (paste into ChatGPT/Gemini/DALL-E web UI), drop in `assets/silhouettes/<id>.png`. Generate `dip` first as the style anchor. |
 | Autonomous | Add horizontal/kneeling/quadruped presets once Scott curates an example clip of each drawStyle. Wire up the picker PNG batch (drop `EXERCISE_SVGS`/`getSvgKey`, swap render path, archive old SVGs) once Scott drops the 22 PNGs. Retire `HOW_TO_KEYFRAMES` once animation batch lands. |
@@ -115,88 +115,62 @@
      Archive older entries to docs/roadmap-archive.md (see Archive Pointer below).
      Multiple sessions on the same date can be consolidated into one entry. -->
 
-### 2026-04-26 — Roadmap archaeology pass + form-cue audit
+### 2026-04-30 — Roadmap compaction + voice-architecture.md → docs/specs/
 
-Ran `roadmap-archaeologist` skill. FormChecker surfaced 4 items, all 4 acted on:
+**Compaction:** trimmed 4 entries (2026-04-26, 2026-04-24, 2026-04-20, 2026-04-18; all ≤40%). No coalesce (no same-day groups), no archive (8 entries, none >30 days). Session Log: 169 → 128 lines; total: 295 → 252 lines. Also moved `docs/voice-architecture.md` → `docs/specs/voice-architecture.md` (roadmap-review spec-file violation); refs updated in `CLAUDE.md` + `docs/refactor-audit-2026-04-10.md`. Archive mentions left unchanged.
 
-- **Sprint umbrella re-scoped** — "Phone test all 22 exercises" replaced with a per-exercise checklist for the 13 untested (pushup, squat, pullup, lunge, plank, pike, dip, deadhang, legraise, row, lsit, pistol, glutebridge). The umbrella had been open since 2026-04-09 with sub-progress (arch hangs ✅, mobility/PT batch ✅) but no granular tracking on the rest. Per-exercise checkboxes will surface real progress.
-- **Backlog #2 (Form-cue audit) — done via subagent.** Code-reviewer agent dispatched in background, audited all 33 cues across 22 exercises in ~2 min. Findings written to `docs/specs/form-cue-audit-2026-04-26.md`: **7 UNREACHABLE** (5× `goDeeper` siblings — pushup/squat/lunge/pike/dip; 2× `hipsTooHigh` siblings — pushup/plank), **3 SUSPECT** (glutebridge `driveHigher`, pullup `chinOverBar`, lunge `torsoLean`), **23 REACHABLE clean.** Both seed-hypothesis patterns from the 2026-04-10 backlog item confirmed; all UNREACHABLE cues fall into them. Implementation queued as follow-up — Scott picks redesign vs. delete per cue.
-- **Backlog #3 (Dip orientation nudge) — parked.** No engagement since 2026-04-10 origin. Re-open trigger: dip-specific tracking issue surfaces on phone-test.
-- **Decisions table — 2026-04-24 picker-format-flip row re-scoped.** Title updated SVG → Gemini PNG → SVG → manual web-UI PNG; context now captures the 2026-04-26 generation-method pivot (Pollinations Flux failed dip calibration, free icon libraries inadequate, manual web-UI workflow chosen with 22 ready-to-paste prompts in `docs/specs/picker-png-prompts.md`). Decision still holds (PNG over SVG); only the generation method changed.
+### 2026-04-26 — Roadmap archaeology + form-cue audit (Backlog #2 closed)
 
-Cross-project footer references updated to ProBonofy 12-16 + LegalGuard 3-7 (both renumbered earlier today by their own archaeology passes).
+Ran `roadmap-archaeologist`; 4 items acted on:
 
-Pattern observation: FormChecker's drift shape is **"sprint-adjacent backlog rot"** — items added at the moment a sprint closes (form-cue audit + dip nudge both added 2026-04-10 alongside the framework migration close) then orphaned because the next sprint pivoted elsewhere. Pattern fix: when adding an item alongside a sprint close, give it an explicit deadline OR park it.
+- **Sprint umbrella re-scoped** — "Phone test all 22 exercises" replaced with per-exercise checklist for the 13 untested; surface real progress that the open-since-2026-04-09 umbrella lacked.
+- **Backlog #2 (form-cue audit) — closed same-day.** Code-reviewer agent audited all 33 cues across 22 exercises in ~2 min. Findings: **7 UNREACHABLE + 3 SUSPECT + 23 clean** — `docs/specs/form-cue-audit-2026-04-26.md`. Both seed-hypothesis patterns from the 2026-04-10 backlog item confirmed.
+- **Backlog #3 (dip orientation nudge) — parked.** Re-open trigger: dip-specific tracking issue on phone-test.
+- **Decisions table 2026-04-24 row re-scoped** to capture the manual web-UI generation pivot.
 
-**Subtopic: Form-cue UNREACHABLE fixes shipped (Backlog #2 closed) + picker artifacts committed.**
+**Form-cue UNREACHABLE fixes shipped same-day (commit `2ea1901`).** Framework `buildRepAnalyzer` extended to pass `goingUp` + `phaseExtremum` to form-check `check()` + dynamic-message callbacks; existing checks ignore the extra positional args. The 5× `goDeeper` cues rewritten as `phase === 'down' && goingUp && phaseExtremum > (calibration_bottom - 12)`. **Sign-flip:** audit recommended `+ 12` — wrong direction. `phaseExtremum` is monotonically ≤ `bottomThreshold` (set on phase entry, only decreases), so `> bottom + 12` is unreachable AND would false-fire on rising portion of clean deep reps. `- 12` is correct. The 2× `hipsTooHigh` cues removed (`hipSag`/`hipSagSevere` cover dropped-hips). **289/289 node + 44/44 Playwright pass.**
 
-Two flagged items handled max-effort, same day as the audit.
+3 SUSPECT cues left for phone-test verification before code change: `glutebridge.driveHigher` (145°), `pullup.chinOverBar` (100° vs calibrated 80°), `lunge.torsoLean` (140° + no phase gate + left-only landmarks). Will surface during Sprint Step 2.
 
-- **Form-cue fixes** — All 7 UNREACHABLE cues from the morning's audit shipped same-day. Framework `buildRepAnalyzer` extended to pass `goingUp` + `phaseExtremum` to form-check `check()` callbacks (also passed to dynamic `cue.message` callbacks). Existing checks ignore the extra positional args — zero breakage to other cues. The 5× `goDeeper` cues (pushup/squat/lunge/pike/dip) rewritten with deepest-point shallow-rep semantics: `phase === 'down' && goingUp && phaseExtremum > (calibration_bottom - 12)`. Note: the audit's recommendation to use `+ 12` was wrong direction — `phaseExtremum` is always ≤ `bottomThreshold` (set on phase entry below threshold, only ever decreased), so `> bottom + 12` is unreachable AND would false-fire on rising portion of clean deep reps. `- 12` is the correct sign. Detailed in `docs/specs/form-cue-audit-2026-04-26.md` RESOLUTION section. The 2× `hipsTooHigh` cues (pushup, plank) removed entirely — `hipSag`/`hipSagSevere` cover the dropped-hips direction; pike-shape detection during regular pushups was never live and can be added later as a new feature if phone-test surfaces the need.
+Picker artifacts (`docs/specs/picker-png-prompts.md`, `pipeline/gen_silhouettes.py`) committed from working tree where untracked.
 
-- **Test updates** — Test harnesses (`buildTestRepAnalyzer`, `buildTestRepAnalyzerEx`) updated to track `goingUp` and pass `phaseExtremum`. 5 stale tests that documented the dead-code behavior rewritten with the new fixed semantics or replaced with anti-regression tests (cue-removed assertions). 3 squat tests adjusted to push to 'down' at 80° instead of 90° (below the 88° goDeeper threshold) so kneeCave/torsoLean priority tests aren't contaminated by the now-firing goDeeper. **289/289 node tests pass, 44/44 Playwright tests pass.** Full pytest unaffected (pipeline-side, doesn't exercise these cues).
+**Pattern observation:** FormChecker's drift shape is **"sprint-adjacent backlog rot"** — items added when a sprint closes (form-cue audit + dip nudge both born 2026-04-10) get orphaned when the next sprint pivots. Fix: explicit deadline OR park at write time.
 
-- **3 SUSPECT cues left as-is** — `glutebridge.driveHigher` (magic 145° threshold), `pullup.chinOverBar` (magic 100° threshold against calibrated 80°), `lunge.torsoLean` (140° threshold + no phase gate + left-side-only landmarks). These need phone-test verification before any code change; will surface naturally during Sprint Step 2 per-exercise testing.
+Skill deviation: dispatched code-reviewer (read-only) for the audit; `implementer` would have fit better for "do it with a sub agent."
 
-- **Picker artifacts committed** — `docs/specs/picker-png-prompts.md` (22 ready-to-paste prompts referenced in Status block) and `pipeline/gen_silhouettes.py` (failed Pollinations Flux experiment script from the 2026-04-26 generation pivot) staged from the working tree. Both were live-on-disk but untracked when the archaeology pass ran; now in version control where the roadmap claims they are.
+### 2026-04-24 — Roadmap compaction + picker silhouette rev (SVG → PNG)
 
-Skill deviation: dispatched a code-reviewer (read-only) agent for the audit, but Scott's "do it with a sub agent" verdict implied execution-ready work — agent produced findings only because read-only tools, then I had to execute the implementation directly. Worked, but `implementer` would have been the closer fit. Noted for future audit-then-implement flows.
+**Compaction:** trimmed 6 entries (2026-04-20 through 2026-04-11; all ≤40%). No coalesce, no archive. Session Log: 169 → 125 lines; total: 259 → 214 lines. First pass (`7344dab`) over-trimmed — reverted in `e57ea7b` before the corrected pass.
 
-### 2026-04-24 — Roadmap compaction
+**Picker silhouette rev: SVG → PNG.** Started executing Backlog 4 with dips as calibration. Hand-coded geometric SVG (`a0215d7`): side-3/4 view with two parallel bars, Z-bend bent elbow. Aesthetic params + 4-exercise fan-out plan captured in `docs/specs/SVG_PIPELINE_NOTES.md`. Held off pushing pending phone review.
 
-**Compaction:** trimmed 6 entries (2026-04-20, 2026-04-19, 2026-04-18, 2026-04-16, 2026-04-12, 2026-04-11 — all trims ≤40% content-removed; 2026-04-11 + 2026-04-16 were paragraph reflows preserving all content). No coalesce (no same-day groups). No archive (only 6 entries, under 15-most-recent rule). Session Log: 169 → 125 lines. Total file: 259 → 214 lines.
+Scott countered with a Gemini-generated reference (solid white silhouette + thin black contour lines + bars in perspective + knees tucked) that read instantly at thumbnail size; hand-coded SVG was a pile of sticks at 70×62. The geometric-stick-figure aesthetic that worked for 17 cards can't hit iconicity for the equipment-and-dynamic-pose ones.
 
-**Earlier botched attempt reverted (same day)**
+**Scope flip to all-22 PNG rebuild via Gemini.** Replacing only 5 audit targets in the new style would leave a mixed picker; coherent means redoing all 22. New spec `docs/specs/picker-png-rebuild.md` (`df3661f`); `picker-svg-audit-fix.md` SUPERSEDED. Calibration artifacts stay as placeholder; wire-up removes them post-batch.
 
-First compaction pass (commit `7344dab`) over-trimmed — reverted in `e57ea7b` before the corrected pass above. Clean restore, no content lost. Next session: continue on Step 5.5 — Scott curates remaining 20 clip URLs in `pipeline/sources.yaml`.
+**Skill deviation:** skipped imagegen's "ask about API keys" step — should have surfaced the Gemini-access choice (Scott had it all along). Worth a Claude System backlog item to add Gemini to imagegen's provider list.
 
-**Picker silhouette rev: SVG → PNG (calibration + spec flip)**
-
-Started executing Backlog 4 (`picker-svg-audit-fix.md`) with dips as the calibration target. Hand-coded geometric SVG (commit `a0215d7`): side-3/4 view with two parallel bars, Z-bend bent elbow at bottom of rep. Source at `assets/silhouettes/dip.svg`, inlined in `EXERCISE_SVGS`, routed via new `drawVariant: 'dip'` branch in `getSvgKey`. Aesthetic params + per-exercise notes for the planned 4-exercise fan-out captured in `docs/specs/SVG_PIPELINE_NOTES.md`. Held off pushing pending phone review.
-
-Scott countered with a Gemini-generated reference image of a dip — solid white silhouette with thin black anatomical contour lines, two parallel bars in perspective, top of rep with knees tucked. Read instantly at thumbnail size; the hand-coded SVG was a pile of sticks at 70×62. Honest reassessment: the geometric-stick-figure aesthetic that scaled fine for the 17 already-acceptable cards can't hit iconicity for the ones with equipment + dynamic poses.
-
-**Decision: scope flip to all-22 PNG rebuild via Gemini.** Replacing only the 5 audit targets in the new style would leave a visually mixed picker (5 polished + 17 stick-figure). Going coherent means redoing all 22.
-
-New spec `docs/specs/picker-png-rebuild.md` (commit `df3661f`) — asset spec (1024×1024 transparent PNG, solid white fill + dark contour lines, ≤60 KB each), Gemini prompt template with four bracketed substitutions, per-exercise table for all 22 (position, view angle, equipment, key shape cue), distinguishing-pairs callouts (glutebridge/foamroller, catcow/birddog, deadhang/archhang/scapularpull, pullup/legraise), wire-up plan to drop `EXERCISE_SVGS` + `getSvgKey` for `<img src="assets/silhouettes/${id}.png">` keyed on exercise id. `picker-svg-audit-fix.md` marked SUPERSEDED. Calibration artifacts (`dip.svg`, inline SVG entry, `SVG_PIPELINE_NOTES.md`, `drawVariant: 'dip'`) stay in tree as placeholder; wire-up phase removes them post-batch.
-
-**Skill deviation:** skipped imagegen skill's "ask user about API keys" step and went straight to SVG fallback — should have surfaced the choice (Scott had Gemini access all along). Worth a Claude System backlog item to add Gemini to imagegen's provider list.
-
-**Next session:** Scott generates 22 PNGs in Gemini per the spec, drops them in `assets/silhouettes/`. Then wire-up: remove `EXERCISE_SVGS`/`getSvgKey`, swap render path, add `object-fit: contain` CSS, archive old SVG sources, drop `drawVariant: 'dip'`, delete `SVG_PIPELINE_NOTES.md`, phone review, deploy.
+**Next session:** Scott generates 22 PNGs, drops them in `assets/silhouettes/`. Then wire-up.
 
 ### 2026-04-20 — Step 5.6 Unified Exercise Signature Schema v1 shipped
 
-Four-phase dev loop run by 5-agent team (2× Explore for Investigate, planner for Calibrate, implementer for Implement + retry, code-reviewer for Check + re-check). All agents Opus. Triggered by one-thing-inquiry: surveyed whether clips could be mined for more than animation; concluded yes — single-file signature consolidating trajectory + ROM + phase markers + angle timeseries + MediaPipe provenance + picker frame.
+Four-phase dev loop run by 5-agent team (2× Explore, planner, implementer + retry, code-reviewer + recheck — all Opus). Triggered by one-thing-inquiry. Single-file signature consolidates trajectory + ROM + phase markers + angle timeseries + MediaPipe provenance + picker frame.
 
-- **Investigate** — 2 Explore agents in parallel. Codebase map: producers (`normalize_loop.py` emits trajectory, `emit_rom.py` emits ROM), consumers (`loadTrajectory`, `drawHowToSkeletonFromTrajectory`, `renderExercisePicker`, `EXERCISE_SVGS`, `mockTrajectory`), tests (`pipeline/tests/`, `tests/playwright/`), plus the `HOW_TO_KEYFRAMES` silent-fallback path. Prior-art research: no commercial app publishes their schema (IP); academic datasets (Fit3D, MMFit, H3WB) ship raw pose data, not canonical-rep primitives; Google's own MediaPipe docs recommend k-NN classifier over pairwise distances, not single-template comparison. Design implication: v1 is data, not algorithms.
-- **Calibrate** — planner agent wrote `docs/specs/exercise-signature-schema.md` (~400 lines). 6 open questions resolved by Scott: record both `mediapipe_pipeline_*` and `mediapipe_app_*` (pipeline uses Tasks API, app uses legacy `@mediapipe/pose@0.5.1675469404`); parse APP version from `<script src>` regex; `data-silhouette-source` DOM attribute for Playwright observability (no `window.__*`); `start`/`middle`/`end` phases for timed exercises at 0/30/59; all 22 `sources.yaml` rows to `urls: [...]` list form; `extracted_at` content-hash gated.
-- **Implement** (3 commits: `5287008` pipeline, `3901a4c` consumer, `03ef8d6` regenerate squat+pullup). Structural hedges baked in for future: `canonical_reps[]` as array (v1 len=1, 5.7 grows to N), `phases[]` as array, `joint_weights: {}` optional empty dict, `mediapipe_*` provenance for drift detection. Runtime Canvas picker silhouette path replaces hand-authored SVGs; SVG fallback preserved (spec mandates no deletion of `HOW_TO_KEYFRAMES`, `drawHowToSkeletonFromKeyframes`, `EXERCISE_SVGS`, `getSvgKey`, or `assets/rom/*.json` — Commit D territory, later sprint).
-- **Check** (code-reviewer audit #1) — **NEEDS FIXES**. 3 high-severity findings: Playwright picker-silhouette spec all 4 tests `.skip`'d (violates §13 "passing"), `fingerprintsDiffer` threshold lowered 2→1 (sensitivity ~50%), `emit_rom.py` standalone KeyError on v1 signatures. 4 medium/low follow-ups logged.
-- **Implement retry** (5 fix commits: `4075261` un-skip picker tests, `3b339e8` restore threshold 2 + 3-sample window, `f40de0f` emit_rom nested unwrap, `9bf1cba` auto_detect_cycle warn-at-min-lag + README doc, `31beace` multi-raw CLI integration test). Tighter implementer brief with explicit ban on test-skipping and threshold-lowering shortcuts. Opus model throughout this sprint.
-- **Check retry** — **READY FOR MERGE**. All 5 fixes RESOLVED. No regressions vs prior 3 commits. 3 low-severity style nits deferred (follow-up fodder).
-- **Test state on merge:** 107 pytest (73 → 107, +34 new), 48 Playwright passing (was 44 + 4 skipped), 289 node tests.js (unchanged). Final squat.json size 37.9 KB (+3.8%), pullup.json 38.6 KB (+4.4%). ROM files still emitted for back-compat.
-- **Memory update:** `feedback_instance_assignment.md` — new global rule: planner + code-reviewer agents always Opus, novel-architecture sprints go Opus across the board.
-- **Deferred to backlog (not blocking merge):** semantic `top`/`bottom` phase selection for pullup picker (may need 1-line swap to `bottom` after phone review); mobile canvas perf for 22-card picker render (unmeasured; spec §8.4); `auto_detect_cycle` preset-specific pelvis fallback for `hanging_front` (wrist_y instead of hip_y); `emit_rom.py` cross-integration test for stderr warning path.
-- **Next session:** Scott phone-reviews squat + pullup on deployed GitHub Pages. If pullup picker silhouette looks wrong, 1-line fix to use `bottom` phase. Then Step 5.7 (multi-canonical enrichment) OR Scott curates remaining 20 URLs for batch run.
+- **Investigate** — codebase map (producers `normalize_loop.py`/`emit_rom.py`; consumers `loadTrajectory`, `drawHowToSkeletonFromTrajectory`, picker, `EXERCISE_SVGS`; `HOW_TO_KEYFRAMES` silent-fallback). Prior-art: no commercial app publishes schema; academic datasets ship raw pose; MediaPipe docs recommend k-NN classifier over single-template. **v1 is data, not algorithms.**
+- **Calibrate** — `docs/specs/exercise-signature-schema.md` (~400 lines). Scott resolved 6 open questions: dual `mediapipe_pipeline_*` + `mediapipe_app_*` provenance; APP version regex from `<script src>`; `data-silhouette-source` DOM attribute for Playwright; `start`/`middle`/`end` for timed exercises; `urls: [...]` list form; `extracted_at` content-hash gated.
+- **Implement** (`5287008`, `3901a4c`, `03ef8d6`). Structural hedges: `canonical_reps[]` array (v1 len=1; 5.7 grows), `phases[]` array, `joint_weights: {}` optional, `mediapipe_*` provenance. Runtime Canvas picker replaces SVGs; SVG fallback preserved.
+- **Check #1 — NEEDS FIXES.** 3 high-sev: Playwright picker spec all 4 `.skip`'d, `fingerprintsDiffer` threshold 2→1 (~50% sensitivity drop), `emit_rom.py` standalone KeyError on v1.
+- **Implement retry → Check retry — READY FOR MERGE.** 5 fixes (`4075261`, `3b339e8`, `f40de0f`, `9bf1cba`, `31beace`): un-skip tests, restore threshold + 3-sample window, nested unwrap, warn-at-min-lag, multi-raw integration test. **Test state on merge:** 107 pytest (+34), 48 Playwright (was 44 + 4 unskipped), 289 node. Squat 37.9 KB, pullup 38.6 KB.
+- **Memory:** `feedback_instance_assignment.md` — planner + code-reviewer always Opus; novel-architecture sprints all Opus.
+- **Deferred:** semantic `top`/`bottom` phase for pullup picker (obsoleted by SVG revert); mobile canvas perf for 22-card render; `auto_detect_cycle` preset-specific pelvis fallback for `hanging_front`; `emit_rom.py` stderr-warning integration test.
 
-**Post-deploy phone review + signature-picker revert (same-day)**
+**Post-deploy phone review + signature-picker revert (same-day, `6b969da`)**
 
-Scott phone-reviewed live site. Fixes applied (`6b969da`): squat regen had dropped `--mirror-x`; pullup `--start-frame 50 --end-frame 160` captured pre-rep hanging, not reps — real reps at frames 180-290 (`--preset hanging_front --start-frame 180 --end-frame 290`). Picker silhouettes from signature read as "dots + line" / missing legs at 70x62px due to low-vis landmarks (L_elbow vis=0.03, L_ankle vis=0.02); first-pass fix `3e713fc` (bottom-phase preference + `completeSkeletonForPicker` limb synthesis) still didn't produce recognizable shapes.
+Squat regen had dropped `--mirror-x`; pullup `--start-frame 50 --end-frame 160` captured pre-rep hanging, not reps (real reps frames 180-290 with `--preset hanging_front`). Picker silhouettes from signature read as "dots + line" / missing legs at 70×62 due to low-vis landmarks (L_elbow vis=0.03, L_ankle 0.02); first-pass fix `3e713fc` (bottom-phase + limb synthesis) didn't recover.
 
-**Decision: revert picker to SVG. Signature drives animation + ROM + future scoring. Picker stays on pre-authored SVGs.** Front-view crouched poses at 70x62px are fundamentally not iconic — side-view silhouettes (one leg forward, knees bent) are what the eye reads as "squat." Can't tune away with better rendering.
+**Decision: revert picker to SVG. Signature drives animation + ROM + future scoring; picker stays on pre-authored SVGs.** Front-view crouched poses at 70×62 are fundamentally not iconic — side-view silhouettes are what the eye reads. Revert deleted `renderPickerSilhouetteFromSignature`, `completeSkeletonForPicker`, `pickerSilhouetteCache`, `PICKER_CONNECTIONS`, picker Playwright spec. Playwright 48 → 44. Signature schema unchanged.
 
-- Revert deleted `renderPickerSilhouetteFromSignature`, `completeSkeletonForPicker`, `pickerSilhouetteCache`, `PICKER_CONNECTIONS` + `tests/playwright/exercises/picker-silhouette.spec.ts`. Playwright 48 → 44. Signature schema unchanged.
-- Logged `SVG picker audit` as Backlog item 4.
-
-**Lesson:** Single-source-of-truth can cost UX when source data isn't fit for the rendering target. Front-view pose landmarks are right for live form-coaching, wrong for a small iconic thumbnail. Two source shapes for two rendering targets is OK.
-
-**Memory captured:** `feedback_data_consolidation_consumer_fit.md` — per-consumer fitness check before consolidation; motion/pose data → good for motion-adjacent, poor for iconic imagery.
-
-**Compaction (prior, 2026-04-20):** coalesced 1 group, trimmed 2026-04-18 by 58 lines (~60%), pruned Current Sprint by 28 lines. Session Log: 197 → 166 lines. Total: 314 → 254 lines.
-
-**Picker audit spec (Backlog 4)**
-
-Scott identified the 5 wrong pickers: dips, inverted rows, glute bridge, hip flexor stretch, foam roller. All fall through `getSvgKey` to the wrong shared shape (dips → standing, inverted rows + glute bridge + foam roller → plank, hip flexor → quadruped kneeling). Spec'd the fix at `docs/specs/picker-svg-audit-fix.md`: bespoke single-color silhouette SVG per exercise via `imagegen` skill, angle per-exercise for iconicity (mix of side/3-4 view). Extend `getSvgKey` with exercise-id routing; update 5 configs with bespoke `drawVariant`. Live-outline code path unchanged. Execution deferred to next session — ship foam roller or dip first per ship-one-before-batch, then batch the other 4.
+**Lesson:** single-source-of-truth can cost UX when source data isn't fit for rendering target. Memory: `feedback_data_consolidation_consumer_fit.md`.
 
 ### 2026-04-19 — Playwright `animation-loading.spec.ts` shipped (Step 5.5 regression guard)
 
@@ -213,48 +187,32 @@ Multi-sprint day — paradigm decision shipped, pipeline Steps 1-4 complete, squ
 
 **Paradigm decision**
 
-21 of 22 how-to animations failed on anatomy/physics (only pull-ups acceptable). Shipped `animation-paradigm-evaluation.md` + `animation-pipeline-implementation.md`. **Scott's 5 decisions:** YouTube OK as source (coordinates, not pixels); minimalist silhouette picker via `imagegen`; 60-frame loops; self-film decided per-exercise after first pipeline run; ROM baselines as bonus output of same pass.
+21 of 22 how-to animations failed on anatomy/physics (only pull-ups acceptable). Shipped `animation-paradigm-evaluation.md` + `animation-pipeline-implementation.md`. **Scott's 5 decisions:** YouTube OK as source (coordinates, not pixels); minimalist silhouette picker via `imagegen`; 60-frame loops; self-film decided per-exercise after first pipeline run; ROM baselines as bonus output.
 
 **Pipeline Steps 1-4 shipped**
 
-- `pipeline/` scaffolded with all 22 exercise stubs; `extract_trajectory.py` smoke-tested on Pexels squat (395 frames, 100% detection, mean vis 0.809).
+- `pipeline/` scaffolded with all 22 stubs; `extract_trajectory.py` smoke-tested on Pexels squat (395 frames, 100% detection, mean vis 0.809).
 - **Spec deviation:** MediaPipe 0.10.33 on Py 3.13 removed `mp.solutions.pose` → migrated to Tasks API (`PoseLandmarker` + `pose_landmarker_heavy.task`). Pexels fronts Cloudflare so yt-dlp needs `curl-cffi` impersonation.
 - `normalize_loop.py` (pelvis-y autocorr + 60-frame resample + 3-frame MA + seam blend) and `emit_rom.py` (vis<0.6 skip) shipped. Squat: 395→60 frames, seam 0.0488→0.0000; knee ROM 38°→173.5°.
-- **Two drifts worth Scott's curation guidance:** JSON 35.7 KB vs spec's <25 KB (float32→tolist inflation); spec's [70°, 180°] squat knee range doesn't tolerate ATG clips. Curate "normal" reps, not extremes.
+- **Two drifts:** JSON 35.7 KB vs spec's <25 KB (float32→tolist); spec's [70°, 180°] squat knee range doesn't tolerate ATG. Curate normal reps.
 
 **Aesthetic preview + tuning (ship-one-before-batch)**
 
-Ship squat preview to phone BEFORE Scott curates 21 more URLs — aesthetic issues bake into the normalize pipeline, so catching them on one clip = parameter fixes, not full batch rerun. App-side wiring (`fd03e81`): `trajectoryCache` + `loadTrajectory(ex)` + split `drawHowToSkeleton` into `-FromTrajectory`/`-FromKeyframes`. 4 phone-review fixes (`0e84697`): `--mirror-x`; `PERIOD_MS_DEFAULT` 2000→3000; `anchor_feet()`; `canonicalize_to_outline()`.
-
-- **Cache bug (`12e4346`):** `fetch(url, { cache: 'force-cache' })` serves stale cached copy *without* revalidation on explicit reload. Removed option; GitHub Pages default `max-age=600` now respects busted URL params. Memory: `feedback_aesthetic_ship_one_first.md`.
+Ship squat preview to phone BEFORE Scott curates 21 more URLs — aesthetic issues bake into the normalize pipeline, so catching them on one clip = parameter fixes, not full batch rerun. App-side wiring (`fd03e81`): `trajectoryCache` + `loadTrajectory(ex)` + split `drawHowToSkeleton` into `-FromTrajectory`/`-FromKeyframes`. 4 phone-review fixes (`0e84697`): `--mirror-x`; `PERIOD_MS_DEFAULT` 2000→3000; `anchor_feet()`; `canonicalize_to_outline()`. Cache bug `12e4346` removing `cache: 'force-cache'`; memory `feedback_aesthetic_ship_one_first.md`.
 
 **Pullup sprint — first front-view/hanging test**
 
-Pullup surfaced 4 pipeline issues + 1 app-side bug. All parameter fixes; batch inherits.
+Pullup surfaced 4 pipeline issues + 1 app-side bug; all parameter fixes, batch inherits. **Presets (`0285a28`):** generalized `canonicalize_to_outline` + `anchor_feet` from squat-hardcoded ankles-to-floor into `--preset` system (`standing` + `hanging_front`); used hips (not ankles) as `hanging_front` `far_ids` since hanging clips cut off legs. **Dark-room animation freeze (`a9382f6`) — pre-existing app bug:** `drawGuide()` only ran from MediaPipe's `onResults` callback, which stalls when no pose detected. Added independent ~15fps RAF loop for idle states. **L/R label swaps (`c199170`):** MediaPipe swapped left/right labels in 27/98 pullup frames + 45/395 squat frames. `correct_lr_swaps()` Stage 1: majority sign of `L_shoulder.x - R_shoulder.x`. **X-anchor + cubic ease-in-out (`02a4192`, `0778fd1`):** `anchor_per_frame` was y-only — extended to 2D rigid translation; cubic ease-in-out on period fraction stops linear-playback bouncing at rest.
 
-- **Presets (`0285a28`):** `canonicalize_to_outline` + `anchor_feet` hardcoded ankles-to-floor; pullup needs wrists-to-bar. Generalized into `--preset` system (`standing` + `hanging_front`). Used hips (not ankles) as `hanging_front`'s `far_ids` because hanging clips cut off legs (ankle vis 0.018).
-- **Dark-room animation freeze (`a9382f6`) — pre-existing app bug:** `drawGuide()` only ran from MediaPipe's `onResults` callback, which stalls when no pose detected. Added independent ~15fps RAF loop for idle/countdown/warmup states.
-- **L/R label swaps (`c199170`):** MediaPipe swapped left/right labels in 27/98 pullup frames + 45/395 squat frames (common for front-ish arm-over-head). `correct_lr_swaps()` Stage 1: majority sign of `L_shoulder.x - R_shoulder.x`, swaps all 14 mirror pairs.
-- **X-anchor missing (`02a4192`):** `anchor_per_frame` was y-only. Fix: 2D rigid translation. **Linear playback bounces at rest (`0778fd1`):** cubic ease-in-out on period fraction — slow at loop seam, fast through rep peak.
+**Pullup animation finalized — anatomical-constraint stack on hanging_front preset**
 
-**Pullup animation finalized — anatomical-constraint stack added to hanging_front preset**
+Five-iteration phone-review cycle. Root cause (diagnosed via landmark data, first-hypothesis label swaps was wrong): MediaPipe shoulder/wrist span *collapses* when arms occlude head overhead. `enforce_lateral_width()` (`a6e3b16`/`e5d82c0`) clamps each L/R pair to its median half-span. Per-pair LR Stage 2 + finger rigid-bind (`f8585ec`) catches pair-specific label flips Stage 1 missed (7 elbow + 6 wrist + 6-8 finger); `lock_fingers_to_wrist()` replaces each finger with `wrist + median(dx, dy)`. `enforce_y_sync()` + `post_smooth_window=7` (`bcf20df`/`20c286a`): bilateral pairs share per-frame mean y; seam 0.25 → 0.15. **Live scoring impact:** pullup form-check uses bilateral averages + `Math.abs()` on swing — pipeline LR fixes are visual-only. Memory: `feedback_animation_anatomical_constraints.md`.
 
-Five-iteration phone-review cycle. Root cause (diagnosed via landmark data, not visual symptoms — first hypothesis of label swaps was wrong): MediaPipe shoulder/wrist span *collapses* when arms occlude head overhead.
+**Pipeline test harness (`cee9997`) + normalize_loop surgical bug fixes (`18a74c9`)**
 
-- **Width-lock (`a6e3b16`, `e5d82c0`):** `enforce_lateral_width()` clamps each L/R pair's x to its median half-span. **Per-pair LR Stage 2 + finger rigid-bind (`f8585ec`):** Stage 1 missed pair-specific label flips (7 elbow + 6 wrist + 6-8 finger); Stage 2 uses per-pair majority sign + threshold 0.03. `lock_fingers_to_wrist()` replaces each finger with `wrist + median(dx, dy)` for grip-on-bar exercises.
-- **Y-sync + post-lock smoothing (`bcf20df`, `20c286a`):** `enforce_y_sync()` forces bilateral pairs to share per-frame mean y; `post_smooth_window=7` cleans residual noise. Seam diff 0.25 → 0.15.
-- **Live scoring impact:** Pullup form-check uses bilateral averages + `Math.abs()` on swing check — pipeline LR fixes are visual-only; live scoring is robust by design. Memory: `feedback_animation_anatomical_constraints.md`.
+`pipeline/tests/` — `conftest.py` + 3 test files, 62 tests against normalize/rom pure functions. `extract()` not covered (needs real video fixture). Must use `pipeline/.venv` (`cd pipeline && .venv/Scripts/python -m pytest tests`). Surgical fixes per `docs/specs/normalize-loop-bug-fixes-spec.md` — 3-agent Plan→Implement→Check, +7/−1 lines: Bug 1 `enforce_lateral_width` `span_before` collapsed sign on stable L/R signs (replaced with signed-half range); Bugs 2a/2b NaN guards in `correct_lr_swaps` + `pelvis_y_signal`. 73 tests pass; warnings 6 → 5.
 
-**Pipeline test harness (`cee9997`)**
-
-- `pipeline/tests/` — `conftest.py` + 3 test files, 62 tests against normalize/rom pure functions + YAML schemas. `extract()` not covered (needs real video fixture).
-- Must use `pipeline/.venv` (cv2/mediapipe aren't on system Python): `cd pipeline && .venv/Scripts/python -m pytest tests`.
-
-**`normalize_loop.py` surgical bug fixes — 3-agent Plan→Implement→Check (merged `18a74c9`)**
-
-Spec: `docs/specs/normalize-loop-bug-fixes-spec.md`. Three one-file edits, +7/−1 lines. Bug 1: `enforce_lateral_width` `span_before` used `(max|x| − min|x|) · 2` which collapses sign when L/R sign is stable — replaced with signed-half range. Bugs 2a/2b: NaN guards in `correct_lr_swaps` + `pelvis_y_signal` kill `RuntimeWarning: All-NaN slice encountered`. 73 tests passing, warnings 6 → 5.
-
-**Next session:** (1) Scott curates remaining 20 URLs OR moves to plank (first static-hold test). (2) Validate normalize_loop fixes on batch run.
+**Next session:** Scott curates remaining 20 URLs OR moves to plank (first static-hold). Validate normalize_loop fixes on batch run.
 
 ### 2026-04-16 — architecture-map.md moved to docs/specs/ (audit fix)
 

@@ -65,7 +65,7 @@ Full reference: `docs/mediapipe-reference.md`. Landmarks are 0–1 normalized; `
 - **CDN script tags, not ES modules** — `Pose`, `Camera`, and drawing utils are global. Don't try to `import` them.
 
 ### 7. VOICE COACHING RULES
-The voice system uses layered gating — **do not bypass it**. If something "needs" to speak every frame, it's a bug. Full architecture and cue-adding guide: `docs/voice-architecture.md`.
+The voice system uses layered gating — **do not bypass it**. If something "needs" to speak every frame, it's a bug. Full architecture and cue-adding guide: `docs/specs/voice-architecture.md`.
 
 ### 8. SESSION HANDOFF
 Next session starts by reading: `CLAUDE.md` → `roadmap.md` → `index.html` → `node tests.js`. Update Lessons Learned here and check off completed items in `roadmap.md` before ending a session.
@@ -125,7 +125,7 @@ Project-specific supporting docs live in `./docs/`. At session start, check if t
 |-----|---------|
 | `roadmap.md` | 6-phase roadmap, current phase, completed items |
 | `docs/specs/architecture-map.md` | Where everything lives in index.html (section map + function table) |
-| `docs/voice-architecture.md` | Voice gating layers, cue-adding guide, cooldown values |
+| `docs/specs/voice-architecture.md` | Voice gating layers, cue-adding guide, cooldown values |
 | `docs/session-management.md` | Keeping long sessions on track, drift prevention |
 | `docs/debug-video-workflow.md` | How to capture and extract debug data from phone screen recordings |
 | `docs/decision-validation.md` | Pre/post checklist for every meaningful change |
