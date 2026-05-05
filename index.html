@@ -1994,6 +1994,8 @@ function analyzeWarmup(lm) {
   if (state.warmupPhase === 'down' && goingUp && directionElapsed >= DIRECTION_HOLD_MS) {
     // Hit bottom — validate it's a real bend (not a jitter), then record depth
     const firstPeak = state.warmupPeaks[0] || 180;
+    // Require: (1) joint angle <165° (excludes near-vertical poses that aren't real bends) AND
+    //         (2) bend depth ≥15° below peak (jitter filter; tighter than 15° misses slow movers)
     const validBend = state.warmupCurrentMin < 165 && state.warmupCurrentMin < firstPeak - 15;
     if (validBend) {
       state.warmupValleys.push(state.warmupCurrentMin);

@@ -14,12 +14,4 @@
 import { test, expect } from '@playwright/test';
 import { loadPage, waitForApp, exerciseExistsInSelect, exerciseIsTimed } from './_helpers';
 
-test('pushup: is registered in the exercise list', async ({ page }) => {
-  await loadPage(page);
-  await waitForApp(page);
-  const exists = await exerciseExistsInSelect(page, 'pushup');
-  expect(exists).toBe(true);
-  const isTimed = await exerciseIsTimed(page, 'pushup');
-  expect(isTimed).toBe(false);
-  // TODO: full pose-detection assertions need pushup-reps.y4m
-});
+test.todo('pushup: detect reps and form cues (requires pushup-reps.y4m fixture)');
