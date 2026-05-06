@@ -3,7 +3,22 @@
 <!-- Reverse-chronological. Most recent entries moved from roadmap.md during Workstream C migration (2026-05-04).
      When adding new entries, prepend them above this comment. -->
 
-## 2026-04-30 — Roadmap compaction + voice-architecture.md → docs/specs/
+## 2026-05-06 — Backlog #11 + #12 closed (vacuous-test concern + warmup-threshold rationale)
+
+**Backlog #11 closed.** `tests/playwright/exercises/pushup.spec.ts` was already rewritten with real assertions (verifies `pushup` is registered in `#exercise-select` and that registry-derived `isTimed === false`) — vacuous-passing concern resolved. Removed item from Backlog. The deeper "record Y4M and add pose-detection assertions" work is tracked by the per-exercise pushup checkbox under Sprint Step 2 — no separate roadmap item warranted (the file's own TODO comment notes it).
+
+**Backlog #12 closed.** Added inline rationale comments to two warmup calibration thresholds at `index.html:1995–1998`:
+- `< 165` — excludes near-vertical standing/extended poses that aren't real reps.
+- `< firstPeak - 15` — requires ≥15° drop from initial extension; jitter filter, tighter than this misses slow movers.
+Broader fix (hoist all per-exercise constants into config JSON, named-constants table) remains as Backlog #7.
+
+**Commits:** `fdf004d` (Backlog #11 close), `0fe639d` (Backlog #12 annotate + close). Both already merged to local `main`; the corresponding work was previously squash-merged to `origin/main` as `e55f357`. Local `main` and `origin/main` diverged by design — no force-push attempted.
+
+**Status block:** Updated date bumped to 2026-05-06; Summary prefix notes both closures.
+
+**Next session: start by** picking the next [NEXT:claude] item — the queue is now empty for FormChecker after these two closures. The pending `[NEXT:claude]` items in #6–#10 above (form-check eval-loop dedup, named-constants table, `goDeeper` factory, color constants, `baseURI` fetch fix) are all currently `[NEXT:scott]` Tier-2 items needing a spec or design call before they're claude-ready. Otherwise: Scott's queue (Step 2 phone tests, picker PNG generation, source curation) drives.
+
+
 
 **Compaction:** trimmed 4 entries (2026-04-26, 2026-04-24, 2026-04-20, 2026-04-18; all ≤40%). No coalesce (no same-day groups), no archive (8 entries, none >30 days). Session Log: 169 → 128 lines; total: 295 → 252 lines. Also moved `docs/voice-architecture.md` → `docs/specs/voice-architecture.md` (roadmap-review spec-file violation); refs updated in `CLAUDE.md` + `docs/refactor-audit-2026-04-10.md`. Archive mentions left unchanged.
 
