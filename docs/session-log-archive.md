@@ -3,6 +3,16 @@
 <!-- Reverse-chronological. Most recent entries moved from roadmap.md during Workstream C migration (2026-05-04).
      When adding new entries, prepend them above this comment. -->
 
+## 2026-05-07 — Discarded `vibrant-hopper-4a1455` worktree (superseded parallel-duplicate)
+
+Resolved the open question flagged in the 2026-05-06 entry. The `vibrant-hopper-4a1455` worktree carried 3 unmerged commits (`fdf004d`, `0fe639d`, `8dff04f`) that were a parallel-duplicate of the Backlog #11 + #12 work already shipped on `main` as `e55f357` + `cb9bae5`. **Discarded** — `git worktree remove --force` + `git branch -D`. No merge.
+
+**Why discard:** main's `e55f357` deliberately chose `test.todo()` for `tests/playwright/exercises/pushup.spec.ts` to surface incomplete pose-detection coverage. The vibrant-hopper version restored a registration-only smoke test (`exerciseExistsInSelect` + `isTimed === false`) which only catches registry removal — not actual form-analysis regressions. Reverting to that approach would have overturned the deliberate "surface the gap" design call. Roadmap and session-log entries on main already cover both backlog closures with equivalent content; warmup-threshold inline comments at `index.html:1995–1998` already shipped via `e55f357`. Merge would also have forced conflict resolution on `roadmap.md` + `docs/session-log-archive.md`.
+
+**Active worktrees post-cleanup:** `serene-hamilton-84586f` (this session). Tests: 289/289 node pass on main pre-discard.
+
+
+
 ## 2026-05-06 — Backlog #11 + #12 closed (vacuous-test concern + warmup-threshold rationale)
 
 **Backlog #11 closed.** `tests/playwright/exercises/pushup.spec.ts` was already rewritten with real assertions (verifies `pushup` is registered in `#exercise-select` and that registry-derived `isTimed === false`) — vacuous-passing concern resolved. Removed item from Backlog. The deeper "record Y4M and add pose-detection assertions" work is tracked by the per-exercise pushup checkbox under Sprint Step 2 — no separate roadmap item warranted (the file's own TODO comment notes it).
