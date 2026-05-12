@@ -84,10 +84,8 @@ Examples of assumptions that must be surfaced, not silently acted on:
 
 If an assumption turns out to be wrong mid-task: **stop, state what you got wrong, re-evaluate the plan, and ask Scott how to proceed.** Do not adapt silently and continue.
 
-### 10. PLAN CONFIRMATION BEFORE IMPLEMENTING
-After researching and before writing any code, present your plan and wait for Scott's go-ahead. Do not proceed to implementation without explicit confirmation.
-
-**Tiered posture:** For simple, reversible changes — adjusting a single threshold, fixing a bug with a clear diagnosis, updating a comment or doc string — proceed and narrate what you're doing without a formal plan presentation. Reserve the full plan-and-wait for changes that are genuinely risky or hard to reverse: modifications to the state machine, voice gating architecture, MediaPipe analysis thresholds, or anything that touches multiple interconnected systems at once.
+### 10. HARD STOPS (per Hub `Tiered posture` rule)
+Stop and present a plan before: modifications to the state machine, voice gating architecture, MediaPipe analysis thresholds, or anything that touches multiple interconnected systems at once.
 
 ### 11. MID-SESSION DRIFT CHECK
 Every 3–5 meaningful interactions, re-anchor against the original session goal. If you detect drift, **surface it explicitly** — don't silently re-orient. Full protocol: `docs/session-management.md`.
@@ -131,3 +129,10 @@ Project-specific supporting docs live in `./docs/`. At session start, check if t
 | `docs/decision-validation.md` | Pre/post checklist for every meaningful change |
 | `docs/mediapipe-reference.md` | Full MediaPipe Pose landmark reference (all 33 landmarks) |
 | `docs/lessons-learned.md` | Running log of session-level surprises and corrections |
+
+## Relevant Skills
+- `dev-philosophy` — the Three Principles above map onto Investigate → Calibrate → Implement → Validate → Iterate
+- `spec-draft` — before any new exercise/feature spec
+- `session-closure` — at the end of every session
+
+Full skill catalog: see `Available Skills` in `C:\Hub\CLAUDE.md`.
