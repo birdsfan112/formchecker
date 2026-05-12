@@ -3,6 +3,26 @@
 <!-- Reverse-chronological. Most recent entries moved from roadmap.md during Workstream C migration (2026-05-04).
      When adding new entries, prepend them above this comment. -->
 
+## 2026-05-11 — Grossness-audit Tier-1 refactor batch (Backlog #6, #8, #9, #10)
+
+Closed all four `[NEXT:claude]` items re-tagged 2026-05-08 (`bb8635c`). Worktree `brave-cori-7af978` → branch `claude/brave-cori-7af978`.
+
+**Backlog #6 — form-check eval loop consolidated.** `buildRepAnalyzer` and `buildTimedAnalyzer` both inlined the same `for (formChecks) { try { check.check(...) } catch ... first-failing-cue + cooldown gate + score deduction }` body — only differences were the args forwarded to `check.check()` / `cue.message()` and `speak` vs `speakForce`. Extracted `evaluateFormChecks(formChecks, configId, checkArgs, speakFn) → { score, feedback }` directly above the analyzer builders. RepAnalyzer call: `evaluateFormChecks(formChecks, config.id, [lm, angleNow, phase, goingDown, goingUp, phaseExtremum], speak)`. TimedAnalyzer call: `evaluateFormChecks(formChecks, config.id, [lm, null, null, false], speakForce)`. Net: both analyzer bodies dropped ~22 lines, semantics unchanged.
+
+**Backlog #8 — `goDeeper` factory.** Five exercise configs (pushup, squat, lunge, pike, dip) each declared an identical-shape `goDeeper` check object. Extracted `makeGoDeeper(exerciseId, bottomKey, opts = {})` factory next to `evaluateFormChecks`. Defaults: `tolerance = 12`, `scoreDeduction = 15`, `message = 'Go deeper'`, `cooldown = 15000`. Pushup/lunge/pike/dip collapsed to one-line `makeGoDeeper('<id>', '<bottomKey>')`; squat keeps its overrides: `makeGoDeeper('squat', 'knee_down', { scoreDeduction: 20, message: () => pastFirstSet() ? '...' : 'Go deeper' })`. Squat is the only divergent case; all others are pure default.
+
+**Backlog #9 — `COLORS` palette.** Added 10-entry `const COLORS` block right after `const state` (before `EXERCISE_REGISTRY`). Captures cross-cutting brand-semantic colors: `active` (#4ade80), `warning` (#fbbf24), `good` (#60a5fa), `bad` (#fb923c), `muted` (#8899aa), `light` (#eee), `exerciseDefault` (#888), plus skeleton/start-glow rgba. Replaced 11 hardcoded literals across canvas chart draws, skeleton overlay, landmark fills, rep-score flash, start-button glow, and inline HTML template strings (3 empty-state `<p>` blocks + the localhost setup link). `EXERCISE_COLORS` (categorical chart palette) intentionally left as a sibling map since it's per-exercise data, not theme. CSS rules in `<style>` left alone — CSS custom properties are their own source of truth.
+
+**Backlog #10 — `assetURL()` for subpath-safe fetches.** One bare `fetch('assets/animations/${ex}.json')` at `loadTrajectory()` — would 404 silently if the app ever moves from `/` to `/FormChecker/`. Added 3-line `assetURL(path) => new URL(path, document.baseURI).href` helper immediately before `loadTrajectory`, wrapped the call site. Helper is reusable for any future asset fetches; the test asserts no bare `fetch('assets/` paths remain.
+
+**Tests.** Added a `STATIC-ANALYSIS GUARDS` block at the bottom of `tests.js` (just before the runner): one assertion per backlog item, all reading `index.html` from disk. Slices the script region between `<script>` ... `</script>`, drops `//`-comment-only lines (so explanatory comments don't trip the matchers), and brace-walks `const COLORS = { ... }` + `const EXERCISE_COLORS = { ... }` strip-out for #9. Verified each guard fails on a simulated regression (injected `check.check(`, inline `id: 'goDeeper'`, bare hex, bare `fetch('assets/`) — all four caught it. 289 → 293 node tests, all passing.
+
+**Files changed.** `index.html`, `tests.js`, `roadmap.md`.
+
+**Next session: start by** picking the next ready item. With #6/#8/#9/#10 closed, the open `[NEXT:claude]` queue for FormChecker is empty. Remaining grossness-audit items: #2 (form-cue audit) is closed; #7 (316 hardcoded thresholds → named-constants table) is `[NEXT:scott]` pending a design call (config-JSON hoist vs. top-of-script constants table). Otherwise the Scott-driven queue (Step 2 phone tests, picker PNG generation, source curation) drives. Tier-2 items have a low conversion bar now that the helper-section pattern (`evaluateFormChecks`, `makeGoDeeper`, `assetURL`) is established.
+
+---
+
 ## 2026-05-07 — Discarded `vibrant-hopper-4a1455` worktree (superseded parallel-duplicate)
 
 Resolved the open question flagged in the 2026-05-06 entry. The `vibrant-hopper-4a1455` worktree carried 3 unmerged commits (`fdf004d`, `0fe639d`, `8dff04f`) that were a parallel-duplicate of the Backlog #11 + #12 work already shipped on `main` as `e55f357` + `cb9bae5`. **Discarded** — `git worktree remove --force` + `git branch -D`. No merge.

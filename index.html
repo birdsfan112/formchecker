@@ -413,6 +413,25 @@ const state = {
   activeTemplate: null,        // null | { name, exercises: string[], currentIdx: number }
 };
 
+// ===== COLORS =====
+// Single source of truth for cross-cutting palette colors referenced from JS
+// canvas, skeleton-overlay, and inline HTML/style strings. CSS rules in <style>
+// still own their own values (CSS custom properties are a separate source of
+// truth). EXERCISE_COLORS (categorical per-exercise chart colors) lives separately
+// since those are data, not theme.
+const COLORS = {
+  active:          '#4ade80', // green — primary active state
+  warning:         '#fbbf24', // amber — warning, mid-score, low-vis landmark
+  good:            '#60a5fa', // blue — good form / high score (colorblind-safe)
+  bad:             '#fb923c', // orange — bad form / low score (colorblind-safe)
+  muted:           '#8899aa', // slate — secondary text in canvas + inline HTML
+  light:           '#eee',    // light text in canvas
+  exerciseDefault: '#888',    // fallback for unknown exercise in chart
+  skeletonActive:  'rgba(74, 222, 128, 0.7)',     // skeleton lines while active
+  skeletonIdle:    'rgba(74, 222, 128, 0.35)',    // skeleton lines while idle/paused
+  startGlow:       '0 0 12px rgba(74, 222, 128, 0.6)', // ready/start button glow
+};
+
 // ===== EXERCISE REGISTRY =====
 // Backing store populated at script init by addExercise(config). All 22
 // exercises are declared as config objects in the "FRAMEWORK-BASED EXERCISE
@@ -509,6 +528,52 @@ function validateExerciseConfig(config) {
   }
 }
 
+// Factory for the "Go deeper" shallow-rep cue shared across pushup, squat, lunge,
+// pike, and dip. Fires in the 'down' phase post-bottom (goingUp=true) when the
+// rep's deepest point stayed within `tolerance` degrees of the depth threshold.
+// `bottomKey` names the calibration entry (e.g. 'elbow_down', 'knee_down').
+function makeGoDeeper(exerciseId, bottomKey, opts) {
+  opts = opts || {};
+  const tolerance = opts.tolerance !== undefined ? opts.tolerance : 12;
+  const scoreDeduction = opts.scoreDeduction !== undefined ? opts.scoreDeduction : 15;
+  const message = opts.message !== undefined ? opts.message : 'Go deeper';
+  return {
+    id: 'goDeeper',
+    check(lm, angleNow, phase, goingDown, goingUp, phaseExtremum) {
+      return phase === 'down' && goingUp && phaseExtremum > (calibration[exerciseId][bottomKey] - tolerance);
+    },
+    scoreDeduction,
+    cue: { message, cooldown: 15000 },
+  };
+}
+
+// Shared form-check evaluator. Used by both rep and timed analyzers — keeps the
+// score/feedback/voice-cooldown semantics in one place. `checkArgs` is forwarded
+// to both `check.check(...)` and the cue-message function (if dynamic).
+// `speakFn` is `speak` (rep) or `speakForce` (timed-hold).
+function evaluateFormChecks(formChecks, configId, checkArgs, speakFn) {
+  let score = 100;
+  let feedback = null;
+  for (const check of formChecks || []) {
+    let failed = false;
+    try { failed = check.check(...checkArgs); }
+    catch (e) { failed = false; }
+    if (failed) {
+      score -= check.scoreDeduction;
+      if (!feedback && check.cue && check.cue.message) {
+        feedback = (typeof check.cue.message === 'function')
+          ? check.cue.message(...checkArgs)
+          : check.cue.message;
+        const cueKey = check.cue.key || `${configId}-form`;
+        if (check.cue.cooldown && cueShouldFire(cueKey, check.cue.cooldown)) {
+          speakFn(feedback);
+        }
+      }
+    }
+  }
+  return { score, feedback };
+}
+
 // Build a rep-counting analyzer with closure-scoped state. Returns { analyze, reset }.
 // Behavior is intentionally a one-to-one port of the hand-written analyze() pattern
 // used by every existing exercise — see docs/specs/exercise-framework-spec.md §3.
@@ -578,28 +643,14 @@ function buildRepAnalyzer(config) {
     }
 
     // Form checks — first failing check wins feedback + voice cue, all failing checks deduct score.
-    // cue.message may be a string OR a function (for dynamic messages like pastFirstSet()).
     // Signature: check(lm, angleNow, phase, goingDown, goingUp, phaseExtremum). Extra args
     // added 2026-04-26 to fix unreachable goDeeper cues that needed the "down"-phase valley.
-    let score = 100;
-    let feedback = null;
-    for (const check of formChecks || []) {
-      let failed = false;
-      try { failed = check.check(lm, angleNow, phase, goingDown, goingUp, phaseExtremum); }
-      catch (e) { failed = false; }
-      if (failed) {
-        score -= check.scoreDeduction;
-        if (!feedback && check.cue && check.cue.message) {
-          feedback = (typeof check.cue.message === 'function')
-            ? check.cue.message(lm, angleNow, phase, goingDown, goingUp, phaseExtremum)
-            : check.cue.message;
-          const cueKey = check.cue.key || `${config.id}-form`;
-          if (check.cue.cooldown && cueShouldFire(cueKey, check.cue.cooldown)) {
-            speak(feedback);
-          }
-        }
-      }
-    }
+    const { score, feedback } = evaluateFormChecks(
+      formChecks,
+      config.id,
+      [lm, angleNow, phase, goingDown, goingUp, phaseExtremum],
+      speak
+    );
     if (!feedback) {
       showFeedback(goodFormMessage || 'Good form', 'good');
     } else {
@@ -627,25 +678,12 @@ function buildTimedAnalyzer(config) {
     if (!plankStart) plankStart = Date.now();
     const secs = Math.floor((Date.now() - plankStart) / 1000);
 
-    let score = 100;
-    let feedback = null;
-    for (const check of formChecks || []) {
-      let failed = false;
-      try { failed = check.check(lm, null, null, false); }
-      catch (e) { failed = false; }
-      if (failed) {
-        score -= check.scoreDeduction;
-        if (!feedback && check.cue && check.cue.message) {
-          feedback = (typeof check.cue.message === 'function')
-            ? check.cue.message(lm, null, null, false)
-            : check.cue.message;
-          const cueKey = check.cue.key || `${config.id}-form`;
-          if (check.cue.cooldown && cueShouldFire(cueKey, check.cue.cooldown)) {
-            speakForce(feedback);
-          }
-        }
-      }
-    }
+    const { score, feedback } = evaluateFormChecks(
+      formChecks,
+      config.id,
+      [lm, null, null, false],
+      speakForce
+    );
 
     repCounter.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
     if (!feedback) {
@@ -876,19 +914,7 @@ const pushupConfig = {
           cooldown: 15000,
         },
       },
-      {
-        id: 'goDeeper',
-        // Fires in 'down' phase while user is rising (post-bottom) AND the deepest
-        // point reached this rep stayed within 12° of the depth threshold — i.e.,
-        // a shallow rep. phaseExtremum tracks the valley (lowest angle) in 'down'
-        // phase. Fixed 2026-04-26 — original `goingDown && angleNow > bottom + 12`
-        // was structurally unreachable (goingDown is only set in 'up' phase).
-        check(lm, angleNow, phase, goingDown, goingUp, phaseExtremum) {
-          return phase === 'down' && goingUp && phaseExtremum > (calibration.pushup.elbow_down - 12);
-        },
-        scoreDeduction: 15,
-        cue: { message: 'Go deeper', cooldown: 15000 },
-      },
+      makeGoDeeper('pushup', 'elbow_down'),
     ],
   },
 };
@@ -932,19 +958,10 @@ const squatConfig = {
 
     // Form checks in priority order — preserves old single-cue behavior exactly.
     formChecks: [
-      {
-        id: 'goDeeper',
-        // Fires in 'down' phase post-bottom (goingUp=true) when the rep's deepest
-        // point stayed within 12° of the depth threshold. Fixed 2026-04-26.
-        check(lm, angleNow, phase, goingDown, goingUp, phaseExtremum) {
-          return phase === 'down' && goingUp && phaseExtremum > (calibration.squat.knee_down - 12);
-        },
+      makeGoDeeper('squat', 'knee_down', {
         scoreDeduction: 20,
-        cue: {
-          message: () => pastFirstSet() ? 'Try deeper — hold a support for balance' : 'Go deeper',
-          cooldown: 15000,
-        },
-      },
+        message: () => pastFirstSet() ? 'Try deeper — hold a support for balance' : 'Go deeper',
+      }),
       {
         id: 'kneeCave',
         // Front-view only: when shoulders are wide (facing camera) and knees narrower than ankles.
@@ -1020,16 +1037,7 @@ const lungeConfig = {
     calibrationDefaults: { knee_down: 110, knee_up: 155 },
 
     formChecks: [
-      {
-        id: 'goDeeper',
-        // Fires in 'down' phase post-bottom (goingUp=true) when the rep's deepest
-        // point stayed within 12° of the depth threshold. Fixed 2026-04-26.
-        check(lm, angleNow, phase, goingDown, goingUp, phaseExtremum) {
-          return phase === 'down' && goingUp && phaseExtremum > (calibration.lunge.knee_down - 12);
-        },
-        scoreDeduction: 15,
-        cue: { message: 'Go deeper', cooldown: 15000 },
-      },
+      makeGoDeeper('lunge', 'knee_down'),
       {
         id: 'torsoLean',
         // Old code used left-side torso angle (lm[11], lm[23], lm[25]) — preserved verbatim.
@@ -1200,16 +1208,7 @@ const pikeConfig = {
         scoreDeduction: 25,
         cue: { message: 'Keep hips high', cooldown: 15000 },
       },
-      {
-        id: 'goDeeper',
-        // Fires in 'down' phase post-bottom (goingUp=true) when the rep's deepest
-        // point stayed within 12° of the depth threshold. Fixed 2026-04-26.
-        check(lm, angleNow, phase, goingDown, goingUp, phaseExtremum) {
-          return phase === 'down' && goingUp && phaseExtremum > (calibration.pike.elbow_down - 12);
-        },
-        scoreDeduction: 15,
-        cue: { message: 'Go deeper', cooldown: 15000 },
-      },
+      makeGoDeeper('pike', 'elbow_down'),
     ],
   },
 };
@@ -1246,16 +1245,7 @@ const dipConfig = {
     calibrationDefaults: { elbow_down: 90, elbow_up: 150 },
 
     formChecks: [
-      {
-        id: 'goDeeper',
-        // Fires in 'down' phase post-bottom (goingUp=true) when the rep's deepest
-        // point stayed within 12° of the depth threshold. Fixed 2026-04-26.
-        check(lm, angleNow, phase, goingDown, goingUp, phaseExtremum) {
-          return phase === 'down' && goingUp && phaseExtremum > (calibration.dip.elbow_down - 12);
-        },
-        scoreDeduction: 15,
-        cue: { message: 'Go deeper', cooldown: 15000 },
-      },
+      makeGoDeeper('dip', 'elbow_down'),
       {
         id: 'elbowFlare',
         // Front-view only: elbows wider than shoulders while bent.
@@ -2240,7 +2230,7 @@ function drawProgressChart(canvas, history) {
 
   const sessions = history.slice(-7);
   if (sessions.length === 0) {
-    ctx.fillStyle = '#8899aa';
+    ctx.fillStyle = COLORS.muted;
     ctx.font = '14px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('No history yet — finish some sets!', w / 2, h / 2);
@@ -2266,20 +2256,20 @@ function drawProgressChart(canvas, history) {
     for (const [exercise, reps] of Object.entries(repsByEx)) {
       const sliceH = Math.round((reps / maxTotal) * chartH);
       stackY -= sliceH;
-      ctx.fillStyle = EXERCISE_COLORS[exercise] || '#888';
+      ctx.fillStyle = EXERCISE_COLORS[exercise] || COLORS.exerciseDefault;
       ctx.fillRect(x, stackY, barW, sliceH);
     }
 
     // Total reps label above bar
     if (totals[i] > 0) {
-      ctx.fillStyle = '#eee';
+      ctx.fillStyle = COLORS.light;
       ctx.font = `bold ${Math.max(10, Math.min(13, barW - 4))}px sans-serif`;
       ctx.textAlign = 'center';
       ctx.fillText(totals[i], x + barW / 2, stackY - 3);
     }
 
     // Date label below bar
-    ctx.fillStyle = '#8899aa';
+    ctx.fillStyle = COLORS.muted;
     ctx.font = '10px sans-serif';
     ctx.textAlign = 'center';
     const parts = session.date.split(' '); // e.g. "Apr 3, 2026" → ["Apr", "3,", "2026"]
@@ -2293,7 +2283,7 @@ function renderChartLegend(history) {
   const seen = new Set();
   for (const s of history) for (const set of s.sets) seen.add(set.exercise);
   legend.innerHTML = [...seen].map(ex => {
-    const color = EXERCISE_COLORS[ex] || '#888';
+    const color = EXERCISE_COLORS[ex] || COLORS.exerciseDefault;
     return `<div class="legend-item"><div class="legend-dot" style="background:${color}"></div>${escapeHtml(ex)}</div>`;
   }).join('');
 }
@@ -2371,7 +2361,7 @@ function renderLogModal() {
   // TODAY tab
   const logEntries = document.getElementById('log-entries');
   logEntries.innerHTML = todaySets.length === 0
-    ? '<p style="color:#8899aa;">No sets logged yet today. Finish a set to log it.</p>'
+    ? `<p style="color:${COLORS.muted};">No sets logged yet today. Finish a set to log it.</p>`
     : todaySets.map(e => `
         <div class="log-entry">
           <div>
@@ -2385,7 +2375,7 @@ function renderLogModal() {
   const histEl = document.getElementById('history-entries');
   const past   = history.filter(s => s.date !== TODAY_DATE).reverse(); // newest first
   if (past.length === 0) {
-    histEl.innerHTML = '<p style="color:#8899aa;">No previous sessions yet.</p>';
+    histEl.innerHTML = `<p style="color:${COLORS.muted};">No previous sessions yet.</p>`;
   } else {
     histEl.innerHTML = past.map(session => `
       <div class="session-group">
@@ -2420,7 +2410,7 @@ function renderTemplateModal() {
   }
 
   if (templates.length === 0) {
-    listEl.innerHTML = '<p style="color:#8899aa;">No saved templates yet — complete a workout and save it below.</p>';
+    listEl.innerHTML = `<p style="color:${COLORS.muted};">No saved templates yet — complete a workout and save it below.</p>`;
   } else {
     listEl.innerHTML = templates.map((t, idx) => `
       <div class="template-entry">
@@ -2975,13 +2965,20 @@ function getActiveRep(sig) {
   return null;
 }
 
+// Resolve an asset path against document.baseURI so the app works on both
+// `https://site.com/` and `https://site.com/FormChecker/` deploys. A bare
+// `fetch('assets/...')` resolves against `pathname`, which 404s on subpaths.
+function assetURL(path) {
+  return new URL(path, document.baseURI).href;
+}
+
 // Trajectory cache for the canonical-JSON animation path (Step 5.5).
 // Key states: undefined = not yet attempted, null = loading or missing, object = loaded.
 const trajectoryCache = {};
 function loadTrajectory(ex) {
   if (ex in trajectoryCache) return;
   trajectoryCache[ex] = null; // mark in-flight so we don't refetch
-  fetch(`assets/animations/${ex}.json`)
+  fetch(assetURL(`assets/animations/${ex}.json`))
     .then(r => (r.ok ? r.json() : null))
     .then(data => { trajectoryCache[ex] = validateSignature(data); })
     .catch(() => { trajectoryCache[ex] = null; });
@@ -3965,7 +3962,7 @@ exerciseSelect.addEventListener('change', () => {
   // Brief highlight on the Ready button to draw attention
   btnStart.style.transition = 'transform 0.3s ease, box-shadow 0.3s ease';
   btnStart.style.transform = 'scale(1.15)';
-  btnStart.style.boxShadow = '0 0 12px rgba(74, 222, 128, 0.6)';
+  btnStart.style.boxShadow = COLORS.startGlow;
   setTimeout(() => {
     btnStart.style.transform = '';
     btnStart.style.boxShadow = '';
@@ -4274,7 +4271,7 @@ pose.onResults((results) => {
     [27,29],[28,30],[29,31],[30,32]
   ];
 
-  ctx.strokeStyle = state.workoutState === 'active' ? 'rgba(74, 222, 128, 0.7)' : 'rgba(74, 222, 128, 0.35)';
+  ctx.strokeStyle = state.workoutState === 'active' ? COLORS.skeletonActive : COLORS.skeletonIdle;
   ctx.lineWidth = 0.004;
   connections.forEach(([a, b]) => {
     ctx.beginPath();
@@ -4287,7 +4284,7 @@ pose.onResults((results) => {
     if (i > 10) {
       ctx.beginPath();
       ctx.arc(point.x, point.y, 0.006, 0, 2 * Math.PI);
-      ctx.fillStyle = point.visibility > 0.5 ? '#4ade80' : '#fbbf24';
+      ctx.fillStyle = point.visibility > 0.5 ? COLORS.active : COLORS.warning;
       ctx.globalAlpha = state.workoutState === 'active' ? 1 : 0.4;
       ctx.fill();
       ctx.globalAlpha = 1;
@@ -4453,7 +4450,7 @@ pose.onResults((results) => {
         state.currentRepScores = [];
 
         // Flash per-rep score in stats bar (colorblind-safe: blue/yellow/orange)
-        const repColor = repScore >= 80 ? '#60a5fa' : repScore >= 60 ? '#fbbf24' : '#fb923c';
+        const repColor = repScore >= 80 ? COLORS.good : repScore >= 60 ? COLORS.warning : COLORS.bad;
         formScoreEl.textContent = `${repScore}%`;
         formScoreEl.style.color = repColor;
         setTimeout(() => {
@@ -4752,7 +4749,7 @@ async function startCamera() {
       <p style="font-family:monospace;background:#0f3460;padding:10px;border-radius:6px;margin-top:6px;line-height:1.6;">
         1. Double-click <strong>start.bat</strong> in the FormChecker folder<br>
         2. Choose option 1 (HTTP)<br>
-        3. Open <a href="http://localhost:8080" style="color:#4ade80;">http://localhost:8080</a> in Chrome
+        3. Open <a href="http://localhost:8080" style="color:${COLORS.active};">http://localhost:8080</a> in Chrome
       </p>`;
     return;
   }
