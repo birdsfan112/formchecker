@@ -4396,6 +4396,91 @@ test('bandpullapart framework: armsDropped does not fire when wrists at shoulder
   assertEquals(r.score, 100, 'Good form should score 100');
 });
 
+// ===== STATIC-ANALYSIS GUARDS =====
+// These tests read index.html from disk and assert structural invariants
+// established by the 2026-05-11 grossness-audit refactor (backlog #6, #8, #9, #10).
+// If any of these fail, a duplicated pattern has reappeared — fix at the source.
+const fs   = require('fs');
+const path = require('path');
+
+const INDEX_PATH = path.join(__dirname, 'index.html');
+const INDEX_SRC  = fs.readFileSync(INDEX_PATH, 'utf8');
+
+// Slice the JS region only (between <script> and </script>) so HTML/CSS color
+// rules and SVG markup aren't false positives. Drop line-comment-only lines so
+// comments documenting the old pattern don't trip dedup guards.
+function jsRegion(src) {
+  const start = src.indexOf('<script>');
+  const end   = src.lastIndexOf('</script>');
+  if (start < 0 || end < 0) throw new Error('Could not locate <script> region in index.html');
+  return src.slice(start, end)
+    .split('\n')
+    .filter(line => !/^\s*\/\//.test(line))
+    .join('\n');
+}
+
+// Strip a balanced const-object block like `const NAME = { ... };` starting at
+// the first occurrence. Brace-counting handles nested objects.
+function stripConstBlock(js, varName) {
+  const decl = `const ${varName} = {`;
+  const i = js.indexOf(decl);
+  if (i < 0) return js;
+  let depth = 0;
+  for (let j = i + decl.length - 1; j < js.length; j++) {
+    if (js[j] === '{') depth++;
+    else if (js[j] === '}') {
+      depth--;
+      if (depth === 0) {
+        // include trailing semicolon if present
+        let end = j + 1;
+        while (end < js.length && /[\s;]/.test(js[end])) end++;
+        return js.slice(0, i) + js.slice(end);
+      }
+    }
+  }
+  return js;
+}
+
+test('backlog #6: form-check eval loop appears exactly once (in evaluateFormChecks helper)', () => {
+  const js = jsRegion(INDEX_SRC);
+  // The duplicated pattern was `check.check(` — calling the form-check predicate.
+  // After refactor it should appear once inside evaluateFormChecks.
+  const matches = js.match(/check\.check\(/g) || [];
+  assertEquals(matches.length, 1,
+    `Expected exactly one call to check.check( — duplication has reappeared (${matches.length} matches). Restore the evaluateFormChecks helper.`);
+});
+
+test('backlog #8: id: \'goDeeper\' appears exactly once (in makeGoDeeper factory)', () => {
+  const js = jsRegion(INDEX_SRC);
+  const matches = js.match(/id:\s*['"]goDeeper['"]/g) || [];
+  assertEquals(matches.length, 1,
+    `Expected exactly one inline 'goDeeper' id literal — inline duplication has reappeared (${matches.length} matches). Use makeGoDeeper().`);
+});
+
+test('backlog #9: COLORS palette literals do not appear outside COLORS/EXERCISE_COLORS', () => {
+  let js = jsRegion(INDEX_SRC);
+  js = stripConstBlock(js, 'COLORS');
+  js = stripConstBlock(js, 'EXERCISE_COLORS');
+  // Palette values that should only appear in those two centralized blocks.
+  const palette = [
+    `'#4ade80'`, `'#fbbf24'`, `'#60a5fa'`, `'#fb923c'`,
+    `'#8899aa'`, `'#eee'`, `'#888'`,
+    `'rgba(74, 222, 128, 0.7)'`,
+    `'rgba(74, 222, 128, 0.35)'`,
+  ];
+  for (const literal of palette) {
+    assert(!js.includes(literal),
+      `Bare palette literal ${literal} found outside the COLORS / EXERCISE_COLORS definitions — add a COLORS.<key> entry and use it.`);
+  }
+});
+
+test('backlog #10: no bare relative-path fetch(\'assets/...\') calls remain', () => {
+  const js = jsRegion(INDEX_SRC);
+  const bare = js.match(/fetch\(\s*['"`]assets\//g) || [];
+  assertEquals(bare.length, 0,
+    `Bare fetch('assets/...') call found (${bare.length}). Wrap with assetURL() so subpath deploys (e.g. /FormChecker/) resolve correctly.`);
+});
+
 // ===== RUN TESTS =====
 console.log('\n=== FormCheck Fitness App - Test Suite ===\n');
 
