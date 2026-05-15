@@ -90,6 +90,7 @@
 12. ~~**Warmup calibration thresholds `< 165` and `firstPeak - 15` lack rationale**~~ — **CLOSED 2026-05-06.** Pipeline closure (`e55f357`) added inline rationale at `index.html:1995–1998`: `< 165` (excludes near-vertical poses) AND `< firstPeak - 15` (≥15° drop; jitter filter, tighter would miss slow movers). Broader fix (hoist all per-exercise constants into config JSON, named-constants table) remains as #7.
 
 *Source: cross-project grossness audit run 2026-04-26 (see also Smart TV Calendar Backlog 15–18, ProBonofy Backlog 12–16, LegalGuard Backlog 3–7, and Claude System Backlog 28–29). Audit lens captured as `~/.claude/skills/gross-code-auditor/SKILL.md`.*
+**[DEPS][DEPS:yt-dlp] yt-dlp@2024.11.18 → 2026.3.17** — 2 majors behind. Last checked 2026-05-15. Review release notes before upgrading; deferred majors are not security fixes (see CVE log for those).
 
 ## Decisions
 
