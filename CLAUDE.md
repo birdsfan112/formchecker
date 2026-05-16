@@ -1,5 +1,4 @@
 # CLAUDE.md — FormCheck (AI Fitness Form Coach)
-This file provides persistent instructions for Claude when working on this project. **Read this FIRST before doing any work.**
 
 ## User
 Scott wants better solutions surfaced proactively — not workarounds that need to be undone later.
