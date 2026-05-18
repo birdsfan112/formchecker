@@ -3,6 +3,25 @@
 <!-- Reverse-chronological. Most recent entries moved from roadmap.md during Workstream C migration (2026-05-04).
      When adding new entries, prepend them above this comment. -->
 
+## 2026-05-18 — yt-dlp floor tightened to >=2026.02.21 (GHSA-g3gw-q23r-pgqm)
+
+**Trigger:** CVE monitor (automated, 2026-05-18) flagged advisory GHSA-g3gw-q23r-pgqm against `yt-dlp@2024.11.18`.
+
+**Advisory:** CVE-2026-26331 (CVSS 8.8 High) — yt-dlp command injection via `--netrc-cmd` option with crafted hostnames. Fixed in 2026.02.21.
+
+**FormChecker is not exploitable.** Opus Explore agent confirmed yt-dlp is invoked only via `subprocess.run` in `pipeline/extract_trajectory.py` with a fixed argument list — no `--netrc-cmd`, no netrc references anywhere.
+
+**Work completed (`70a75d9`):**
+- `pipeline/requirements.txt`: `yt-dlp[curl-cffi]>=2024.11.18` → `yt-dlp[curl-cffi]>=2026.02.21`
+- Installed version already at `2026.03.17` (past the fix); floor tightening is a fresh-install safety net
+- `[DEPS:yt-dlp]` backlog entry removed from roadmap (resolved)
+
+**Skill deviations:** None.
+
+**Recorded Misses:** none
+
+---
+
 ## 2026-05-11 — Grossness-audit Tier-1 refactor batch (Backlog #6, #8, #9, #10)
 
 Closed all four `[NEXT:claude]` items re-tagged 2026-05-08 (`bb8635c`). Worktree `brave-cori-7af978` → branch `claude/brave-cori-7af978`.
