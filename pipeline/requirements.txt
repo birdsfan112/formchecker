@@ -2,5 +2,5 @@ mediapipe==0.10.33
 opencv-python>=4.10
 numpy<3
 # curl-cffi extra bypasses Cloudflare (required for Pexels + similar CDNs).
-yt-dlp[curl-cffi]>=2024.11.18
+yt-dlp[curl-cffi]>=2026.02.21
 PyYAML>=6.0
