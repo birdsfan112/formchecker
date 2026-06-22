@@ -1,5 +1,18 @@
 # FormChecker Session Log Archive
 
+### 2026-06-22 — Project parked
+
+**What changed**
+
+- Scott decided to park FormChecker. Priority → `parked`, Phase → `—`, Updated → 2026-06-22.
+- No in-flight changes. Open sprint items (Step 2 phone test, clip URL curation, 22 picker PNGs, Backlog #7 named-constants design call) remain in roadmap for when the project unparks.
+
+**Next session:** Unpark, read roadmap, pick back up at Step 2 phone testing or clip URL curation.
+
+**Recorded Misses:** none
+
+---
+
 <!-- Reverse-chronological. Most recent entries moved from roadmap.md during Workstream C migration (2026-05-04).
      When adding new entries, prepend them above this comment. -->
 
